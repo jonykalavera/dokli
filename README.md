@@ -8,7 +8,7 @@ A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokp
 pip install git+https://github.com/jonykalavera/dokli.git
 ```
 
-Tested with Dokply versions:
+Tested with Dokploy versions:
 
 - 0.6.1
 
