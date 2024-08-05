@@ -148,6 +148,6 @@ The CLI is designed to keep up with any changes in the API because the client is
 I did this because I want to do some test automation and the official CLI seems incomplete.
 Also, it seemed to me like something cool to do this weekend. I learned a bunch about [texual](https://textual.textualize.io/), [type](https://github.com/tiangolo/typer) and [Dokploy](https://github.com/Dokploy/dokploy).
 
-## Buy me a taco
+## Buy me a 🌮
 
-I'm Mexican, I prefer tacos. But coffee is also nice. You can use the sponsor button on the top. Also pretty please and thanks in advance 🥺.
+I'm Mexican, I prefer tacos. But ☕ is also nice. You can use the 🫶 sponsor button on the top. Also pretty please and thanks in advance 🥺.
