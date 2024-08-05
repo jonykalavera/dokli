@@ -1,8 +1,8 @@
 """Projects screen."""
 
+import json
 from typing import TYPE_CHECKING
 
-import httpx
 from textual import events
 from textual.binding import Binding
 from textual.screen import Screen
@@ -15,7 +15,9 @@ from textual.widgets import (
     LoadingIndicator,
 )
 
+from dokli.commands import ApiEntity, ApiException, ApiResponse, ApiVerb, run_command
 from dokli.config import ConnectionConfig
+from dokli.formatting import Format, format_data, format_response
 from dokli.models.project import Project
 from dokli.tui.screens.project import ProjectDetailScreen
 from dokli.tui.widgets.list_item import AddItem
@@ -60,7 +62,7 @@ class ProjectListItem(ListItem):
         """Compose the widget."""
         yield Label(self.ICON, id="icon")
         yield Label(self.project.name, id="name", classes="title")
-        yield Label(self.project.description, id="description")
+        yield Label(self.project.description or "", id="description")
         yield Label(self._get_markers(), id="markers")
         yield Label("Created " + self.project.time_since_created, id="time_since_created")
 
@@ -93,26 +95,35 @@ class ProjectsScreen(Screen):
 
     async def _update_projects(self, connection: ConnectionConfig) -> None:
         """Update the weather for the given city."""
-        list_view = self.query_one(ListView)
         loading = self.query_one(LoadingIndicator)
         loading.classes = ""
 
         # Query the network API
-        url = f"{str(connection.url).strip('/')}/api/project.all"
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url, headers={"Authorization": f"Bearer {connection.api_key.get_secret_value()}"}
-            )
-            response.raise_for_status()
-            await list_view.clear()
-            list_view.extend(
-                [
-                    *(ProjectListItem(Project.model_validate(item)) for item in response.json()),
-                    AddItem(id="__add__", item_name="project"),
-                ]
-            )
-            loading.classes = "hidden"
-            list_view.focus()
+        response = run_command(self.app.connection, entity=ApiEntity.project, verb=ApiVerb.all)
+        match response:
+            case ApiResponse():
+                await self._load_response(response)
+            case ApiException():
+                self.notify(
+                    "API error: {response.reason}!\n" + str(format_data(json.loads(response.body or ""), Format.yaml)),
+                    severity="error",
+                    timeout=10,
+                )
+                loading.classes = "hidden"
+
+    async def _load_response(self, response: ApiResponse) -> None:
+        list_view = self.query_one(ListView)
+        loading = self.query_one(LoadingIndicator)
+        data = format_response(response, format=Format.python)
+        await list_view.clear()
+        list_view.extend(
+            [
+                *(ProjectListItem(Project.model_validate(item)) for item in data),
+                AddItem(id="__add__", item_name="project"),
+            ]
+        )
+        loading.classes = "hidden"
+        list_view.focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """On list view selected."""

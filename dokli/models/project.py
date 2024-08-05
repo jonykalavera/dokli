@@ -12,7 +12,7 @@ class Project(BaseModel):
 
     projectId: str
     name: str
-    description: str
+    description: str | None
     createdAt: datetime
     adminId: str
     applications: list[dict[str, Any]]
