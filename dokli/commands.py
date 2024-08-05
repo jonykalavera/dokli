@@ -48,10 +48,10 @@ def run_command(
     connection: ConnectionConfig, entity: ApiEntity, verb: ApiVerb, params: list[str] | None = None
 ) -> ApiException | ApiResponse | ValidationError:
     """Run a dokploy API command using Dokli connection."""
-    configuration = openapi_client.Configuration(host=f"{connection.url}/api")
-
-    # Configure Bearer authorization: Authorization
-    configuration = openapi_client.Configuration(access_token=connection.api_key.get_secret_value())
+    configuration = openapi_client.Configuration(
+        host=f"{connection.url}/api",
+        access_token=connection.api_key.get_secret_value(),
+    )
 
     # Enter a context with an instance of the API client
     with openapi_client.ApiClient(configuration) as api_client:

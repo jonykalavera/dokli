@@ -28,6 +28,7 @@ class DokliApp(App):
     ]
 
     config: Config
+    connection: ConnectionConfig
 
     def __init__(self, config: Config | None = None, **kwargs) -> None:
         """Construct a new TUI app."""

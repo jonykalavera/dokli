@@ -1,6 +1,5 @@
 """Dokli CLI."""
 
-import json
 from typing import Annotated, Optional
 
 import typer
@@ -17,8 +16,8 @@ from dokli.tui import app as tui
 app = typer.Typer()
 
 
-@app.command()
-def api(
+@app.command(name="api")
+def api_command(
     connection_name: str,
     entity: ApiEntity,
     verb: ApiVerb,
@@ -36,11 +35,7 @@ def api(
         case ApiResponse():
             rprint(format_response(response, format=format))
         case ApiException():
-            if response.data:
-                rprint(response.data)
-            elif response.body:
-                data = json.loads(response.body)
-                rprint(f"[red]{format_data(data, format)}[/red]")
+            rprint(f"[red]{response}[/red]")
             raise typer.Exit(code=1)
         case ValidationError():
             rprint("[bold red]ValidationError:[/bold red]")
@@ -50,10 +45,14 @@ def api(
             raise ValueError(f"Unknown response type {type(response)}")
 
 
-@app.callback(invoke_without_command=True)
-def main():
-    """Magical Dokploy CLI/TUI.
-
-    No commands, launches the TUI.
-    """
+@app.command(name="tui")
+def tui_command() -> None:
+    """Text User Interface."""
+    config = Config()
+    tui.config = config
     tui.run()
+
+
+@app.callback(no_args_is_help=True)
+def main():
+    """Magical Dokploy CLI/TUI."""

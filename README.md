@@ -1,6 +1,7 @@
 # Dokli
 
 A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokploy).
+
 ```txt
                                                                     █
                                                                    ████
@@ -75,12 +76,12 @@ connections:
 ## Usage
 
 ```bash
-$ dokly --help
+$ dokly
 
- Usage: dokli [OPTIONS] COMMAND [ARGS]...
+
+ Usage: python -m dokli [OPTIONS] COMMAND [ARGS]...
 
  Magical Dokploy CLI/TUI.
- No commands, launches the TUI.
 
 ╭─ Options ────────────────────────────────────────────────────────────────────╮
 │ --install-completion          Install completion for the current shell.      │
@@ -90,6 +91,7 @@ $ dokly --help
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
 │ api   API.                                                                   │
+│ tui   Text User Interface.                                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 
@@ -137,11 +139,9 @@ Still a WIP.
 ![Screenshot from 2024-08-04 23-39-14](https://github.com/user-attachments/assets/9943d053-f3a6-40dd-90b7-07502fb81925)
 ![Screenshot from 2024-08-04 23-39-04](https://github.com/user-attachments/assets/acce2413-7b48-472d-899a-71d469b6113d)
 ![Screenshot from 2024-08-05 00-06-58](https://github.com/user-attachments/assets/17fefe01-e072-4c18-8cc1-159de9e94adc)
-[![Dokli TUI initial development](http://img.youtube.com/vi/IAnHfFV9_jU/0.jpg)](http://www.youtube.com/watch?v=IAnHfFV9_jU "Dokli TUI initial development")
+
+[http://www.youtube.com/watch?v=IAnHfFV9_jU](http://www.youtube.com/watch?v=IAnHfFV9_jU)
 
 ## Buy me a taco
 
 I'm Mexican, I prefer tacos. But coffee is also nice. You can use the sponsor button on the top. Also pretty please and thanks in advance 🥺.
-
-
-

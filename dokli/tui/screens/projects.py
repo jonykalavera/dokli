@@ -1,9 +1,8 @@
 """Projects screen."""
 
-import json
 from typing import TYPE_CHECKING
 
-from textual import events
+from textual import events, log
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import (
@@ -17,7 +16,7 @@ from textual.widgets import (
 
 from dokli.commands import ApiEntity, ApiException, ApiResponse, ApiVerb, run_command
 from dokli.config import ConnectionConfig
-from dokli.formatting import Format, format_data, format_response
+from dokli.formatting import Format, format_response
 from dokli.models.project import Project
 from dokli.tui.screens.project import ProjectDetailScreen
 from dokli.tui.widgets.list_item import AddItem
@@ -105,10 +104,11 @@ class ProjectsScreen(Screen):
                 await self._load_response(response)
             case ApiException():
                 self.notify(
-                    "API error: {response.reason}!\n" + str(format_data(json.loads(response.body or ""), Format.yaml)),
+                    f"API error: {response.reason}!\n" + str(response),
                     severity="error",
                     timeout=10,
                 )
+                log("api error", response, self.app.connection)
                 loading.classes = "hidden"
 
     async def _load_response(self, response: ApiResponse) -> None:
