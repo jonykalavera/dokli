@@ -1,0 +1,125 @@
+$error-color: #b93c5b;
+$success-color: #61ff61;
+.hidden {
+  display: none;
+}
+Label.title {
+  text-style: bold;
+  margin-top: 1;
+  margin-left: 1;
+  margin-right: 1;
+  min-width: 50;
+  width: 100%;
+}
+Label.subtitle {
+  margin: 1;
+  min-width: 50;
+  width: 100%;
+}
+
+ListItem {
+  margin: 1;
+  height: 5;
+  min-width: 50;
+}
+ListItem Label {
+  margin-left: 1;
+}
+
+ListItem Label.title {
+  text-style: bold;
+  margin-top: 0;
+  margin-left: 1;
+  margin-right: 1;
+  min-width: 50;
+  width: 100%;
+}
+ListItem Label#icon {
+  background: $boost;
+  color: white;
+  text-style: bold;
+  dock: left;
+  content-align: center top;
+  height: 5;
+  width: 3;
+  margin-left: 0;
+}
+
+AddItem {
+  layout: horizontal;
+  margin: 1;
+  min-width: 50;
+  border: dashed $boost;
+}
+
+AddItem Label {
+  width: 100%;
+  height: 3;
+  content-align: center middle;
+}
+
+FormControl {
+  margin: 1;
+}
+FormControl Label {
+  margin-left: 2;
+  margin-right: 2;
+}
+FormControl Input {
+  margin-left: 1;
+  margin-right: 1;
+}
+FormControl Label.error-msg {
+  text-style: bold;
+  color: $error-color;
+  display: none;
+}
+FormControl.error Label.error-msg {
+  display: block;
+}
+FormControl.error Input {
+  border: dashed $error-color;
+}
+FormControl.error Label.error-msg {
+  text-style: bold;
+  color: $error-color;
+}
+
+Static#logo {
+  align: center middle;
+  content-align: center middle;
+  margin-top: 5;
+  margin-bottom: 1;
+}
+
+ConnectionWidget Label#icon {
+  background: $success;
+}
+
+ConnectionScreen Horizontal {
+  margin-top: 1;
+  min-width: 50;
+  height: 5;
+}
+
+ConnectionScreen Button#cancel {
+  dock: left;
+  margin-top: 1;
+  margin-left: 2;
+}
+
+ConnectionScreen Button#save {
+  margin-top: 1;
+  dock: right;
+  margin-right: 2;
+}
+
+ConnectionScreen Button#delete {
+  dock: right;
+  margin-top: 1;
+  margin-right: 20;
+}
+
+RedisServiceItem Label#icon {
+  background: $error;
+}
