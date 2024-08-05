@@ -104,6 +104,7 @@ Still a WIP.
 
 ## Buy me a taco
 
-I'm mexican, I prefer tacos. But coffee is also nice. Also pretty pease 🥺.
+I'm Mexican, I prefer tacos. But coffee is also nice. You can use the sponsor button on the top. Also pretty please and thanks in advance 🥺.
 
-<iframe src="https://github.com/sponsors/jonykalavera/card" title="Sponsor jonykalavera" height="225" width="600" style="border: 0;"></iframe>
+
+
