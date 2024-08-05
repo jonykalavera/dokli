@@ -99,7 +99,9 @@ $ dokli api test-env project one --format json -p project_id=zuanf1SWHMFO11y6xqp
 ## TUI
 
 Still a WIP.
-
+![Screenshot from 2024-08-04 23-39-14](https://github.com/user-attachments/assets/9943d053-f3a6-40dd-90b7-07502fb81925)
+![Screenshot from 2024-08-04 23-39-04](https://github.com/user-attachments/assets/acce2413-7b48-472d-899a-71d469b6113d)
+![Screenshot from 2024-08-05 00-06-58](https://github.com/user-attachments/assets/17fefe01-e072-4c18-8cc1-159de9e94adc)
 [![Dokli TUI initial development](http://img.youtube.com/vi/IAnHfFV9_jU/0.jpg)](http://www.youtube.com/watch?v=IAnHfFV9_jU "Dokli TUI initial development")
 
 ## Buy me a taco
