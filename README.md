@@ -150,4 +150,5 @@ Also, it seemed to me like something cool to do this weekend. I learned a bunch 
 
 ## Buy me a 🌮
 
-I'm Mexican, I prefer tacos. But ☕ is also nice. You can use the 🫶 sponsor button on the top. Also pretty please and thanks in advance 🥺.
+I'm Mexican, I prefer tacos. But ☕ is also nice. You can use the 🫶 sponsor button on the top.
+Also pretty please and thanks in advance 🥺.
