@@ -1,6 +1,7 @@
 # Dokli
 
 A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokploy).
+
 ```txt
                                                                 █
                                                                ████
@@ -36,8 +37,6 @@ A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokp
                                ██████████████████████████
                                       ████████████
 ```
-
-
 
 ## Installation
 
