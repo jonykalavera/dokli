@@ -45,7 +45,10 @@ def get_entity_commands(entity: ApiEntity) -> list[str]:
 
 
 def run_command(
-    connection: ConnectionConfig, entity: ApiEntity, verb: ApiVerb, params: list[str] | None = None
+    connection: ConnectionConfig,
+    entity: ApiEntity,
+    verb: ApiVerb,
+    params: list[str] | None = None,
 ) -> ApiException | ApiResponse | ValidationError:
     """Run a dokploy API command using Dokli connection."""
     configuration = openapi_client.Configuration(
