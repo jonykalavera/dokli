@@ -21,9 +21,6 @@ class MainMenu(Static):
         """Compose the widget."""
         yield Tabs(
             Tab("Projects", id="Projects"),
-            # Tab("Monitoring", id="Monitoring"),
-            # Tab("Traefik", id="Traefik"),
-            # Tab("Docker", id="Docker"),
             Tab("Settings", id="Settings"),
             active=self.active_screen,
         )

@@ -1,6 +1,11 @@
 """List item widgets."""
 
+from typing import TYPE_CHECKING
+
 from textual.widgets import Label, ListItem
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
 
 
 class AddItem(ListItem):
