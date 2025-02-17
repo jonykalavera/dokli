@@ -70,6 +70,7 @@ pydantic-settings = {extras = ["yaml"], version = "^2.4.0"}
 humanize = "^4.10.0"
 pendulum = "^3.0.0"
 openapi-client = {path = "dokploy"}
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.5.6"
