@@ -6,7 +6,7 @@ import re
 from httpx import HTTPError, Response
 from pydantic import ValidationError
 
-from dokli.clients.api_client import APIClient
+from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 
 PARAM_REGEX = re.compile(r"^((?P<key>[a-z][a-z0-9_]+)=)?(?P<value>.+)$")

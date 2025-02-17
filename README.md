@@ -42,6 +42,8 @@ A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokp
 
 ```bash
 pip install git+https://github.com/jonykalavera/dokli.git
+# with TUI support
+pip install git+https://github.com/jonykalavera/dokli.git#egg=dokli[tui]
 ```
 
 Tested with Dokploy versions:
@@ -51,24 +53,29 @@ Tested with Dokploy versions:
 
 ## Configuration
 
-Create a `~/.config/dokli/dokli.yaml` file. Example:
+Create the configuration file at `~/.config/dokli/dokli.yaml`. Example:
 
 ```yaml
 connections:
   - name: test-env
-    url: https://dokploy.examle.com
+    url: https://test.examle.com
     api_key: ****************************************
     notes: "Our test environment. Handle with care!"
+  - name: prod-env
+    url: https://prod.examle.com
+    api_key: ****************************************
+    notes: "Our prod environment. Handle with care!"
 ```
 
 ## CLI
 
 ### Features
 
-- Supports all API entities actions/verbs.
-- Commands are inferred from the OpenAPI spec, which allows supporting multiple Dokploy API versions.
+- Commands are inferred from the OpenAPI spec, which allows:
+  - support for multiple Dokploy API versions.
+  - support for all API entities actions/verbs.
 - magical JSON parameters `%json:{"projectId": "daspdoada798sda"}`
-- magical file parameters `%file:foo.redis.json`
+- magical file parameters `%file:/path/to/data/foo.redis.json`
 - output formats:
   - yaml
   - json
@@ -92,8 +99,9 @@ $ dokly
 │ --help                        Show this message and exit.                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ api   API.                                                                   │
-│ tui   Text User Interface.                                                   │
+│ test-env   Dokploy Instance: https://test.examle.com.                        │
+│ prod-env   Dokploy Instance: https://prod.examle.com.                        │
+│ tui        Text User Interface.                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 
@@ -129,11 +137,6 @@ $ dokli test-env project one --format json zuanf1SWHMFO11y6xqpRR
 "applications": [], "mariadb": [], "mongo": [], "mysql": [], "postgres": [],
 "redis": [], "compose": []}
 ```
-
-### Known issues
-
-- Configuration stores API key in plain-text.
-- No way to hide secrets. Passwords are printed in plain-text.
 
 ## TUI
 

@@ -44,7 +44,7 @@ class Config(BaseSettings):
         env_prefix="DOKLI_",
         yaml_file=[
             "dokli.yaml",
-            "~/.config/dokli.yaml",
+            "~/.config/dokli/dokli.yaml",
         ],
     )
 

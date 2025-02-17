@@ -8,7 +8,7 @@ import typer
 from httpx import HTTPError, Response
 from rich import print as rprint
 
-from dokli.clients.api_client import APIClient
+from dokli.api_client import APIClient
 from dokli.commands import run_command
 from dokli.formatting import Format, format_response
 
@@ -46,7 +46,7 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
             Parameter("body", Parameter.KEYWORD_ONLY, annotation=Annotated[str, typer.Option(help="JSON body")])
         )
     # add format parameter
-    parameters.append(Parameter("format", Parameter.KEYWORD_ONLY, default=Format.json, annotation=Format))
+    parameters.append(Parameter("format", Parameter.KEYWORD_ONLY, default=Format.yaml, annotation=Format))
     # Create a Signature object
     sig = Signature(parameters)
 
@@ -116,7 +116,7 @@ def _register_api_methods(connection):
     def _app_callback():
         pass
 
-    _app_callback.__doc__ = f"[{connection.name}] Dokploy Instance API"
+    _app_callback.__doc__ = f"Dokploy Instance: {connection.url}"
 
     _app.callback(no_args_is_help=True)(_app_callback)
     return _app
