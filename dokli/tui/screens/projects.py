@@ -14,7 +14,7 @@ from textual.widgets import (
     LoadingIndicator,
 )
 
-from dokli.commands import ApiEntity, ApiException, ApiResponse, ApiVerb, run_command
+from dokli.commands import HTTPError, Response, run_command
 from dokli.config import ConnectionConfig
 from dokli.formatting import Format, format_response
 from dokli.models.project import Project
@@ -98,20 +98,20 @@ class ProjectsScreen(Screen):
         loading.classes = ""
 
         # Query the network API
-        response = run_command(self.app.connection, entity=ApiEntity.project, verb=ApiVerb.all)
+        response = run_command(self.app.connection, method="GET", route="project.all")
         match response:
-            case ApiResponse():
+            case Response():
                 await self._load_response(response)
-            case ApiException():
+            case HTTPError():
                 self.notify(
-                    f"API error: {response.reason}!\n" + str(response),
+                    f"API error: {response!r}!",
                     severity="error",
                     timeout=10,
                 )
                 log("api error", response, self.app.connection)
                 loading.classes = "hidden"
 
-    async def _load_response(self, response: ApiResponse) -> None:
+    async def _load_response(self, response: Response) -> None:
         list_view = self.query_one(ListView)
         loading = self.query_one(LoadingIndicator)
         data = format_response(response, format=Format.python)
