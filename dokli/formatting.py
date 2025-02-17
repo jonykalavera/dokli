@@ -6,7 +6,7 @@ from typing import TypeVar
 
 import typer
 import yaml
-from openapi_client.api_response import ApiResponse
+from httpx import Response
 from rich.table import Table
 
 app = typer.Typer()
@@ -21,10 +21,9 @@ class Format(str, Enum):
     table = "table"
 
 
-def format_response(response: ApiResponse, format: Format) -> str | Table:
-    """Format the given ApiResponse in the given format."""
-    """Format the API response."""
-    raw_data = response.raw_data.decode("utf-8")
+def format_response(response: Response, format: Format) -> str | Table:
+    """Format the given Response in the given format."""
+    raw_data = response.text
     if not raw_data:
         return ""
     data = json.loads(raw_data)
@@ -34,7 +33,7 @@ def format_response(response: ApiResponse, format: Format) -> str | Table:
 D = TypeVar("D")
 
 
-def format_data(data: D, format: Format) -> str | Table | D:
+def format_data(data: D, format: Format) -> str | D | Table:
     """Format the given data in the given format."""
     match format:
         case Format.python:

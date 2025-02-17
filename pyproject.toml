@@ -64,17 +64,16 @@ readme = "README.md"
 python = "^3.10"
 typer = "^0.12.3"
 pydantic = "^2.8.2"
-textual = "^0.75.1"
-pytest-cov = "^5.0.0"
+textual = { optional = true, version = "^0.75.1"}
 pydantic-settings = {extras = ["yaml"], version = "^2.4.0"}
 humanize = "^4.10.0"
-pendulum = "^3.0.0"
-openapi-client = {path = "dokploy"}
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.5.6"
 mypy = "^1.11.1"
 pytest = "^8.3.2"
+pytest-cov = "^5.0.0"
 textual-dev = "^1.5.1"
 types-tree-sitter = "^0.20.1.20240311"
 types-setuptools = "^71.1.0.20240726"
@@ -84,6 +83,9 @@ tree-sitter = "^0.22.3"
 types-tree-sitter-languages = "^1.10.0.20240612"
 types-pygments = "^2.18.0.20240506"
 datamodel-code-generator = "^0.25.8"
+
+[tool.poetry.extras]
+tui = ["textual"]
 
 [tool.poetry.scripts]
 dokli = 'dokli.cli:app'

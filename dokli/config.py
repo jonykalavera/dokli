@@ -10,7 +10,13 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 class ConnectionConfig(BaseModel):
     """Connection config."""
 
-    name: str = Field(..., min_length=3, max_length=100, description="A name for the connection.")
+    name: str = Field(
+        ...,
+        min_length=3,
+        max_length=100,
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        description="A name for the connection.",
+    )
     url: HttpUrl = Field(..., description="The URL of the dokploy instance.")
     api_key: SecretStr = Field(
         ...,
@@ -36,7 +42,10 @@ class Config(BaseSettings):
     connections: list[ConnectionConfig] = Field(default_factory=list)
     model_config = SettingsConfigDict(
         env_prefix="DOKLI_",
-        yaml_file="dokli.yaml",
+        yaml_file=[
+            "dokli.yaml",
+            "~/.config/dokli.yaml",
+        ],
     )
 
     @classmethod
