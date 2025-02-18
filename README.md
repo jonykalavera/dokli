@@ -65,7 +65,7 @@ connections:
     notes: "Our test environment. Handle with care!"
   - name: prod-env
     url: https://prod.example.com
-    api_key_cmd: "secret-tool lookup dokli testEnvApikey"
+    api_key_cmd: "secret-tool lookup dokli prodEnvApikey"
     notes: "Our prod environment. Handle with even more care!"
 ```
 
