@@ -49,6 +49,35 @@ convention = "google"
 [tool.ruff.lint.isort]
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 
+#############################################################################
+# COVERAGE SETTINGS                                                          #
+##############################################################################
+[tool.coverage.run]
+branch = true
+omit = [
+    "*tests.py",
+    "*test_*.py",
+    "*_tests.py",
+]
+source = [
+    "dokli/"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "logger = logging.getLogger.__name__.",
+    "[A-Z_][A-Z0-9_]* = .*",
+    "from .* import .*",
+    "import .*",
+    "if __name__ == .__main__.:",
+    "collections.namedtuple"
+]
+skip_covered = true
+ignore_errors = true
+show_missing = true
+
 ##############################################################################
 # POETRY SETTINGS                                                            #
 ##############################################################################
@@ -86,6 +115,7 @@ datamodel-code-generator = "^0.25.8"
 pytest-mock = "^3.14.0"
 pytest-randomly = "^3.16.0"
 polyfactory = "^2.19.0"
+pytest-blockage = "^0.2.4"
 
 [tool.poetry.extras]
 tui = ["textual"]
