@@ -20,7 +20,7 @@ class APIClient:
         self.cache_path = Path(cache_path) if cache_path else Path.home() / ".config/dokli/cache"
         self.base_url = f"{_base_url}/api/"
         self.headers = {
-            "Authorization": f"Bearer {connection.api_key.get_secret_value()}",
+            "Authorization": f"Bearer {connection.get_api_key()}",
             "accept": "application/json",
         }
         self.session = httpx.Client(verify=False, follow_redirects=True)
