@@ -99,13 +99,12 @@ $ dokly
 │ --help                        Show this message and exit.                    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ test-env   Dokploy Instance: https://test.examle.com.                        │
-│ prod-env   Dokploy Instance: https://prod.examle.com.                        │
+│ api        API commands.                                                     │
 │ tui        Text User Interface.                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 
-$ dokly test-env project all
+$ dokly test-env api project all
 - adminId: ysHDHlhX4a3zOG2fLsske
   applications: []
   compose: []
@@ -119,7 +118,7 @@ $ dokly test-env project all
   projectId: zuanf1SWHMFO11y6xqpRR
   redis: []
 
-$ dokli test-env project create --body '%json:{"name": "Dokli"}' --format table
+$ dokli test-env api project create --body '%json:{"name": "Dokli"}' --format table
                API Response
 ┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Key         ┃ Value                    ┃
@@ -131,7 +130,7 @@ $ dokli test-env project create --body '%json:{"name": "Dokli"}' --format table
 │ adminId     │ ysHDHlhX4a3zOG2fLsske    │
 └─────────────┴──────────────────────────┘
 
-$ dokli test-env project one --format json zuanf1SWHMFO11y6xqpRR
+$ dokli test-env api project one --format json zuanf1SWHMFO11y6xqpRR
 {"projectId": "zuanf1SWHMFO11y6xqpRR", "name": "Dokli", "description": null,
 "createdAt": "2024-08-05T02:45:38.168Z", "adminId": "ysHDHlhX4a3zOG2fLsske",
 "applications": [], "mariadb": [], "mongo": [], "mysql": [], "postgres": [],
