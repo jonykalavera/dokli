@@ -66,7 +66,7 @@ connections:
   - name: prod-env
     url: https://prod.examle.com
     api_key: ****************************************
-    notes: "Our prod environment. Handle with care!"
+    notes: "Our prod environment. Handle with even more care!"
 ```
 
 ## CLI
