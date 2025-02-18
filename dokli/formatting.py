@@ -21,7 +21,7 @@ class Format(str, Enum):
     table = "table"
 
 
-def format_response(response: Response, format: Format) -> str | Table:
+def format_response(response: Response, format: Format) -> str | Table | dict | list:
     """Format the given Response in the given format."""
     raw_data = response.text
     if not raw_data:

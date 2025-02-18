@@ -28,7 +28,7 @@ class DokliApp(App):
     ]
 
     config: Config
-    connection: ConnectionConfig
+    connection: ConnectionConfig | None
 
     def __init__(self, config: Config | None = None, **kwargs) -> None:
         """Construct a new TUI app."""
@@ -39,7 +39,6 @@ class DokliApp(App):
     def on_mount(self) -> None:
         """On mount."""
         self.install_screen(ConnectionsScreen(self.config.connections), name="Connections")
-        self.install_screen(ProjectsScreen(name="Projects"), name="Projects")
         self.install_screen(SettingsScreen(name="Settings"), name="Settings")
         self.push_screen("Connections")
 
@@ -58,6 +57,7 @@ class DokliApp(App):
         """Set the active connection."""
         self.connection = event.connection
         log.info(f"Setting connection: {event.connection}")
+        self.install_screen(ProjectsScreen(name="Projects", connection=self.connection), name="Projects")
         self.push_screen("Projects")
 
     def action_connections(self) -> None:
@@ -74,7 +74,7 @@ class DokliApp(App):
 
     def on_screen_resume(self, event: events.ScreenResume) -> None:
         """On screen resume."""
-        self.app.sub_title = None
+        self.app.sub_title = ""
 
 
 app = DokliApp()

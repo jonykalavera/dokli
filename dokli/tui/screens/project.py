@@ -9,6 +9,7 @@ from textual.reactive import reactive
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView
 
+from dokli.config import ConnectionConfig
 from dokli.models.project import Project
 from dokli.models.redis import RedisService
 from dokli.tui.widgets.list_item import AddItem
@@ -49,14 +50,17 @@ class ProjectDetailScreen(Screen):
         Binding("d", "delete", "Delete"),
     ]
 
-    def __init__(self, instance: Project, *args, **kwargs) -> None:
+    def __init__(self, instance: Project, connection: ConnectionConfig, *args, **kwargs) -> None:
         """Construct a project detail screen."""
         super().__init__(*args, **kwargs)
         self.instance = instance
+        self.connection = connection
 
     def on_screen_resume(self, event: events.ScreenResume) -> None:
         """On screen resume."""
-        self.app.sub_title = f"{self.app.connection.name}  Projects  {self.instance.name}"
+        self.app.sub_title = (
+            f"{self.connection.name}  Projects  {self.instance.name if self.instance else 'New Project'}"
+        )
         try:
             list_view = self.query_one(ListView)
             list_view.focus()
@@ -69,9 +73,12 @@ class ProjectDetailScreen(Screen):
         yield Footer()
         yield MainMenu(active_screen="Projects")
         yield Label(self.instance.name if self.instance else "", id="name", classes="title")
-        yield Label(self.instance.description if self.instance else "", id="description", classes="subtitle")
+        yield Label(self.instance.description or "" if self.instance else "", id="description", classes="subtitle")
         yield ListView(
-            *(RedisServiceItem(RedisService.model_validate(service)) for service in self.instance.services),
+            *(
+                RedisServiceItem(RedisService.model_validate(service))
+                for service in (self.instance.services if self.instance else [])
+            ),
             AddItem(id="__add__", item_name="service"),
             id="services",
         )

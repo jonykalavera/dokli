@@ -16,7 +16,6 @@ from textual.widgets import (
 
 from dokli.commands import HTTPError, Response, run_command
 from dokli.config import ConnectionConfig
-from dokli.formatting import Format, format_response
 from dokli.models.project import Project
 from dokli.tui.screens.project import ProjectDetailScreen
 from dokli.tui.widgets.list_item import AddItem
@@ -73,6 +72,11 @@ class ProjectsScreen(Screen):
         Binding("r", "refresh_projects", "Refresh"),
     ]
 
+    def __init__(self, connection: ConnectionConfig, *args, **kwargs) -> None:
+        """Construct a project detail screen."""
+        super().__init__(*args, **kwargs)
+        self.connection = connection
+
     def compose(self) -> "ComposeResult":
         """Create child widgets for the app."""
         yield Header()
@@ -98,7 +102,7 @@ class ProjectsScreen(Screen):
         loading.classes = ""
 
         # Query the network API
-        response = run_command(self.app.connection, method="GET", route="project.all")
+        response = run_command(self.connection, method="GET", route="project.all")
         match response:
             case Response():
                 await self._load_response(response)
@@ -108,13 +112,13 @@ class ProjectsScreen(Screen):
                     severity="error",
                     timeout=10,
                 )
-                log("api error", response, self.app.connection)
+                log("api error", response, self.connection)
                 loading.classes = "hidden"
 
     async def _load_response(self, response: Response) -> None:
         list_view = self.query_one(ListView)
         loading = self.query_one(LoadingIndicator)
-        data = format_response(response, format=Format.python)
+        data = response.json()
         await list_view.clear()
         list_view.extend(
             [

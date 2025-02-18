@@ -78,7 +78,7 @@ def _register_api_methods(connection):
     Given that Dokploy uses a entity.Action convention for API endpoints,
     we can use the entity name as the Typer app name and the action name as the command.
     """
-    _app = typer.Typer()
+    _app = typer.Typer(name=connection.name, help=f"Dokploy Instance: {connection.url}")
     client = APIClient(connection)
     paths = client.schema.get("paths", {})
 
@@ -88,7 +88,7 @@ def _register_api_methods(connection):
     for route, methods in paths.items():
         entity, action = (_camel_case_to_snake_case(x) for x in route.strip("/").split("."))
         if entity not in entity_apps:
-            entity_app = typer.Typer()
+            entity_app = typer.Typer(name=entity, help=f"{entity} commands")
             entity_apps[entity] = entity_app
         else:
             entity_app = entity_apps[entity]
@@ -99,35 +99,26 @@ def _register_api_methods(connection):
             summary = details.get("summary", "")
 
             func = _api_command_factory(connection, route, method.upper(), params, request_body, client=client)
-            func.__doc__ = " ".join(x for x in [summary, description] if x)
-            entity_app.command(name=action)(func)
+            entity_app.command(name=action, help=" ".join(x for x in [summary, description] if x))(func)
 
     # register entity apps as sub commands of the connection app
     for entity, entity_app in entity_apps.items():
-
-        def _entity_app_callback():
-            pass
-
-        _entity_app_callback.__doc__ = f"Show {entity} commands."
-
-        entity_app.callback(no_args_is_help=True)(_entity_app_callback)
+        entity_app.callback(no_args_is_help=True)(lambda: None)
         _app.add_typer(entity_app, name=entity)
 
-    def _app_callback():
-        pass
-
-    _app_callback.__doc__ = f"Dokploy Instance: {connection.url}"
-
-    _app.callback(no_args_is_help=True)(_app_callback)
+    _app.callback(no_args_is_help=True)(lambda: None)
     return _app
 
 
 def register_connections(app, config):
     """Register the API methods for each connection in config."""
+    api_app = typer.Typer(name="api", help="API commands")
+    api_app.callback(no_args_is_help=True)(lambda: None)
     for connection in config.connections:
         try:
             connection_app = _register_api_methods(connection)
-            app.add_typer(connection_app, name=connection.name)
+            api_app.add_typer(connection_app, name=connection.name)
         except Exception as e:
             rprint(f"[red]Error registering API methods: {e}[/red]")
             raise
+    app.add_typer(api_app)

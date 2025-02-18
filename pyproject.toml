@@ -83,6 +83,9 @@ tree-sitter = "^0.22.3"
 types-tree-sitter-languages = "^1.10.0.20240612"
 types-pygments = "^2.18.0.20240506"
 datamodel-code-generator = "^0.25.8"
+pytest-mock = "^3.14.0"
+pytest-randomly = "^3.16.0"
+polyfactory = "^2.19.0"
 
 [tool.poetry.extras]
 tui = ["textual"]
