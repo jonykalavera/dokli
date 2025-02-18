@@ -69,6 +69,8 @@ connections:
     notes: "Our prod environment. Handle with even more care!"
 ```
 
+You can use `api_key_cmd` to load the API key from a command such as [secret-tool](https://manpages.org/secret-tool) instead of entering it in the config file. This is highly recommended for security reasons.
+
 Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) which means it can also be set via [environment variables](https://docs.pydantic.dev/latest/concepts/pydantic_settings/#parsing-environment-variable-values) using the `DOKLI_` prefix.
 
 ## CLI
