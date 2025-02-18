@@ -141,7 +141,7 @@ $ dokli api test-env project one --format json zuanf1SWHMFO11y6xqpRR
 
 ## TUI
 
-Still a WIP. Basic functionality will be implemented at 0.0.2 release.
+Still a WIP. Basic functionality will be implemented at 0.2.0 release.
 
 ![Screenshot from 2024-08-04 23-39-14](https://github.com/user-attachments/assets/9943d053-f3a6-40dd-90b7-07502fb81925)
 ![Screenshot from 2024-08-04 23-39-04](https://github.com/user-attachments/assets/acce2413-7b48-472d-899a-71d469b6113d)
