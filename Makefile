@@ -1,5 +1,5 @@
 test:
-	pytest -vv --cov dokli
+	pytest -vv --cov dokli --blockage
 
 format:
 	ruff format dokli/

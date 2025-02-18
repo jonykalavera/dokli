@@ -60,14 +60,18 @@ Create the configuration file at `~/.config/dokli/dokli.yaml`. Example:
 ```yaml
 connections:
   - name: test-env
-    url: https://test.examle.com
+    url: https://test.example.com
     api_key: ****************************************
     notes: "Our test environment. Handle with care!"
   - name: prod-env
-    url: https://prod.examle.com
-    api_key: ****************************************
+    url: https://prod.example.com
+    api_key_cmd: "secret-tool lookup dokli prodEnvApikey"
     notes: "Our prod environment. Handle with even more care!"
 ```
+
+You can use `api_key_cmd` to load the API key from a command such as [secret-tool](https://manpages.org/secret-tool) instead of entering it in the config file. This is highly recommended for security reasons.
+
+Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) which means it can also be set via [environment variables](https://docs.pydantic.dev/latest/concepts/pydantic_settings/#parsing-environment-variable-values) using the `DOKLI_` prefix.
 
 ## CLI
 
@@ -90,7 +94,7 @@ connections:
 $ dokly
 
 
- Usage: python -m dokli [OPTIONS] COMMAND [ARGS]...
+ Usage: dokli [OPTIONS] COMMAND [ARGS]...
 
  Magical Dokploy CLI/TUI.
 
