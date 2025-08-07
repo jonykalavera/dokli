@@ -21,8 +21,8 @@ class ConnectionConfig(BaseModel):
     url: HttpUrl = Field(..., description="The URL of the dokploy instance.")
     api_key: SecretStr | None = Field(
         None,
-        min_length=40,
-        max_length=40,
+        min_length=64,
+        max_length=64,
         description="An API key for the dokploy instance.",
     )
     api_key_cmd: str | None = Field(None, description="A command to get the API key.")
