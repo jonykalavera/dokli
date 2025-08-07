@@ -14,7 +14,7 @@ class Project(BaseModel):
     name: str
     description: str | None
     createdAt: datetime
-    adminId: str
+    organizationId: str
     applications: list[dict[str, Any]]
     mariadb: list[dict[str, Any]]
     mongo: list[dict[str, Any]]
