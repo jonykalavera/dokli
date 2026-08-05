@@ -63,10 +63,19 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
         )
     # add format parameter
     parameters.append(Parameter("format", Parameter.KEYWORD_ONLY, default=Format.yaml, annotation=Format))
+    # add secrets parameter
+    parameters.append(
+        Parameter(
+            "show_secrets",
+            Parameter.KEYWORD_ONLY,
+            default=False,
+            annotation=bool,
+        )
+    )
     # Create a Signature object
     sig = Signature(parameters)
 
-    def api_command(format=Format.json, **kwargs):
+    def api_command(format=Format.json, show_secrets=False, **kwargs):
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
@@ -77,7 +86,7 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
         )
         match response:
             case Response():
-                rprint(format_response(response, format=format))
+                rprint(format_response(response, format=format, show_secrets=show_secrets))
             case HTTPError():
                 rprint(f"[red]{response}[/red]")
                 raise typer.Exit(code=1)
