@@ -1,5 +1,6 @@
 """Config tests."""
 
+import yaml
 import pytest
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import ValidationError
@@ -33,6 +34,26 @@ class TestConfig:
         connection = ConnectionConfigFactory.build(name="dokploy")
         config = ConfigFactory.build(connections=[connection])
         assert config.get_connection("dokploy")
+
+    def test_save_round_trip(self, tmp_path):
+        """We expect save() to persist connections and reload them."""
+        target = tmp_path / "dokli.yaml"
+        config = ConfigFactory.build(
+            connections=[
+                ConnectionConfigFactory.build(name="meche", api_key_cmd="echo key"),
+                ConnectionConfigFactory.build(name="stage", api_key="*" * 64),
+            ]
+        )
+        config.save(target)
+
+        data = yaml.safe_load(target.read_text())
+        assert [c["name"] for c in data["connections"]] == ["meche", "stage"]
+        assert data["connections"][0]["api_key_cmd"] == "echo key"
+        assert data["connections"][1]["api_key"] == "*" * 64
+
+        reloaded = [ConnectionConfig.model_validate(c) for c in data["connections"]]
+        assert [c.name for c in reloaded] == ["meche", "stage"]
+        assert reloaded[1].api_key.get_secret_value() == "*" * 64
 
 
 class TestConnectionConfig:

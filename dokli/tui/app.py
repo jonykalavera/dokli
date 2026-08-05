@@ -1,10 +1,14 @@
 """Dokli TUI."""
 
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 from textual import events, log
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, get_system_commands
+from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.widgets import Footer, Header, Static
 
 from dokli.api_client import APIClient
@@ -12,10 +16,46 @@ from dokli.config import Config, ConnectionConfig
 from dokli.tui.engine import parse_spec
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen
+from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.settings import SettingsScreen
 
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
+
+
+class DokliCommands(Provider):
+    """Commands for the Dokli command palette."""
+
+    def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
+        app = cast(DokliApp, self.app)
+        commands = [
+            ("Toggle dark mode", "Switch between light and dark themes", app.action_toggle_dark),
+            ("Connections", "Open the connections screen", app.action_connections),
+            ("Settings", "Open the settings screen", app.action_settings),
+            ("Help", "Show the keybindings", app.action_help),
+            ("Quit", "Exit the app", app.action_quit),
+        ]
+        for connection in app.config.connections:
+            commands.append(
+                (
+                    f"Open {connection.name}",
+                    f"Open the browser on the {connection.name} connection",
+                    partial(app.set_connection, connection),
+                )
+            )
+        return commands
+
+    async def search(self, query: str) -> Hits:
+        """Search commands by name."""
+        query = query.lower()
+        for name, help_text, callback in self._commands():
+            if query in name.lower():
+                yield Hit(1.0, name, callback, name, help_text)
+
+    async def discover(self) -> Hits:
+        """Show all commands when the palette is opened empty."""
+        for name, help_text, callback in self._commands():
+            yield DiscoveryHit(name, callback, name, help_text)
 
 
 class DokliApp(App):
@@ -23,9 +63,11 @@ class DokliApp(App):
 
     TITLE = "Dokli"
     CSS_PATH = "css/tui.css"
+    COMMANDS = {get_system_commands, DokliCommands}
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("C", "connections", "Connections"),
+        ("?", "help", "Help"),
         ("escape", "cancel", "Cancel/Back"),
         ("q", "quit", "Quit"),
     ]
@@ -65,6 +107,14 @@ class DokliApp(App):
         else:
             self.bell()
 
+    def action_help(self) -> None:
+        """Open the help screen."""
+        self.push_screen(HelpScreen(classes="Help"))
+
+    def action_settings(self) -> None:
+        """Open the settings screen."""
+        self.push_screen("Settings")
+
     def set_connection(self, connection: ConnectionConfig) -> None:
         """Set the active connection and open the entity browser."""
         self.connection = connection
@@ -90,9 +140,38 @@ class DokliApp(App):
         """Handle connection set screen event."""
         self.set_connection(event.connection)
 
+    def on_connections_screen_add_connection(self, event: ConnectionsScreen.AddConnection) -> None:
+        """Persist a newly added connection."""
+        self._save_connection(event.connection)
+        self.notify(f"Added connection '{event.connection.name}'.")
+
+    def on_connections_screen_update_connection(self, event: ConnectionsScreen.UpdateConnection) -> None:
+        """Persist an edited connection."""
+        self._save_connection(event.connection)
+        self.notify(f"Updated connection '{event.connection.name}'.")
+
+    def on_connections_screen_delete_connection(self, event: ConnectionsScreen.DeleteConnection) -> None:
+        """Persist a deleted connection."""
+        self.config.connections = [
+            connection for connection in self.config.connections if connection.name != event.connection.name
+        ]
+        self.config.save()
+        self.notify(f"Deleted connection '{event.connection.name}'.")
+
+    def _save_connection(self, connection: ConnectionConfig) -> None:
+        """Add or update a connection in the config and persist it."""
+        names = [existing.name for existing in self.config.connections]
+        if connection.name in names:
+            self.config.connections = [
+                connection if existing.name == connection.name else existing for existing in self.config.connections
+            ]
+        else:
+            self.config.connections = [*self.config.connections, connection]
+        self.config.save()
+
     def action_connections(self) -> None:
         """Action connections."""
-        if self.connection:
+        if self.screen.name != "Connections":
             self.push_screen("Connections")
 
     def compose(self) -> "ComposeResult":

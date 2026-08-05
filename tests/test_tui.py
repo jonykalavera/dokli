@@ -3,11 +3,12 @@
 import asyncio
 
 import httpx
+from textual.command import CommandPalette
 from textual.containers import VerticalScroll
 from textual.widgets import Label
 
 from dokli.config import Config, ConnectionConfig
-from dokli.tui.app import DokliApp
+from dokli.tui.app import DokliApp, DokliCommands
 from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
 from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
@@ -15,6 +16,7 @@ from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
+from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
@@ -871,5 +873,123 @@ def test_connection_argument_unreachable_falls_back(mocker):
                 if isinstance(app.screen, ConnectionsScreen):
                     break
             assert isinstance(app.screen, ConnectionsScreen)
+
+    _run(main())
+
+
+# -- connections persistence ------------------------------------------------
+
+
+def test_add_connection_persists(mocker):
+    """We expect a new connection to be added to the config and saved."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    new_connection = ConnectionConfig(name="stage", url="https://stage.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_add_connection(ConnectionsScreen.AddConnection(connection=new_connection))
+            assert any(c.name == "stage" for c in app.config.connections)
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_update_connection_persists(mocker):
+    """We expect an edited connection to replace the existing one and be saved."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    updated = ConnectionConfig(name="test-env", url="https://other.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_update_connection(ConnectionsScreen.UpdateConnection(connection=updated))
+            assert app.config.connections[0].url.host == "other.example.com"
+            assert len(app.config.connections) == 1
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_delete_connection_persists(mocker):
+    """We expect a deleted connection to be removed from the config and saved."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_delete_connection(ConnectionsScreen.DeleteConnection(connection=_connection()))
+            assert app.config.connections == []
+            save.assert_called_once()
+
+    _run(main())
+
+
+# -- help + command palette -------------------------------------------------
+
+
+def test_help_screen_shows_bindings(mocker):
+    """We expect ? to open the help screen listing the keybindings."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, BrowserScreen):
+                    break
+            await pilot.press("?")
+            for _ in range(10):
+                await pilot.pause()
+                if isinstance(app.screen, HelpScreen):
+                    break
+            assert isinstance(app.screen, HelpScreen)
+            text = "\n".join(
+                str(label.renderable)
+                for label in app.screen.query_one("#help-scroll").children
+                if isinstance(label, Label)
+            )
+            assert "Quit" in text
+            assert "Connections" in text
+
+    _run(main())
+
+
+def test_command_palette_opens(mocker):
+    """We expect the command palette to open on ctrl+backslash."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+backslash")
+            await pilot.pause()
+            assert isinstance(app.screen, CommandPalette)
+
+    _run(main())
+
+
+def test_command_provider_lists_connections(mocker):
+    """We expect the command palette provider to offer connections and core commands."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            provider = DokliCommands(app.screen)
+            hits = [hit async for hit in provider.discover()]
+            names = [hit.text for hit in hits]
+            assert "Open test-env" in names
+            assert "Help" in names
+            assert "Quit" in names
 
     _run(main())

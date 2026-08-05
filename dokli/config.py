@@ -3,8 +3,10 @@
 import json
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, field_serializer, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
 
@@ -32,7 +34,7 @@ class ConnectionConfig(BaseModel):
     @field_serializer("api_key", when_used="json")
     def dump_secret(self, v):
         """Allows dumping secret values."""
-        return v.get_secret_value()
+        return v.get_secret_value() if v is not None else None
 
     def model_dump_clear(self, **kwargs) -> dict[str, Any]:
         """Allows dumping the config with clear secrets."""
@@ -88,3 +90,20 @@ class Config(BaseSettings):
     def get_connection(self, name: str) -> ConnectionConfig:
         """Get connection config."""
         return next(filter(lambda x: x.name == name, self.connections))
+
+    def save(self, path: str | Path | None = None) -> None:
+        """Persist connections to the YAML config file.
+
+        Args:
+            path: Where to write. Defaults to the ``DOKLI_CONFIG`` env var or
+                ``~/.config/dokli/dokli.yaml``.
+        """
+        target = (
+            Path(os.getenv("DOKLI_CONFIG", "~/.config/dokli/dokli.yaml")) if path is None else Path(path)
+        ).expanduser()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        connections = [
+            {key: value for key, value in connection.model_dump(mode="json").items() if value is not None}
+            for connection in self.connections
+        ]
+        target.write_text(yaml.safe_dump({"connections": connections}, sort_keys=False))
