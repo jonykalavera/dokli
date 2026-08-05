@@ -23,17 +23,19 @@ OPENAPI_TO_PYTHON = {
 
 
 def _infer_param_type(param: dict[str, Any]):
-    """Infiera el tipo Python a partir de OpenAPI."""
+    """Infer the type of a parameter from OpenAPI."""
     schema = param.get("schema", {})
     param_type = schema.get("type", "string")  # Por defecto, string
     return OPENAPI_TO_PYTHON.get(param_type, str)
 
 
 def _camel_case_to_snake_case(camel_case_str):
+    """Convert camelCase to snake_case."""
     return re.sub(r"(?<!^)(?=[A-Z])", "_", camel_case_str).lower()
 
 
 def _api_command_factory(connection, route, method="GET", params=None, request_body=None, client=None):
+    """Create a command from an OpenAPI endpoint."""
     # Create a list of parameters for the signature
     param_hints = {p["name"]: _infer_param_type(p) for p in params}
     original_name = {_camel_case_to_snake_case(x["name"]): x["name"] for x in params}

@@ -33,5 +33,5 @@ if _tui_loaded:
 
 
 @app.callback(no_args_is_help=True)
-def main():
+def main() -> None:
     """Magical Dokploy CLI/TUI."""

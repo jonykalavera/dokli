@@ -1,6 +1,7 @@
 """Configuration model."""
 
 import json
+import os
 import subprocess
 from typing import Any
 
@@ -62,7 +63,7 @@ class Config(BaseSettings):
         env_prefix="DOKLI_",
         yaml_file=[
             "dokli.yaml",
-            "~/.config/dokli/dokli.yaml",
+            os.getenv("DOKLI_CONFIG", "~/.config/dokli/dokli.yaml"),
         ],
     )
 
