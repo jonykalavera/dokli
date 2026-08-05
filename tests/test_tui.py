@@ -180,6 +180,32 @@ def test_multiline_string_fields():
     assert not isinstance(form.fields["name"], TextAreaControl)
 
 
+def test_textarea_typing_is_not_reversed(mocker):
+    """We expect typing into a text area to keep the natural character order."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            area = screen.form.fields["description"]
+            assert isinstance(area, TextAreaControl)
+            area.query_one("#description-input").focus()
+            await pilot.pause()
+            for ch in "Proxy":
+                await pilot.press(ch)
+            await pilot.pause()
+            assert area.value == "Proxy"
+
+    _run(main())
+
+
 def test_form_submit_asks_confirmation(mocker):
     """We expect submitting a form to require explicit confirmation first."""
     mocker.patch("dokli.tui.app.APIClient")
