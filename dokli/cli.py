@@ -11,6 +11,7 @@ from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
 from dokli.diff import build_plan
 from dokli.export import export_manifest
+from dokli.formatting import redact_secrets
 from dokli.init import init_manifest
 from dokli.manifest import Manifest
 from dokli.openapi_cli import register_connections
@@ -68,11 +69,17 @@ def init_command(
 
 
 @app.command(name="state")
-def state_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:
+def state_command(
+    connection_name: str | None = typer.Argument(None, help="Connection name."),
+    show_secrets: bool = typer.Option(False, "--show-secrets", help="Show environment variables (secrets)."),
+) -> None:
     """Show the current state of a Dokploy instance."""
     connection = _get_connection(connection_name)
     live_state = collect_state(connection)
-    rprint(yaml.dump(live_state.model_dump(mode="json")))
+    data = live_state.model_dump(mode="json")
+    if not show_secrets:
+        data = redact_secrets(data)
+    rprint(yaml.dump(data))
 
 
 @app.command(name="plan")
