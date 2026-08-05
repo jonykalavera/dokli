@@ -185,6 +185,33 @@ class TestKeyBindings:
         assert by_verb["remove"] == "d"
         assert by_verb["restart"] == "R"
 
+    def test_read_logs_uses_uppercase_l(self):
+        """We expect readLogs to use L (uppercase), not the reserved drill-in l."""
+        assert key_for_verb("readLogs") == "L"
+        entity = self._entity("readLogs")
+        assert action_bindings(entity)[0][1] == "L"
+
+    def test_system_keys_are_not_assigned(self):
+        """We expect SYSTEM_KEYS (D) to never be assigned to an action."""
+        entity = self._entity(
+            "remove",
+            "redeploy",
+            "restart",
+            "search",
+            "start",
+            "save",
+            "suggest",
+            "sync",
+            "show",
+            "stop",
+            "status",
+            "submit",
+            "updateTeams",
+        )
+        bindings = action_bindings(entity)
+        keys = {key for _, key in bindings if key is not None}
+        assert "D" not in keys
+
     def test_fallback_to_free_key(self):
         """We expect a free key when all verb letters are taken."""
         assert key_for_verb("xyz", frozenset("xyzw")) == "a"

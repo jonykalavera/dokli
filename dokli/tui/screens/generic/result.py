@@ -35,7 +35,7 @@ class ResultScreen(Screen):
         Binding("escape", "dismiss_screen", "Close"),
         Binding("q", "dismiss_screen", "Close"),
         Binding("enter", "dismiss_screen", "Close"),
-        Binding("r", "refresh", "Refresh"),
+        Binding("f5", "refresh", "Refresh"),
         Binding("/", "search", "Search"),
         Binding("n", "next_match", "Next match"),
         Binding("N", "prev_match", "Prev match"),

@@ -733,7 +733,7 @@ def test_result_refresh_refetches(mocker):
             app.push_screen("result")
             await pilot.pause()
             await pilot.pause()
-            await pilot.press("r")
+            await pilot.press("f5")
             await pilot.pause()
             await pilot.pause()
             client.request.assert_called_once_with("GET", action.route, params)
@@ -1171,7 +1171,7 @@ def test_command_provider_lists_connections(mocker):
             assert "Help" in names
             assert "Quit" in names
             by_name = {hit.text: hit.help for hit in hits}
-            assert by_name["Toggle dark mode"] == "[d] Switch between light and dark themes"
+            assert by_name["Toggle dark mode"] == "[D] Switch between light and dark themes"
             assert by_name["Help"] == "[?] Show the keybindings"
 
     _run(main())

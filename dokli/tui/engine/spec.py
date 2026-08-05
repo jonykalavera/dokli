@@ -141,6 +141,10 @@ def classify(action: EntityAction) -> str:
 # Keys used by the browser navigation; never assigned to actions.
 RESERVED_KEYS = frozenset("hjklrq")
 
+# Keys reserved for app-level bindings (e.g. D toggles dark mode); never
+# assigned to actions so the app shortcuts are not overshadowed.
+SYSTEM_KEYS = frozenset("D")
+
 # Fallback key space, in priority order: letters, then digits, then uppercase.
 FALLBACK_KEYS = string.ascii_lowercase + string.digits + string.ascii_uppercase
 
@@ -156,7 +160,7 @@ VERB_KEYS = {
     "redeploy": "X",
     "testConnection": "t",
     "restart": "R",
-    "readLogs": "l",
+    "readLogs": "L",
 }
 
 
@@ -166,13 +170,13 @@ def key_for_verb(verb: str, taken: frozenset[str] = frozenset()) -> str | None:
     Prefers the verb's own letters (``VERB_KEYS`` first), then any free letter
     of the alphabet, so every action can get a key.
     """
-    if verb in VERB_KEYS and VERB_KEYS[verb] not in taken:
+    if verb in VERB_KEYS and VERB_KEYS[verb] not in taken and VERB_KEYS[verb] not in SYSTEM_KEYS:
         return VERB_KEYS[verb]
     for character in verb:
         if character.isalpha() and character.lower() not in taken and character.lower() not in RESERVED_KEYS:
             return character.lower()
     for character in FALLBACK_KEYS:
-        if character not in taken and character not in RESERVED_KEYS:
+        if character not in taken and character not in RESERVED_KEYS and character not in SYSTEM_KEYS:
             return character
     return None
 

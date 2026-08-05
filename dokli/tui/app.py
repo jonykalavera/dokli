@@ -58,7 +58,7 @@ class DokliCommands(Provider):
 
     # Core commands that have an app-level keybinding shown in the help line.
     _CORE_KEYS = {
-        "Toggle dark mode": "d",
+        "Toggle dark mode": "D",
         "Connections": "C",
         "Help": "?",
         "Quit": "q",
@@ -156,7 +156,7 @@ class DokliApp(App):
     CSS_PATH = "css/tui.css"
     COMMANDS = {get_system_commands, DokliCommands}
     BINDINGS = [
-        ("d", "toggle_dark", "Toggle dark mode"),
+        ("D", "toggle_dark", "Toggle dark mode"),
         ("C", "connections", "Connections"),
         ("?", "help", "Help"),
         ("ctrl+p", "command_palette", "Command palette"),

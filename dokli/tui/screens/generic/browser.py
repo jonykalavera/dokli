@@ -69,7 +69,7 @@ class BrowserScreen(Screen):
         Binding("h", "left", "Parent"),
         Binding("l", "right", "Child", show=False),
         Binding("right", "right", "Child", show=False),
-        Binding("r", "refresh", "Refresh"),
+        Binding("f5", "refresh", "Refresh"),
         Binding("/", "filter", "Filter"),
         Binding("escape", "cancel", "Back"),
         Binding("q", "quit", "Quit"),
