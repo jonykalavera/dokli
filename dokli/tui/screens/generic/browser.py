@@ -18,6 +18,7 @@ from dokli.tui.engine import (
     collect_children,
     entity_icon,
     field_label,
+    probe_entities,
     record_id,
     record_title,
 )
@@ -79,6 +80,7 @@ class BrowserScreen(Screen):
         entities = [{"_kind": name, "name": name} for name in registry.listable()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
+        self._usable: set[str] | None = None
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""
@@ -90,6 +92,11 @@ class BrowserScreen(Screen):
             VerticalScroll(id="detail-pane"),
         )
         yield Input(placeholder="Filter...", id="filter")
+
+    async def on_mount(self) -> None:
+        """On mount, probe which entities are usable with this API key."""
+        results = probe_entities(self.client, self.registry, self.connection.name)
+        self._usable = {name for name, usable in results.items() if usable}
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -112,7 +119,6 @@ class BrowserScreen(Screen):
         self.run_worker(self._refresh_current, exclusive=True)  # type: ignore[arg-type]
 
     # -- state ------------------------------------------------------------
-
     @property
     def current(self) -> Level:
         """The current level."""
@@ -146,12 +152,15 @@ class BrowserScreen(Screen):
         return title
 
     def _visible_items(self, level: Level) -> list[dict]:
+        items = level.items
+        if level.kind == "entities" and self._usable is not None:
+            items = [item for item in items if item.get("name") in self._usable]
         if not self._filter:
-            return level.items
+            return items
         query = self._filter.lower()
         return [
             item
-            for item in level.items
+            for item in items
             if query in record_title(item).lower() or query in str(item.get("_kind", "")).lower()
         ]
 

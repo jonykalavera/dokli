@@ -1,0 +1,47 @@
+"""Probe which entities are usable with the current API key.
+
+Some Dokploy endpoints are gated behind an enterprise license or admin
+permissions and return 401/403 even for an owner API key on a self-hosted
+instance. Probing each listable entity's ``all`` action at runtime lets the TUI
+hide the ones that cannot be used, regardless of the Dokploy version.
+"""
+
+import httpx
+
+# Status codes that mean the endpoint is reachable/authorized (a 4xx here is a
+# bad-input or not-found, not an authorization problem).
+USABLE_STATUS = {200, 400, 404, 422}
+
+_PROBE_CACHE: dict[str, dict[str, bool]] = {}
+
+
+def probe_entity(client, entity) -> bool:
+    """Return True if the entity's list action is usable (not 401/403)."""
+    action = entity.get("all")
+    if action is None:
+        return True
+    try:
+        response = client.request("GET", action.route, {})
+        return response.status_code in USABLE_STATUS
+    except httpx.HTTPStatusError as err:
+        return err.response.status_code not in (401, 403)
+    except httpx.HTTPError:
+        return False
+
+
+def probe_entities(client, registry, connection_name: str) -> dict[str, bool]:
+    """Probe all listable entities of a connection, caching the results."""
+    cached = _PROBE_CACHE.get(connection_name)
+    if cached is not None:
+        return cached
+    results = {}
+    for name in registry.listable():
+        entity = registry.get(name)
+        results[name] = probe_entity(client, entity) if entity else True
+    _PROBE_CACHE[connection_name] = results
+    return results
+
+
+def clear_probe_cache(connection_name: str) -> None:
+    """Drop the cached probe results for a connection."""
+    _PROBE_CACHE.pop(connection_name, None)

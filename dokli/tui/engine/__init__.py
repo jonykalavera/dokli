@@ -13,6 +13,7 @@ from dokli.tui.engine.introspect import (
     record_subtitle,
     record_title,
 )
+from dokli.tui.engine.probe import clear_probe_cache, probe_entities, probe_entity
 from dokli.tui.engine.schemas import build_form_model
 from dokli.tui.engine.spec import (
     DESTRUCTIVE_VERBS,
@@ -34,6 +35,7 @@ __all__ = [
     "action_bindings",
     "build_form_model",
     "classify",
+    "clear_probe_cache",
     "collect_children",
     "entity_icon",
     "field_label",
@@ -41,6 +43,8 @@ __all__ = [
     "key_for_verb",
     "nested_child_entity",
     "parse_spec",
+    "probe_entities",
+    "probe_entity",
     "record_id",
     "record_subtitle",
     "record_title",

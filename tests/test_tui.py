@@ -7,7 +7,8 @@ from textual.widgets import Label
 
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
-from dokli.tui.engine import build_form_model, parse_spec, record_title
+from dokli.tui.engine import build_form_model, parse_spec, probe_entity, record_title, clear_probe_cache
+from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.confirm import ConfirmScreen
@@ -76,8 +77,9 @@ FAKE_SCHEMA = {
 class FakeResponse:
     """Minimal response stand-in."""
 
-    def __init__(self, data):
+    def __init__(self, data, status_code: int = 200):
         self._data = data
+        self.status_code = status_code
 
     def json(self):
         return self._data
@@ -125,6 +127,7 @@ def _fake_requests():
 def _patch_api(mocker):
     client = mocker.Mock()
     responses = _fake_requests()
+    clear_probe_cache("test-env")
 
     def fake_request(method, path, params):
         return FakeResponse(responses.get(path, []))
@@ -594,6 +597,64 @@ def test_query_action_shows_result(mocker):
             assert "Running" in text
 
     _run(main())
+
+
+def test_unusable_entities_are_hidden(mocker):
+    """We expect entities whose all action returns 403 to be hidden."""
+    import httpx
+
+    clear_probe_cache("test-env")
+    client = mocker.Mock()
+    responses = _fake_requests()
+
+    def fake_request(method, path, params):
+        if path == "auditLog.all":
+            request = httpx.Request("GET", "https://example.com/api/auditLog.all")
+            response = httpx.Response(403, request=request)
+            raise httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
+        return FakeResponse(responses.get(path, []))
+
+    client.request.side_effect = fake_request
+    mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient", return_value=mocker.Mock(schema=FAKE_SCHEMA))
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            for _ in range(30):
+                await pilot.pause()
+                labels = _current_labels(app)
+                if "auditLog" not in labels and any("project" in label for label in labels):
+                    break
+            labels = _current_labels(app)
+            assert not any("auditLog" in label for label in labels)
+            assert any("project" in label for label in labels)
+
+    _run(main())
+
+
+def test_probe_entity(mocker):
+    """We expect probe_entity to distinguish usable and gated endpoints."""
+    import httpx
+
+    def action():
+        return EntityAction(verb="all", method="GET", route="x.all")
+
+    ok_client = mocker.Mock()
+    ok_client.request.return_value = FakeResponse([], status_code=200)
+    assert probe_entity(ok_client, Entity(name="x", actions={"all": action()})) is True
+
+    forbidden_client = mocker.Mock()
+
+    def raise_403(method, path, params):
+        request = httpx.Request("GET", "https://example.com/api/x.all")
+        response = httpx.Response(403, request=request)
+        raise httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
+
+    forbidden_client.request.side_effect = raise_403
+    assert probe_entity(forbidden_client, Entity(name="x", actions={"all": action()})) is False
 
 
 async def _select_connection(app, pilot):
