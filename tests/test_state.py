@@ -66,7 +66,7 @@ def _responses():
                 }
             ],
         },
-        "git-provider.getAll": [
+        "gitProvider.getAll": [
             {
                 "gitProviderId": "gp1",
                 "name": "github-main",
@@ -134,5 +134,5 @@ class TestCollectState:
         paths = [call.args[1] for call in client.request.call_args_list]
         assert "project.all" in paths
         assert "project.one" in paths
-        assert "git-provider.getAll" in paths
+        assert "gitProvider.getAll" in paths
         assert "server.all" in paths
