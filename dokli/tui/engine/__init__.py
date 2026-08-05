@@ -7,6 +7,7 @@ generic list/detail/form views for any Dokploy API version.
 from dokli.tui.engine.introspect import field_label, infer_columns, record_id, record_subtitle, record_title
 from dokli.tui.engine.schemas import build_form_model
 from dokli.tui.engine.spec import (
+    DESTRUCTIVE_VERBS,
     Entity,
     EntityAction,
     EntityRegistry,
@@ -16,6 +17,7 @@ from dokli.tui.engine.spec import (
 )
 
 __all__ = [
+    "DESTRUCTIVE_VERBS",
     "Entity",
     "EntityAction",
     "EntityRegistry",

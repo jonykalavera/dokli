@@ -11,6 +11,7 @@ from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import (
+    DESTRUCTIVE_VERBS,
     EntityRegistry,
     classify,
     field_label,
@@ -18,6 +19,7 @@ from dokli.tui.engine import (
     record_id,
     record_title,
 )
+from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 
 if TYPE_CHECKING:
@@ -217,4 +219,38 @@ class RecordScreen(Screen):
                 ActionFormScreen(self.connection, action, record=self.record, classes="Entities")
             )
         else:
-            self.notify(f"'{action.verb}' action not implemented yet.", severity="warning")
+            self._confirm_action(action)
+
+    def _confirm_action(self, action) -> None:
+        """Confirm and run a non-form action (e.g. remove, deploy)."""
+        body = {}
+        schema = action.request_schema
+        if schema.get("properties"):
+            body = {
+                key: value
+                for key, value in self.record.items()
+                if key in schema["properties"] and value is not None
+            }
+        danger = action.verb in DESTRUCTIVE_VERBS
+        title = f"Run {action.route}?"
+        message = ", ".join(f"{key}={value}" for key, value in body.items()) or "(no body)"
+        self.app.push_screen(
+            ConfirmScreen(title=title, message=message, danger=danger),
+            callback=lambda confirmed: self._run_action(action, body) if confirmed else None,
+        )
+
+    def _run_action(self, action, body: dict) -> None:
+        client = APIClient(self.connection)
+        params: dict = {}
+        if body:
+            params["body"] = body
+        try:
+            client.request(action.method, action.route, params)
+        except httpx.HTTPError as err:
+            self.notify(f"API error: {err}", severity="error", timeout=10)
+            return
+        self.notify(f"{action.route} OK")
+        if action.verb in DESTRUCTIVE_VERBS:
+            self.dismiss(None)
+        else:
+            self.action_refresh()

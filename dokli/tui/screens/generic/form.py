@@ -12,8 +12,9 @@ from textual.widgets import Button, Footer, Header
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
-from dokli.tui.engine import EntityAction, build_form_model
+from dokli.tui.engine import DESTRUCTIVE_VERBS, EntityAction, build_form_model
 from dokli.tui.forms import Form
+from dokli.tui.screens.generic.confirm import ConfirmScreen
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -93,7 +94,19 @@ class ActionFormScreen(Screen):
                 else raw_value
             )
             body[key] = value
-        self._execute(body)
+        self._confirm_execute(body)
+
+    def _confirm_execute(self, body: dict) -> None:
+        summary = ", ".join(f"{key}={value}" for key, value in body.items())
+        danger = self.action.verb in DESTRUCTIVE_VERBS
+        self.app.push_screen(
+            ConfirmScreen(
+                title=f"Run {self.action.route}?",
+                message=summary,
+                danger=danger,
+            ),
+            callback=lambda confirmed: self._execute(body) if confirmed else None,
+        )
 
     def _execute(self, body: dict) -> None:
         log("submitting", self.action.route, body)
