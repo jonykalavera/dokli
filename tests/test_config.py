@@ -54,7 +54,13 @@ class TestConnectionConfig:
         assert config.api_key is None
         check_output = mocker.patch("dokli.config.subprocess.check_output", return_value=b"my api key from cmd")
         assert config.get_api_key() == "my api key from cmd"
-        check_output.assert_called_once_with(config.api_key_cmd.split())
+        check_output.assert_called_once_with(config.api_key_cmd, shell=True)
+
+    def test_api_key_cmd_supports_pipes(self, mocker):
+        """We expect the API key command to run through a shell (pipes work)."""
+        config = ConnectionConfigFactory.build(api_key_cmd="printf secret | tr a-z A-Z")
+        mocker.patch("dokli.config.subprocess.check_output", return_value=b"SECRET")
+        assert config.get_api_key() == "SECRET"
 
     def test_model_dump_clear_prints_clear_secrets(self):
         """We expect to be able to dump the config with clear secrets."""

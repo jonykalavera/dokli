@@ -193,6 +193,18 @@ projects:
 - `compose_file` accepts raw compose YAML or a path to a local file (mutually exclusive with `source`).
 - **Secrets are never stored in the manifest.** Git provider credentials are write-only in Dokploy's API; reference them with `token_cmd` (same pattern as `api_key_cmd`). `export` redacts service environment variables by default (`--include-secrets` to include them) and reports which providers need credentials.
 
+`*_cmd` references (`api_key_cmd`, `token_cmd`, `password_cmd`) run through a shell, so they can resolve secrets from tools like Ansible Vault:
+
+```yaml
+# dokploy.yaml
+projects:
+  - name: myapp
+    services:
+      - type: postgres
+        name: db
+        password_cmd: "ansible-vault view --vault-password-file ~/.vault-pass secrets/vault.yml | yq -r '.db_password'"
+```
+
 ### Workflow
 
 ```bash

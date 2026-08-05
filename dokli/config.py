@@ -50,7 +50,7 @@ class ConnectionConfig(BaseModel):
         if self.api_key is not None:
             return self.api_key.get_secret_value()
         assert self.api_key_cmd, "Must provide api_key or api_key_cmd."
-        raw_output = subprocess.check_output(self.api_key_cmd.split())
+        raw_output = subprocess.check_output(self.api_key_cmd, shell=True)
         output = raw_output.decode("utf-8").strip().strip("\n")
         return output
 

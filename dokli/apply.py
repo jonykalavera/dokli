@@ -266,7 +266,7 @@ class Applier:
         if service_def.password:
             return service_def.password
         if service_def.password_cmd:
-            output = subprocess.check_output(service_def.password_cmd.split())
+            output = subprocess.check_output(service_def.password_cmd, shell=True)
             return output.decode("utf-8").strip()
         generated = secrets.token_urlsafe(24)
         self.report.warnings.append(
