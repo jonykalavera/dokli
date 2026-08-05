@@ -20,11 +20,16 @@ def probe_entity(client, entity) -> bool:
 
     Only 401/403 mark an entity as unusable. Bad input (4xx), a missing
     resource (404) and transport errors (timeout, refused connection) leave it
-    usable so a transient network blip does not hide the entity.
+    usable so a transient network blip does not hide the entity. An ``all``
+    action that requires parameters (e.g. ``deployment.all`` needs an
+    ``applicationId``) cannot be listed from the top level, so it counts as
+    unusable too.
     """
     action = entity.get("all")
     if action is None:
         return True
+    if action.required_params:
+        return False
     try:
         response = client.request("GET", action.route, {})
         return response.status_code in USABLE_STATUS

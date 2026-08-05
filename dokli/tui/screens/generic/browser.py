@@ -463,9 +463,22 @@ class BrowserScreen(Screen):
         entity = self.registry.get(self._selected_kind() or "")
         entity_name = entity.name if entity else ""
         for param in action.param_names:
-            value = record.get(param) or record_id(record, entity_name)
+            value = record.get(param)
+            # Only backfill the entity's own id (for records that use a plain
+            # ``id``); never inject it into other params like ``containerId``,
+            # ``tail`` or ``since``, which would make the request invalid.
+            if not value and param == f"{entity_name}Id":
+                value = record_id(record, entity_name)
             if value:
                 params[param] = value
+        missing = [param for param in action.required_params if not params.get(param)]
+        if missing:
+            self.notify(
+                f"Missing required: {', '.join(missing)} (not in the record)",
+                severity="warning",
+                timeout=10,
+            )
+            return
         data = await self._api_get(action, params)
         if data is not None:
             self.app.push_screen(

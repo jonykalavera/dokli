@@ -10,7 +10,7 @@ from dokli.tui.app import DokliApp
 from dokli.tui.engine import build_form_model, parse_spec, probe_entity, record_title, clear_probe_cache
 from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
-from dokli.tui.screens.generic.browser import BrowserScreen
+from dokli.tui.screens.generic.browser import BrowserScreen, Level
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.result import ResultScreen
@@ -67,6 +67,25 @@ FAKE_SCHEMA = {
                         }
                     }
                 }
+            }
+        },
+        "/compose.readLogs": {
+            "get": {
+                "parameters": [
+                    {"name": "composeId", "in": "query", "required": True},
+                    {"name": "containerId", "in": "query", "required": True},
+                    {"name": "tail", "in": "query"},
+                    {"name": "since", "in": "query"},
+                    {"name": "search", "in": "query"},
+                ]
+            }
+        },
+        "/application.readLogs": {
+            "get": {
+                "parameters": [
+                    {"name": "applicationId", "in": "query", "required": True},
+                    {"name": "tail", "in": "query"},
+                ]
             }
         },
         "/server.all": {"get": {}},
@@ -595,6 +614,66 @@ def test_query_action_shows_result(mocker):
             assert "Projects" in text
             assert "Compose" in text
             assert "Running" in text
+
+    _run(main())
+
+
+def test_read_logs_params_only_backfill_entity_id(mocker):
+    """We expect GET params to backfill only the entity's own id, never other params."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            action = registry.get("application").get("readLogs")
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "application", "applicationId": "a1", "name": "web"}],
+                    entity="application",
+                )
+            ]
+            screen.current.index = 0
+            await screen._show_result(action)
+            await pilot.pause()
+            assert isinstance(app.screen, ResultScreen)
+            _, _, params = screen.client.request.call_args.args
+            assert params == {"applicationId": "a1"}
+
+    _run(main())
+
+
+def test_read_logs_reports_missing_required_param(mocker):
+    """We expect a GET action with a required param missing from the record
+    (e.g. compose.readLogs needs containerId) to notify instead of firing an
+    invalid request."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.notify = mocker.Mock()
+            action = registry.get("compose").get("readLogs")
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            await screen._show_result(action)
+            screen.notify.assert_called_once()
+            assert "containerId" in screen.notify.call_args.args[0]
+            assert not any(
+                call[0][1] == "compose.readLogs" for call in screen.client.request.call_args_list
+            )
 
     _run(main())
 

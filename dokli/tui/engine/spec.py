@@ -14,6 +14,7 @@ class EntityAction(BaseModel):
     summary: str = ""
     request_schema: dict = Field(default_factory=dict)
     param_names: list[str] = Field(default_factory=list)
+    required_params: list[str] = Field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -203,13 +204,17 @@ def parse_spec(schema: dict) -> EntityRegistry:
             continue
         entity_name, _, verb = route.partition(".")
         for method, details in methods.items():
+            parameters = details.get("parameters", [])
             action = EntityAction(
                 verb=verb,
                 method=method.upper(),
                 route=route,
                 summary=(details.get("summary") or details.get("description") or "").strip(),
                 request_schema=_extract_request_schema(details),
-                param_names=[parameter["name"] for parameter in details.get("parameters", [])],
+                param_names=[parameter["name"] for parameter in parameters],
+                required_params=[
+                    parameter["name"] for parameter in parameters if parameter.get("required")
+                ],
             )
             entity = registry.entities.setdefault(entity_name, Entity(name=entity_name))
             entity.actions[verb] = action
