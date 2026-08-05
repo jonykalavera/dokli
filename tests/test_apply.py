@@ -307,6 +307,34 @@ class TestApplyDatabases:
         assert body["databaseUser"] == "db"
         assert body["environmentId"] == "e-new"
 
+    def test_password_cmd_runs_through_shell(self, mocker):
+        """We expect password_cmd to support shell pipelines."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "redis",
+                                "name": "cache",
+                                "password_cmd": "printf hunter2 | tr a-z A-Z",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        client = _applier(mocker, State(connection="test-env"))
+        check_output = mocker.patch("dokli.apply.subprocess.check_output", return_value=b"HUNTER2")
+
+        Applier(manifest, _connection()).run()
+
+        check_output.assert_called_with("printf hunter2 | tr a-z A-Z", shell=True)
+        create_calls = [call for call in client.request.call_args_list if call.args[1] == "redis.create"]
+        assert create_calls[0].args[2]["body"]["databasePassword"] == "HUNTER2"
+
     def test_generates_password_when_missing(self, mocker):
         """We expect a generated password with a warning when none is provided."""
         manifest = Manifest.model_validate(
