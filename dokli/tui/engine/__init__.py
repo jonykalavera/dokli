@@ -10,7 +10,6 @@ from dokli.tui.engine.introspect import (
     field_label,
     infer_columns,
     record_id,
-    record_subtitle,
     record_title,
 )
 from dokli.tui.engine.probe import clear_probe_cache, probe_entities, probe_entity
@@ -46,6 +45,5 @@ __all__ = [
     "probe_entities",
     "probe_entity",
     "record_id",
-    "record_subtitle",
     "record_title",
 ]

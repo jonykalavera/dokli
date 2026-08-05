@@ -1,5 +1,6 @@
 """Yazi-style 3-column browser over the schema-driven hierarchy."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ from dokli.tui.engine import (
     EntityRegistry,
     action_bindings,
     classify,
+    clear_probe_cache,
     collect_children,
     entity_icon,
     field_label,
@@ -95,8 +97,15 @@ class BrowserScreen(Screen):
 
     async def on_mount(self) -> None:
         """On mount, probe which entities are usable with this API key."""
-        results = probe_entities(self.client, self.registry, self.connection.name)
+        await self._run_reprobe()
+
+    async def _run_reprobe(self) -> None:
+        """Probe entity usability in a worker thread, then refresh the list."""
+        results = await asyncio.to_thread(
+            probe_entities, self.client, self.registry, self.connection.name
+        )
         self._usable = {name for name, usable in results.items() if usable}
+        await self._refresh_all()
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -212,12 +221,29 @@ class BrowserScreen(Screen):
                     widgets.append(Label(f"  {entity_icon(child_entity)}  {record_title(child)}"))
             entity = self.registry.get(kind)
             if entity:
-                bindings = action_bindings(entity)
+                bindings = self._entity_bindings(entity)
                 if bindings:
                     widgets.append(Label("Actions", classes="section"))
                     for action, key in bindings:
                         widgets.append(Label(f"  [{'b'}]{key or '-'}[/] {action.verb}"))
         await container.mount(*widgets)
+
+    def _entity_bindings(self, entity) -> list:
+        """Action keybindings for an entity.
+
+        At the top-level entity list the "selected" item is a synthetic record,
+        so only actions that do not need an existing record are exposed:
+        create/new and read-only GET queries. Once inside a real record, all
+        actions (update, remove, ...) are available.
+        """
+        bindings = action_bindings(entity)
+        if self.current.kind == "entities":
+            bindings = [
+                (action, key)
+                for action, key in bindings
+                if action.verb in ("create", "new") or action.method == "GET"
+            ]
+        return bindings
 
     def _fmt(self, value) -> str:
         if isinstance(value, dict | list):
@@ -302,9 +328,11 @@ class BrowserScreen(Screen):
         self._rerender()
 
     async def action_refresh(self) -> None:
-        """Reload the current level."""
+        """Reload the current level (re-probing entity usability at the top)."""
         level = self.current
         if level.kind == "entities":
+            clear_probe_cache(self.connection.name)
+            await self._run_reprobe()
             return
         entity = self.registry.get(level.entity or "")
         if entity is None:
@@ -399,7 +427,7 @@ class BrowserScreen(Screen):
         entity = self.registry.get(self._selected_kind() or "")
         if entity is None:
             return
-        for action, key in action_bindings(entity):
+        for action, key in self._entity_bindings(entity):
             if key and key == event.character:
                 self._run_action(action)
                 event.stop()

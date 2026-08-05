@@ -8,15 +8,20 @@ hide the ones that cannot be used, regardless of the Dokploy version.
 
 import httpx
 
-# Status codes that mean the endpoint is reachable/authorized (a 4xx here is a
-# bad-input or not-found, not an authorization problem).
-USABLE_STATUS = {200, 400, 404, 422}
+# Status codes that mean the endpoint is authorized. Because APIClient raises on
+# non-2xx, only 2xx actually reach this check (a bare 204 still counts as usable).
+USABLE_STATUS = range(200, 300)
 
 _PROBE_CACHE: dict[str, dict[str, bool]] = {}
 
 
 def probe_entity(client, entity) -> bool:
-    """Return True if the entity's list action is usable (not 401/403)."""
+    """Return True if the entity's list action is usable (not 401/403).
+
+    Only 401/403 mark an entity as unusable. Bad input (4xx), a missing
+    resource (404) and transport errors (timeout, refused connection) leave it
+    usable so a transient network blip does not hide the entity.
+    """
     action = entity.get("all")
     if action is None:
         return True
@@ -26,7 +31,7 @@ def probe_entity(client, entity) -> bool:
     except httpx.HTTPStatusError as err:
         return err.response.status_code not in (401, 403)
     except httpx.HTTPError:
-        return False
+        return True
 
 
 def probe_entities(client, registry, connection_name: str) -> dict[str, bool]:

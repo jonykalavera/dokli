@@ -656,6 +656,13 @@ def test_probe_entity(mocker):
     forbidden_client.request.side_effect = raise_403
     assert probe_entity(forbidden_client, Entity(name="x", actions={"all": action()})) is False
 
+    def raise_transport(method, path, params):
+        raise httpx.ConnectError("connection refused", request=httpx.Request("GET", "https://example.com/api/x.all"))
+
+    transport_client = mocker.Mock()
+    transport_client.request.side_effect = raise_transport
+    assert probe_entity(transport_client, Entity(name="x", actions={"all": action()})) is True
+
 
 async def _select_connection(app, pilot):
     list_view = app.screen.query_one("#connections-list")
