@@ -537,6 +537,29 @@ def test_browser_reloads_current_level_after_action(mocker):
     _run(main())
 
 
+def test_create_form_opens_empty(mocker):
+    """We expect a create action to open an empty form, not prefilled."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            await pilot.press("c")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, ActionFormScreen)
+            form = app.screen.form
+            assert form.fields["name"].value == ""
+
+    _run(main())
+
+
 async def _select_connection(app, pilot):
     list_view = app.screen.query_one("#connections-list")
     list_view.index = 0

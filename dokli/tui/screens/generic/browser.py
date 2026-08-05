@@ -416,20 +416,26 @@ class BrowserScreen(Screen):
         )
 
     async def _open_form(self, action) -> None:
-        """Open an action form, enriched with the full record via ``one`` when available."""
-        record = self.selected or {}
-        entity = self.registry.get(self._selected_kind() or "")
-        one_action = entity.get("one") if entity else None
-        if entity is not None and one_action is not None:
-            params = {
-                param: record.get(param) or record_id(record, entity.name)
-                for param in one_action.param_names
-            }
-            params = {key: value for key, value in params.items() if value}
-            if params:
-                enriched = await self._api_get(one_action, params)
-                if enriched:
-                    record = enriched
+        """Open an action form.
+
+        Create actions start empty; update/save/edit actions are enriched with
+        the full record via ``one`` when available.
+        """
+        record: dict = {}
+        if action.verb not in ("create", "new"):
+            record = self.selected or {}
+            entity = self.registry.get(self._selected_kind() or "")
+            one_action = entity.get("one") if entity else None
+            if entity is not None and one_action is not None:
+                params = {
+                    param: record.get(param) or record_id(record, entity.name)
+                    for param in one_action.param_names
+                }
+                params = {key: value for key, value in params.items() if value}
+                if params:
+                    enriched = await self._api_get(one_action, params)
+                    if enriched:
+                        record = enriched
         self.app.push_screen(
             ActionFormScreen(self.connection, action, record=record, classes="Entities")
         )
