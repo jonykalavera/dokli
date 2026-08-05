@@ -43,6 +43,29 @@ FAKE_SCHEMA = {
         "/environment.one": {
             "get": {"parameters": [{"name": "environmentId", "in": "query", "required": True}]}
         },
+        "/compose.one": {
+            "get": {"parameters": [{"name": "composeId", "in": "query", "required": True}]}
+        },
+        "/compose.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "sourceType": {"type": "string", "enum": ["raw", "github"]},
+                                    "composeType": {"type": "string", "enum": ["docker-compose", "stack"]},
+                                    "composeFile": {"type": "string"},
+                                    "name": {"type": "string"},
+                                },
+                                "required": ["name"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/server.all": {"get": {}},
     }
 }
@@ -80,6 +103,13 @@ def _fake_requests():
             "environmentId": "e1",
             "name": "production",
             "compose": [{"composeId": "c1", "name": "torrents"}],
+        },
+        "compose.one": {
+            "composeId": "c1",
+            "name": "torrents",
+            "sourceType": "raw",
+            "composeType": "docker-compose",
+            "composeFile": "version: '3'",
         },
     }
 
@@ -447,6 +477,38 @@ def test_filter_reset_after_drill(mocker):
             assert any("media" in label for label in labels)
             assert any("services" in label for label in labels)
             assert app.screen._filter == ""
+
+    _run(main())
+
+
+def test_update_form_enriches_record_via_one(mocker):
+    """We expect opening an update form to enrich the record via one."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            _select(app, "media")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "production")
+            _select(app, "production")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "torrents")
+            await pilot.press("u")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, ActionFormScreen)
+            form = app.screen.form
+            assert form.fields["sourceType"].value == "raw"
+            assert form.fields["composeFile"].value == "version: '3'"
 
     _run(main())
 
