@@ -86,9 +86,9 @@ class State(BaseModel):
     servers: list[LiveServer] = Field(default_factory=list)
 
 
-def collect_state(connection: ConnectionConfig) -> State:
+def collect_state(connection: ConnectionConfig, client: APIClient | None = None) -> State:
     """Collect the live state of a connection."""
-    client = APIClient(connection)
+    client = client or APIClient(connection)
     raw_projects = client.request("GET", "project.all", {}).json()
     raw_providers = client.request("GET", "gitProvider.getAll", {}).json()
     raw_servers = client.request("GET", "server.all", {}).json()

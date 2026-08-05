@@ -67,11 +67,19 @@ class APIClient:
 
         formatted_path = path.format(**path_params)
 
+        request_kwargs: dict[str, Any] = {
+            "params": query_params,
+            "headers": self.headers,
+        }
+        if body is not None:
+            if isinstance(body, dict | list):
+                request_kwargs["json"] = body
+            else:
+                request_kwargs["data"] = body
+
         response = getattr(self.session, method.lower())(
             url=f"{self.base_url}{formatted_path}",
-            params=query_params,
-            headers=self.headers,
-            **({"data": body} if body else {}),
+            **request_kwargs,
         )
         response.raise_for_status()
         return response

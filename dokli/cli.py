@@ -7,6 +7,7 @@ import yaml
 from rich import print as rprint
 from rich.table import Table
 
+from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
 from dokli.diff import build_plan
 from dokli.manifest import Manifest
@@ -81,6 +82,35 @@ def plan_command(
         details = ", ".join(item.changed) if item.changed else item.reason
         table.add_row(item.action, item.kind, item.project, item.name, details)
     rprint(table)
+
+
+def _print_apply_report(report) -> None:
+    if not report.actions:
+        rprint("[green]No changes.[/green]")
+        return
+    table = Table(title="Apply report")
+    table.add_column("Action")
+    table.add_column("Kind")
+    table.add_column("Project")
+    table.add_column("Name")
+    table.add_column("Details")
+    for action in report.actions:
+        table.add_row(action.action, action.kind, action.project, action.name, action.details)
+    rprint(table)
+
+
+@app.command(name="apply")
+def apply_command(
+    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without applying."),
+    deploy: bool = typer.Option(False, "--deploy", help="Deploy services after applying."),
+) -> None:
+    """Apply the manifest to a Dokploy instance (idempotent, additive)."""
+    manifest = Manifest.load(manifest_file)
+    connection = _get_connection(manifest.connection)
+    applier = Applier(manifest, connection, deploy=deploy)
+    report = applier.run(dry_run=dry_run)
+    _print_apply_report(report)
 
 
 @app.callback(no_args_is_help=True)
