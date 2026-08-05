@@ -93,11 +93,22 @@ class BrowserScreen(Screen):
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
         self.app.sub_title = f"{self.connection.name} - Browser"
-        self._rerender()
+        self.run_worker(self._refresh_current, exclusive=True)  # type: ignore[arg-type]
 
     def _rerender(self) -> None:
         """Schedule a re-render of the browser panes."""
         self.run_worker(self._refresh_all, exclusive=True)  # type: ignore[arg-type]
+
+    async def _refresh_current(self) -> None:
+        """Reload the current level's data, then re-render."""
+        if self.current.kind == "entities":
+            await self._refresh_all()
+        else:
+            await self.action_refresh()
+
+    def _refresh_after_action(self) -> None:
+        """Schedule a reload of the current level (used after actions/forms)."""
+        self.run_worker(self._refresh_current, exclusive=True)  # type: ignore[arg-type]
 
     # -- state ------------------------------------------------------------
 
@@ -292,6 +303,17 @@ class BrowserScreen(Screen):
             record = level.record or (self.parent_level.record if self.parent_level else None)
             if record is None:
                 return
+            one_action = entity.get("one")
+            if one_action is not None:
+                params = {
+                    param: record.get(param) or record_id(record, entity.name)
+                    for param in one_action.param_names
+                }
+                params = {key: value for key, value in params.items() if value}
+                if params:
+                    enriched = await self._api_get(one_action, params)
+                    if enriched:
+                        record = enriched
             children = collect_children(record)
             level.items = [{"_kind": child_entity, **child} for child_entity, child in children]
         else:
@@ -303,6 +325,8 @@ class BrowserScreen(Screen):
                 return
             records = data if isinstance(data, list) else data.get("items", [])
             level.items = [{"_kind": level.entity, **record} for record in records]
+        if level.index >= len(level.items):
+            level.index = max(0, len(level.items) - 1)
         self._rerender()
 
     def action_filter(self) -> None:
@@ -388,7 +412,7 @@ class BrowserScreen(Screen):
             self.connection,
             action,
             body,
-            on_success=self._rerender,
+            on_success=self._refresh_after_action,
         )
 
     async def _open_form(self, action) -> None:

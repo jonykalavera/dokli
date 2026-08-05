@@ -124,7 +124,7 @@ def _patch_api(mocker):
     client.request.side_effect = fake_request
     mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
     mocker.patch("dokli.tui.app.APIClient", return_value=mocker.Mock(schema=FAKE_SCHEMA))
-    return client
+    return responses
 
 
 def _run(coro):
@@ -509,6 +509,30 @@ def test_update_form_enriches_record_via_one(mocker):
             form = app.screen.form
             assert form.fields["sourceType"].value == "raw"
             assert form.fields["composeFile"].value == "version: '3'"
+
+    _run(main())
+
+
+def test_browser_reloads_current_level_after_action(mocker):
+    """We expect the current level to reload when resuming after an action."""
+    responses = _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            assert any("media" in label for label in _current_labels(app))
+            responses["project.all"] = [
+                {"projectId": "p1", "name": "media"},
+                {"projectId": "p3", "name": "brand-new"},
+            ]
+            app.screen.on_screen_resume(None)
+            await _wait_for_label(app, pilot, "brand-new")
 
     _run(main())
 
