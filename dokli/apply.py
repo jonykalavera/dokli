@@ -15,7 +15,7 @@ from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
-from dokli.state import LiveGitProvider, LiveProject, LiveService, collect_state
+from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
 
 
 class ApplyAction(BaseModel):
@@ -24,6 +24,7 @@ class ApplyAction(BaseModel):
     action: Literal["create", "update", "validate", "skip"]
     kind: Literal[
         "project",
+        "environment",
         "compose",
         "application",
         "postgres",
@@ -56,10 +57,12 @@ class Applier:
         self.deploy = deploy
         self.report = ApplyReport()
         self._live_providers: dict[str, LiveGitProvider] = {}
+        self._state: State = State(connection="")
 
     def run(self, dry_run: bool = False) -> ApplyReport:
         """Apply the manifest, optionally only planning (dry_run)."""
         state = collect_state(self.connection, client=self.client)
+        self._state = state
         self._live_providers = {provider.name: provider for provider in state.git_providers}
         self._validate_git_providers()
 
@@ -111,24 +114,30 @@ class Applier:
             self.report.actions.append(
                 ApplyAction(action="create", kind="project", project=project_def.name, name=project_def.name)
             )
-            for service_def in project_def.services:
+            self._plan_services(project_def, project_def.services)
+            for env_def in project_def.environments:
                 self.report.actions.append(
                     ApplyAction(
-                        action="create", kind=service_def.type, project=project_def.name, name=service_def.name
+                        action="create", kind="environment", project=project_def.name, name=env_def.name
                     )
                 )
+                self._plan_services(project_def, env_def.services)
             return
 
         payload: dict[str, Any] = {"name": project_def.name}
         if project_def.description:
             payload["description"] = project_def.description
         response = self.client.request("POST", "project.create", {"body": payload}).json()
-        environment_id = response["environment"]["environmentId"]
+        default_environment_id = response["environment"]["environmentId"]
+        project_id = response["project"]["projectId"]
         self.report.actions.append(
             ApplyAction(action="create", kind="project", project=project_def.name, name=project_def.name)
         )
-        for service_def in project_def.services:
-            self._create_service(project_def.name, service_def, environment_id, dry_run=False)
+        self._apply_services(project_def, project_def.services, default_environment_id)
+        for env_def in project_def.environments:
+            environment_id = self._create_environment(project_def.name, project_id, env_def.name, dry_run=False)
+            if environment_id:
+                self._apply_services(project_def, env_def.services, environment_id)
 
     def _apply_to_project(self, project_def, live_project: LiveProject, dry_run: bool) -> None:
         default_environment = next(
@@ -146,13 +155,66 @@ class Applier:
                 )
             )
             return
-        live_services = {service.name: service for service in default_environment.services}
-        for service_def in project_def.services:
+        self._apply_services(project_def, project_def.services, default_environment.environment_id, dry_run)
+
+        for env_def in project_def.environments:
+            live_env = next(
+                (environment for environment in live_project.environments if environment.name == env_def.name),
+                None,
+            )
+            if live_env is None:
+                environment_id = self._create_environment(
+                    project_def.name, live_project.project_id, env_def.name, dry_run
+                )
+            else:
+                environment_id = live_env.environment_id
+            if environment_id:
+                self._apply_services(project_def, env_def.services, environment_id, dry_run)
+
+    def _apply_services(self, project_def, service_defs, environment_id: str, dry_run: bool = False) -> None:
+        """Create or update a list of services within an environment."""
+        live_services = self._live_services(project_def.name, environment_id)
+        for service_def in service_defs:
             live_service = live_services.get(service_def.name)
             if live_service is None:
-                self._create_service(project_def.name, service_def, default_environment.environment_id, dry_run)
+                self._create_service(project_def.name, service_def, environment_id, dry_run)
             else:
                 self._update_service(project_def.name, service_def, live_service, dry_run)
+
+    def _live_services(self, project_name: str, environment_id: str) -> dict[str, LiveService]:
+        """Resolve live services for an environment id.
+
+        Uses the state snapshot captured at the start of the run.
+        """
+        state = self._state
+        for project in state.projects:
+            if project.name != project_name:
+                continue
+            for environment in project.environments:
+                if environment.environment_id == environment_id:
+                    return {service.name: service for service in environment.services}
+        return {}
+
+    def _plan_services(self, project_def, service_defs) -> None:
+        """Record create actions for services (dry-run helper)."""
+        for service_def in service_defs:
+            self.report.actions.append(
+                ApplyAction(action="create", kind=service_def.type, project=project_def.name, name=service_def.name)
+            )
+
+    def _create_environment(self, project_name: str, project_id: str, env_name: str, dry_run: bool) -> str | None:
+        """Ensure a named environment exists and return its id."""
+        if dry_run:
+            self.report.actions.append(
+                ApplyAction(action="create", kind="environment", project=project_name, name=env_name)
+            )
+            return None
+        payload = {"projectId": project_id, "name": env_name}
+        response = self.client.request("POST", "environment.create", {"body": payload}).json()
+        self.report.actions.append(
+            ApplyAction(action="create", kind="environment", project=project_name, name=env_name)
+        )
+        return response["environmentId"]
 
     def _create_service(self, project_name: str, service_def: Service, environment_id: str, dry_run: bool) -> None:
         if dry_run:

@@ -10,6 +10,7 @@ from dokli.manifest import (
     ApplicationService,
     ComposeService,
     DatabaseService,
+    EnvironmentDef,
     GitProvider,
     GitSource,
     Manifest,
@@ -71,14 +72,31 @@ def _export_project(project, include_secrets: bool, warnings: list[str]) -> Proj
         (environment for environment in project.environments if environment.is_default),
         None,
     )
-    services: list[Service] = []
+    default_services: list[Service] = []
     if default_environment is not None:
-        services = [
+        default_services = [
             service
             for live in default_environment.services
             if (service := _export_service(live, include_secrets, warnings)) is not None
         ]
-    return ProjectDef(name=project.name, description=project.description or None, services=services)
+    environments = [
+        EnvironmentDef(
+            name=environment.name,
+            services=[
+                service
+                for live in environment.services
+                if (service := _export_service(live, include_secrets, warnings)) is not None
+            ],
+        )
+        for environment in project.environments
+        if not environment.is_default and environment.services
+    ]
+    return ProjectDef(
+        name=project.name,
+        description=project.description or None,
+        services=default_services,
+        environments=environments,
+    )
 
 
 def _export_service(live: LiveService, include_secrets: bool, warnings: list[str]) -> Service | None:

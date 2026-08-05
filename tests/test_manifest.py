@@ -70,6 +70,28 @@ class TestManifest:
         assert service.database_name == "appdb"
         assert service.password_cmd == "secret-tool lookup dokli db"
 
+    def test_environments(self):
+        """We expect named environments to be parsed."""
+        manifest = _load_manifest(
+            """
+            connection: prod
+            projects:
+              - name: myapp
+                services:
+                  - type: compose
+                    name: backend
+                environments:
+                  - name: staging
+                    services:
+                      - type: compose
+                        name: api
+            """
+        )
+        project = manifest.projects[0]
+        assert project.services[0].name == "backend"
+        assert project.environments[0].name == "staging"
+        assert project.environments[0].services[0].name == "api"
+
     def test_get_git_provider_raises_for_unknown(self):
         """We expect an error when a git provider is not defined."""
         manifest = _load_manifest(

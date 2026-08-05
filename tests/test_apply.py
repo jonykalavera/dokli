@@ -70,6 +70,8 @@ def _applier(mocker, state: State, responses: dict | None = None):
             return FakeResponse({"composeId": "c-new"})
         if path == "application.create":
             return FakeResponse({"applicationId": "a-new"})
+        if path == "environment.create":
+            return FakeResponse({"environmentId": "env-staging"})
         for service_type in ("postgres", "mysql", "mariadb", "mongo", "redis"):
             if path == f"{service_type}.create":
                 return FakeResponse({f"{service_type}Id": f"{service_type}-new"})
@@ -271,6 +273,92 @@ class TestApplyDeploy:
         deploy_calls = [call for call in client.request.call_args_list if call.args[1] == "compose.deploy"]
         assert len(deploy_calls) == 1
         assert deploy_calls[0].args[2]["body"] == {"composeId": "c-new"}
+
+
+class TestApplyEnvironments:
+    """Multi-environment apply flows."""
+
+    def test_creates_missing_environment(self, mocker):
+        """We expect a named environment to be created when missing."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "environments": [
+                            {
+                                "name": "staging",
+                                "services": [{"type": "compose", "name": "api", "compose_file": "x: 1"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = State(connection="test-env", projects=[_project_live("app", [])])
+        client = _applier(mocker, state)
+
+        Applier(manifest, _connection()).run()
+
+        env_calls = [call for call in client.request.call_args_list if call.args[1] == "environment.create"]
+        assert len(env_calls) == 1
+        assert env_calls[0].args[2]["body"] == {"projectId": "app", "name": "staging"}
+        compose_calls = [call for call in client.request.call_args_list if call.args[1] == "compose.create"]
+        assert compose_calls
+        assert compose_calls[0].args[2]["body"]["environmentId"] == "env-staging"
+
+    def test_uses_existing_environment(self, mocker):
+        """We expect existing named environments to be reused."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "environments": [
+                            {
+                                "name": "staging",
+                                "services": [{"type": "compose", "name": "api", "compose_file": "x: 1"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        staging = LiveEnvironment(
+            environment_id="e-staging",
+            name="staging",
+            is_default=False,
+            services=[],
+        )
+        state = State(
+            connection="test-env",
+            projects=[
+                LiveProject(
+                    project_id="app",
+                    name="app",
+                    environments=[
+                        LiveEnvironment(
+                            environment_id="e1",
+                            name="production",
+                            is_default=True,
+                            services=[],
+                        ),
+                        staging,
+                    ],
+                )
+            ],
+        )
+        client = _applier(mocker, state)
+
+        Applier(manifest, _connection()).run()
+
+        env_calls = [call for call in client.request.call_args_list if call.args[1] == "environment.create"]
+        assert env_calls == []
+        compose_calls = [call for call in client.request.call_args_list if call.args[1] == "compose.create"]
+        assert compose_calls
+        assert compose_calls[0].args[2]["body"]["environmentId"] == "e-staging"
 
 
 class TestApplyDatabases:

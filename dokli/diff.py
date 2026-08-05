@@ -15,6 +15,7 @@ class PlanItem(BaseModel):
     action: Literal["create", "update", "validate"]
     kind: Literal[
         "project",
+        "environment",
         "compose",
         "application",
         "postgres",
@@ -69,41 +70,96 @@ def build_plan(manifest: Manifest, state: State) -> Plan:
                         reason="Service will be created with the project.",
                     )
                 )
-            continue
-
-        default_environment = _default_environment(live_project)
-        live_services = {
-            service.name: service for service in (default_environment.services if default_environment else [])
-        }
-
-        for service_def in project_def.services:
-            live_service = live_services.get(service_def.name)
-            if live_service is None:
+            for env_def in project_def.environments:
                 items.append(
                     PlanItem(
                         action="create",
-                        kind=service_def.type,
+                        kind="environment",
                         project=project_def.name,
-                        name=service_def.name,
-                        reason="Service does not exist.",
+                        name=env_def.name,
+                        reason="Environment will be created with the project.",
                     )
                 )
-            else:
-                changed = _service_changes(service_def, live_service)
-                if changed:
+                for service_def in env_def.services:
                     items.append(
                         PlanItem(
-                            action="update",
+                            action="create",
                             kind=service_def.type,
                             project=project_def.name,
                             name=service_def.name,
-                            changed=changed,
+                            reason="Service will be created with the environment.",
                         )
                     )
+            continue
+
+        default_environment = _default_environment(live_project)
+        _plan_services(
+            project_def,
+            project_def.services,
+            default_environment.services if default_environment else [],
+            items,
+        )
+
+        for env_def in project_def.environments:
+            live_env = next(
+                (environment for environment in live_project.environments if environment.name == env_def.name),
+                None,
+            )
+            if live_env is None:
+                items.append(
+                    PlanItem(
+                        action="create",
+                        kind="environment",
+                        project=project_def.name,
+                        name=env_def.name,
+                        reason="Environment does not exist.",
+                    )
+                )
+                for service_def in env_def.services:
+                    items.append(
+                        PlanItem(
+                            action="create",
+                            kind=service_def.type,
+                            project=project_def.name,
+                            name=service_def.name,
+                            reason="Service will be created with the environment.",
+                        )
+                    )
+            else:
+                _plan_services(project_def, env_def.services, live_env.services, items)
 
     _plan_git_providers(manifest, state, items)
 
     return Plan(connection=state.connection, items=items)
+
+
+def _plan_services(project_def, service_defs, live_services, items: list[PlanItem]) -> None:
+    """Plan services of one environment against its live services."""
+    live = {service.name: service for service in live_services}
+    for service_def in service_defs:
+        live_service = live.get(service_def.name)
+        if live_service is None:
+            items.append(
+                PlanItem(
+                    action="create",
+                    kind=service_def.type,
+                    project=project_def.name,
+                    name=service_def.name,
+                    reason="Service does not exist.",
+                )
+            )
+        else:
+            changed = _service_changes(service_def, live_service)
+            if changed:
+                items.append(
+                    PlanItem(
+                        action="update",
+                        kind=service_def.type,
+                        project=project_def.name,
+                        name=service_def.name,
+                        changed=changed,
+                    )
+                )
 
 
 def _plan_git_providers(manifest: Manifest, state: State, items: list[PlanItem]) -> None:
