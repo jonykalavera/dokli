@@ -20,12 +20,16 @@ from dokli.tui.engine import (
     collect_children,
     entity_icon,
     field_label,
+    param_source,
     probe_entities,
     record_id,
     record_title,
+    related_records,
+    related_spec,
 )
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
+from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 
 if TYPE_CHECKING:
@@ -83,6 +87,7 @@ class BrowserScreen(Screen):
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
         self._usable: set[str] | None = None
+        self._related_cache: dict[str, list[dict]] = {}
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""
@@ -101,9 +106,7 @@ class BrowserScreen(Screen):
 
     async def _run_reprobe(self) -> None:
         """Probe entity usability in a worker thread, then refresh the list."""
-        results = await asyncio.to_thread(
-            probe_entities, self.client, self.registry, self.connection.name
-        )
+        results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)
         self._usable = {name for name, usable in results.items() if usable}
         await self._refresh_all()
 
@@ -151,6 +154,14 @@ class BrowserScreen(Screen):
         if not selected:
             return None
         return selected.get("_kind") or (self.current.kind if self.current.kind != "entities" else None)
+
+    def _related_records(self, record: dict) -> list[dict]:
+        """Related records of a selected record, cached by record identity."""
+        kind = self._selected_kind() or ""
+        key = f"{kind}:{record_id(record, kind)}"
+        if key not in self._related_cache:
+            self._related_cache[key] = related_records(self.client, self.registry, kind, record)
+        return self._related_cache[key]
 
     def _item_label(self, item: dict, level: Level) -> str:
         title = record_title(item)
@@ -219,6 +230,16 @@ class BrowserScreen(Screen):
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
                 for child_entity, child in children[:10]:
                     widgets.append(Label(f"  {entity_icon(child_entity)}  {record_title(child)}"))
+            related = self._related_records(selected)
+            if related:
+                spec = related_spec(kind)
+                label = spec["label"] if spec else "Related"
+                widgets.append(Label(f"{label} ({len(related)})", classes="section"))
+                for item in related[:10]:
+                    title = item.get("name") or record_id(item) or "?"
+                    status = item.get("state") or item.get("status")
+                    suffix = f" ({status})" if status else ""
+                    widgets.append(Label(f"  {entity_icon('docker')}  {title}{suffix}"))
             entity = self.registry.get(kind)
             if entity:
                 bindings = self._entity_bindings(entity)
@@ -239,9 +260,7 @@ class BrowserScreen(Screen):
         bindings = action_bindings(entity)
         if self.current.kind == "entities":
             bindings = [
-                (action, key)
-                for action, key in bindings
-                if action.verb in ("create", "new") or action.method == "GET"
+                (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
             ]
         return bindings
 
@@ -310,8 +329,7 @@ class BrowserScreen(Screen):
             record = selected
             if one_action is not None:
                 params = {
-                    param: selected.get(param) or record_id(selected, entity_name)
-                    for param in one_action.param_names
+                    param: selected.get(param) or record_id(selected, entity_name) for param in one_action.param_names
                 }
                 params = {key: value for key, value in params.items() if value}
                 if params:
@@ -334,6 +352,7 @@ class BrowserScreen(Screen):
             clear_probe_cache(self.connection.name)
             await self._run_reprobe()
             return
+        self._related_cache.clear()
         entity = self.registry.get(level.entity or "")
         if entity is None:
             return
@@ -344,8 +363,7 @@ class BrowserScreen(Screen):
             one_action = entity.get("one")
             if one_action is not None:
                 params = {
-                    param: record.get(param) or record_id(record, entity.name)
-                    for param in one_action.param_names
+                    param: record.get(param) or record_id(record, entity.name) for param in one_action.param_names
                 }
                 params = {key: value for key, value in params.items() if value}
                 if params:
@@ -444,9 +462,7 @@ class BrowserScreen(Screen):
         schema = action.request_schema
         if schema.get("properties") and self.selected:
             body = {
-                key: value
-                for key, value in self.selected.items()
-                if key in schema["properties"] and value is not None
+                key: value for key, value in self.selected.items() if key in schema["properties"] and value is not None
             }
         confirm_and_run(
             self,
@@ -456,8 +472,8 @@ class BrowserScreen(Screen):
             on_success=self._refresh_after_action,
         )
 
-    async def _show_result(self, action) -> None:
-        """Run a read-only GET action and show its result."""
+    def _build_params(self, action) -> tuple[dict, list[str]]:
+        """Params derivable from the selected record, plus the missing required ones."""
         params = {}
         record = self.selected or {}
         entity = self.registry.get(self._selected_kind() or "")
@@ -472,18 +488,56 @@ class BrowserScreen(Screen):
             if value:
                 params[param] = value
         missing = [param for param in action.required_params if not params.get(param)]
+        return params, missing
+
+    async def _show_result(self, action) -> None:
+        """Run a read-only GET action and show its result."""
+        params, missing = self._build_params(action)
         if missing:
+            await self._resolve_missing(action, params, missing)
+            return
+        data = await self._api_get(action, params)
+        if data is not None:
+            self.app.push_screen(ResultScreen(self.connection, action, data, classes="Entities"))
+
+    async def _resolve_missing(self, action, params: dict, missing: list[str]) -> None:
+        """Satisfy missing required params (e.g. containerId) via a picker."""
+        source = param_source(missing[0])
+        kind = self._selected_kind() or ""
+        spec = related_spec(kind)
+        record = self.selected or {}
+        if source is None or spec is None:
             self.notify(
                 f"Missing required: {', '.join(missing)} (not in the record)",
                 severity="warning",
                 timeout=10,
             )
             return
+        candidates = related_records(self.client, self.registry, kind, record)
+        if not candidates:
+            self.notify(
+                f"No {spec['label']} found for '{record_title(record)}'.",
+                severity="warning",
+                timeout=10,
+            )
+            return
+        value_field = source["value_field"]
+        items = [candidate for candidate in candidates if candidate.get(value_field)]
+        value = await self.app.push_screen_wait(
+            PickerScreen(
+                f"Select {spec['label']} for {action.route}",
+                items,
+                value_field,
+                source["label_field"],
+                classes="Entities",
+            )
+        )
+        if value is None:
+            return
+        params[missing[0]] = value
         data = await self._api_get(action, params)
         if data is not None:
-            self.app.push_screen(
-                ResultScreen(self.connection, action, data, classes="Entities")
-            )
+            self.app.push_screen(ResultScreen(self.connection, action, data, classes="Entities"))
 
     async def _open_form(self, action) -> None:
         """Open an action form.
@@ -498,17 +552,14 @@ class BrowserScreen(Screen):
             one_action = entity.get("one") if entity else None
             if entity is not None and one_action is not None:
                 params = {
-                    param: record.get(param) or record_id(record, entity.name)
-                    for param in one_action.param_names
+                    param: record.get(param) or record_id(record, entity.name) for param in one_action.param_names
                 }
                 params = {key: value for key, value in params.items() if value}
                 if params:
                     enriched = await self._api_get(one_action, params)
                     if enriched:
                         record = enriched
-        self.app.push_screen(
-            ActionFormScreen(self.connection, action, record=record, classes="Entities")
-        )
+        self.app.push_screen(ActionFormScreen(self.connection, action, record=record, classes="Entities"))
 
     async def _api_get(self, action, params: dict):
         """Execute a GET-style action and return the JSON, or None on error."""

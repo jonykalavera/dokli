@@ -7,12 +7,13 @@ from textual.widgets import Label
 
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
-from dokli.tui.engine import build_form_model, parse_spec, probe_entity, record_title, clear_probe_cache
+from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
 from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
+from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
 
@@ -88,6 +89,15 @@ FAKE_SCHEMA = {
                 ]
             }
         },
+        "/docker.getContainersByAppNameMatch": {
+            "get": {
+                "parameters": [
+                    {"name": "appName", "in": "query", "required": True},
+                    {"name": "appType", "in": "query"},
+                    {"name": "serverId", "in": "query"},
+                ]
+            }
+        },
         "/server.all": {"get": {}},
     }
 }
@@ -140,6 +150,11 @@ def _fake_requests():
             "composeType": "docker-compose",
             "composeFile": "version: '3'",
         },
+        "docker.getContainersByAppNameMatch": [
+            {"containerId": "cc1", "name": "frigate", "state": "running", "status": "Up 8 weeks"},
+            {"containerId": "cc2", "name": "frigate-notify", "state": "running", "status": "Up 8 weeks"},
+        ],
+        "compose.readLogs": "2026-08-05T19:55:54Z frigate started",
     }
 
 
@@ -646,11 +661,56 @@ def test_read_logs_params_only_backfill_entity_id(mocker):
     _run(main())
 
 
-def test_read_logs_reports_missing_required_param(mocker):
-    """We expect a GET action with a required param missing from the record
-    (e.g. compose.readLogs needs containerId) to notify instead of firing an
-    invalid request."""
-    _patch_api(mocker)
+def test_read_logs_opens_picker_for_container_id(mocker):
+    """We expect compose.readLogs to open a container picker when containerId
+    is missing from the record, then run with the chosen container.
+    """
+    responses = _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            action = registry.get("compose").get("readLogs")
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            worker = screen.run_worker(screen._show_result(action), group="test")
+            await pilot.pause()
+            assert isinstance(app.screen, PickerScreen)
+            labels = [
+                str(label.renderable)
+                for label in app.screen.query_one("#picker-list", VerticalScroll).children
+                if isinstance(label, Label)
+            ]
+            assert any("frigate" in label for label in labels)
+            # pick the first container
+            await pilot.press("enter")
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, ResultScreen):
+                    break
+            assert isinstance(app.screen, ResultScreen)
+            await worker.wait()
+            calls = screen.client.request.call_args_list
+            params = calls[-1][0][2]
+            assert params["composeId"] == "c1"
+            assert params["containerId"] in ("cc1", "cc2")
+
+    _run(main())
+
+
+def test_read_logs_no_candidates_notifies(mocker):
+    """We expect a notify (not a request) when no containers are available."""
+    responses = _patch_api(mocker)
+    responses["docker.getContainersByAppNameMatch"] = []
     registry = parse_spec(FAKE_SCHEMA)
 
     async def main():
@@ -670,10 +730,41 @@ def test_read_logs_reports_missing_required_param(mocker):
             screen.current.index = 0
             await screen._show_result(action)
             screen.notify.assert_called_once()
-            assert "containerId" in screen.notify.call_args.args[0]
+            assert "No Containers" in screen.notify.call_args.args[0]
             assert not any(
                 call[0][1] == "compose.readLogs" for call in screen.client.request.call_args_list
             )
+
+    _run(main())
+
+
+def test_detail_shows_related_containers(mocker):
+    """We expect the detail pane to list related containers for a compose record."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            await screen._refresh_all()
+            await pilot.pause()
+            detail = [
+                str(label.renderable)
+                for label in screen.query_one("#detail-pane", VerticalScroll).children
+                if isinstance(label, Label)
+            ]
+            assert any("Containers (2)" in label for label in detail)
+            assert any("frigate" in label for label in detail)
 
     _run(main())
 
