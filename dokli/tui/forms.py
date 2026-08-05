@@ -71,8 +71,8 @@ class FormControl(Static):
         )
 
     def get_data(self) -> Any:
-        """The value to submit for this control."""
-        return self.value
+        """The value to submit for this control (``None`` when empty)."""
+        return None if self.value in ("", None) else self.value
 
     @staticmethod
     def from_field(name, field, **kwargs) -> "FormControl":
@@ -134,11 +134,17 @@ class TextControl(FormControl):
         )
 
     def watch_value(self, old_value: Any, new_value: Any) -> None:
-        """Watch value changes."""
+        """Watch value changes.
+
+        Only writes back to the input when the value actually differs, so user
+        typing (which also sets ``value``) does not reset the cursor.
+        """
         try:
             input = self.query_one(f"#{self.id}-input")
             assert isinstance(input, Input)
-            input.value = "" if new_value in ("", None) else str(new_value)
+            text = "" if new_value in ("", None) else str(new_value)
+            if input.value != text:
+                input.value = text
         except NoMatches:
             pass
 
@@ -222,11 +228,17 @@ class TextAreaControl(FormControl):
         yield TextArea("" if self.value in ("", None) else str(self.value), id=f"{self.id}-input")
 
     def watch_value(self, old_value: Any, new_value: Any) -> None:
-        """Watch value changes."""
+        """Watch value changes.
+
+        Only writes back to the text area when the text actually differs, so
+        user typing (which also sets ``value``) does not reset the cursor.
+        """
         try:
             area = self.query_one(f"#{self.id}-input")
             assert isinstance(area, TextArea)
-            area.text = "" if new_value in ("", None) else str(new_value)
+            text = "" if new_value in ("", None) else str(new_value)
+            if area.text != text:
+                area.text = text
         except NoMatches:
             pass
 
@@ -237,7 +249,9 @@ class TextAreaControl(FormControl):
     def get_data(self) -> Any:
         """Parse JSON when the field is an object/array, otherwise return the text."""
         if not self.parse_json:
-            return self.value
+            return None if self.value in ("", None) else self.value
+        if self.value in ("", None):
+            return None
         try:
             return json.loads(self.value)
         except (json.JSONDecodeError, TypeError):

@@ -4,30 +4,58 @@ Parses the OpenAPI document into an entity registry so the TUI can render
 generic list/detail/form views for any Dokploy API version.
 """
 
-from dokli.tui.engine.introspect import field_label, infer_columns, record_id, record_subtitle, record_title
+from dokli.tui.engine.icons import entity_icon
+from dokli.tui.engine.introspect import (
+    collect_children,
+    field_label,
+    infer_columns,
+    record_id,
+    record_title,
+)
+from dokli.tui.engine.probe import clear_probe_cache, probe_entities, probe_entity
+from dokli.tui.engine.related import (
+    PARAM_SOURCES,
+    RELATED_PROVIDERS,
+    param_source,
+    related_records,
+    related_spec,
+)
 from dokli.tui.engine.schemas import build_form_model
 from dokli.tui.engine.spec import (
     DESTRUCTIVE_VERBS,
     Entity,
     EntityAction,
     EntityRegistry,
+    action_bindings,
     classify,
+    key_for_verb,
     nested_child_entity,
     parse_spec,
 )
 
 __all__ = [
     "DESTRUCTIVE_VERBS",
+    "PARAM_SOURCES",
+    "RELATED_PROVIDERS",
     "Entity",
     "EntityAction",
     "EntityRegistry",
+    "action_bindings",
     "build_form_model",
     "classify",
+    "clear_probe_cache",
+    "collect_children",
+    "entity_icon",
     "field_label",
     "infer_columns",
+    "key_for_verb",
     "nested_child_entity",
+    "param_source",
     "parse_spec",
+    "probe_entities",
+    "probe_entity",
     "record_id",
-    "record_subtitle",
     "record_title",
+    "related_records",
+    "related_spec",
 ]

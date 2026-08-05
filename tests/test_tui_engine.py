@@ -6,10 +6,13 @@ from dokli.tui.engine import (
     Entity,
     EntityAction,
     EntityRegistry,
+    action_bindings,
     build_form_model,
     classify,
+    entity_icon,
     field_label,
     infer_columns,
+    key_for_verb,
     nested_child_entity,
     parse_spec,
     record_id,
@@ -151,6 +154,72 @@ class TestClassify:
         assert classify(self._action("saveEnvironment", "POST")) == "form"
         assert classify(self._action("remove", "POST")) == "action"
         assert classify(self._action("deploy", "POST")) == "action"
+
+
+class TestKeyBindings:
+    """Keybinding assignment tests."""
+
+    def _entity(self, *verbs: str) -> Entity:
+        actions = {verb: EntityAction(verb=verb, method="POST", route=f"x.{verb}") for verb in verbs}
+        return Entity(name="x", actions=actions)
+
+    def test_update_uses_u(self):
+        """We expect update to be bound to its first letter."""
+        assert key_for_verb("update") == "u"
+
+    def test_respects_display_order(self):
+        """We expect keys to follow display order, earlier actions winning collisions."""
+        entity = self._entity("create", "update", "remove")
+        bindings = action_bindings(entity)
+        by_verb = {action.verb: key for action, key in bindings}
+        assert by_verb["create"] == "c"
+        assert by_verb["update"] == "u"
+        assert by_verb["remove"] == "d"
+
+    def test_collision_resolved_by_order(self):
+        """We expect the first action to keep its preferred key on a collision."""
+        entity = self._entity("remove", "redeploy", "restart")
+        bindings = action_bindings(entity)
+        by_verb = {action.verb: key for action, key in bindings}
+        assert by_verb["remove"] == "d"
+        assert by_verb["restart"] == "R"
+
+    def test_fallback_to_free_key(self):
+        """We expect a free key when all verb letters are taken."""
+        assert key_for_verb("xyz", frozenset("xyzw")) == "a"
+
+    def test_all_actions_get_keys(self):
+        """We expect every action to receive a key, even with many actions."""
+        entity = self._entity(
+            "remove",
+            "redeploy",
+            "restart",
+            "search",
+            "start",
+            "save",
+            "suggest",
+            "sync",
+            "show",
+            "stop",
+            "status",
+            "submit",
+        )
+        bindings = action_bindings(entity)
+        assert all(key is not None for _, key in bindings)
+
+
+class TestIcons:
+    """Entity icon tests."""
+
+    def test_known_entities_have_icons(self):
+        """We expect known entities to map to an icon."""
+        assert entity_icon("project") != ""
+        assert entity_icon("postgres") != ""
+        assert entity_icon("redis") != ""
+
+    def test_fallback_for_unknown(self):
+        """We expect unknown entities to get a fallback icon."""
+        assert entity_icon("totally_unknown") == "\uf15b"
 
 
 class TestBuildFormModel:

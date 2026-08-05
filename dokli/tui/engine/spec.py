@@ -1,5 +1,7 @@
 """OpenAPI document → entity registry."""
 
+import string
+
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +14,7 @@ class EntityAction(BaseModel):
     summary: str = ""
     request_schema: dict = Field(default_factory=dict)
     param_names: list[str] = Field(default_factory=list)
+    required_params: list[str] = Field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -135,6 +138,63 @@ def classify(action: EntityAction) -> str:
     return "action"
 
 
+# Keys used by the browser navigation; never assigned to actions.
+RESERVED_KEYS = frozenset("hjklrq")
+
+# Fallback key space, in priority order: letters, then digits, then uppercase.
+FALLBACK_KEYS = string.ascii_lowercase + string.digits + string.ascii_uppercase
+
+VERB_KEYS = {
+    "create": "c",
+    "new": "c",
+    "update": "u",
+    "edit": "e",
+    "save": "s",
+    "remove": "d",
+    "delete": "d",
+    "deploy": "x",
+    "redeploy": "X",
+    "testConnection": "t",
+    "restart": "R",
+}
+
+
+def key_for_verb(verb: str, taken: frozenset[str] = frozenset()) -> str | None:
+    """Assign a deterministic, collision-free keybinding to an action verb.
+
+    Prefers the verb's own letters (``VERB_KEYS`` first), then any free letter
+    of the alphabet, so every action can get a key.
+    """
+    if verb in VERB_KEYS and VERB_KEYS[verb] not in taken:
+        return VERB_KEYS[verb]
+    for character in verb:
+        if character.isalpha() and character.lower() not in taken and character.lower() not in RESERVED_KEYS:
+            return character.lower()
+    for character in FALLBACK_KEYS:
+        if character not in taken and character not in RESERVED_KEYS:
+            return character
+    return None
+
+
+def action_bindings(entity: Entity) -> list[tuple[EntityAction, str | None]]:
+    """Assign keybindings to an entity's actions.
+
+    Keys are assigned in **display order** (the order actions appear in the
+    spec): each action gets its preferred key (``VERB_KEYS``, else the first
+    available letter of the verb), and earlier actions win key collisions.
+    """
+    taken: set[str] = set()
+    bindings = []
+    for action in entity.actions.values():
+        if classify(action) in ("list", "detail"):
+            continue
+        key = key_for_verb(action.verb, frozenset(taken))
+        if key:
+            taken.add(key)
+        bindings.append((action, key))
+    return bindings
+
+
 def parse_spec(schema: dict) -> EntityRegistry:
     """Build an entity registry from an OpenAPI document."""
     registry = EntityRegistry()
@@ -144,13 +204,17 @@ def parse_spec(schema: dict) -> EntityRegistry:
             continue
         entity_name, _, verb = route.partition(".")
         for method, details in methods.items():
+            parameters = details.get("parameters", [])
             action = EntityAction(
                 verb=verb,
                 method=method.upper(),
                 route=route,
                 summary=(details.get("summary") or details.get("description") or "").strip(),
                 request_schema=_extract_request_schema(details),
-                param_names=[parameter["name"] for parameter in details.get("parameters", [])],
+                param_names=[parameter["name"] for parameter in parameters],
+                required_params=[
+                    parameter["name"] for parameter in parameters if parameter.get("required")
+                ],
             )
             entity = registry.entities.setdefault(entity_name, Entity(name=entity_name))
             entity.actions[verb] = action
