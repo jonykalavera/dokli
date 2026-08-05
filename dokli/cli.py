@@ -19,7 +19,7 @@ from dokli.openapi_cli import register_connections
 from dokli.state import collect_state
 
 try:
-    from dokli.tui import app as tui
+    from dokli.tui.app import app as tui
 
     _tui_loaded = True
 except ImportError:
