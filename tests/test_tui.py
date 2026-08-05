@@ -207,6 +207,49 @@ def test_textarea_typing_is_not_reversed(mocker):
     _run(main())
 
 
+def test_empty_optional_fields_do_not_error(mocker):
+    """We expect empty optional fields (selects, numbers, lists) not to error on validate."""
+    schema = {
+        "paths": {
+            "/x.update": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "mode": {"type": "string", "enum": ["a", "b"]},
+                                        "count": {"type": "integer"},
+                                        "tags": {"type": "array"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(schema)
+    action = registry.get("x").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            await pilot.pause()
+            assert screen.form.validate() is True
+            assert not any(ctrl.error for ctrl in screen.form.fields.values())
+
+    _run(main())
+
+
 def test_form_submit_asks_confirmation(mocker):
     """We expect submitting a form to require explicit confirmation first."""
     mocker.patch("dokli.tui.app.APIClient")

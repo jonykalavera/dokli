@@ -184,6 +184,29 @@ class TestKeyBindings:
         assert by_verb["remove"] == "d"
         assert by_verb["restart"] == "R"
 
+    def test_fallback_to_free_key(self):
+        """We expect a free key when all verb letters are taken."""
+        assert key_for_verb("xyz", frozenset("xyzw")) == "a"
+
+    def test_all_actions_get_keys(self):
+        """We expect every action to receive a key, even with many actions."""
+        entity = self._entity(
+            "remove",
+            "redeploy",
+            "restart",
+            "search",
+            "start",
+            "save",
+            "suggest",
+            "sync",
+            "show",
+            "stop",
+            "status",
+            "submit",
+        )
+        bindings = action_bindings(entity)
+        assert all(key is not None for _, key in bindings)
+
 
 class TestIcons:
     """Entity icon tests."""

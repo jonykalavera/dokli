@@ -71,8 +71,8 @@ class FormControl(Static):
         )
 
     def get_data(self) -> Any:
-        """The value to submit for this control."""
-        return self.value
+        """The value to submit for this control (``None`` when empty)."""
+        return None if self.value in ("", None) else self.value
 
     @staticmethod
     def from_field(name, field, **kwargs) -> "FormControl":
@@ -249,7 +249,9 @@ class TextAreaControl(FormControl):
     def get_data(self) -> Any:
         """Parse JSON when the field is an object/array, otherwise return the text."""
         if not self.parse_json:
-            return self.value
+            return None if self.value in ("", None) else self.value
+        if self.value in ("", None):
+            return None
         try:
             return json.loads(self.value)
         except (json.JSONDecodeError, TypeError):
