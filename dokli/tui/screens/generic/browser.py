@@ -453,10 +453,10 @@ class BrowserScreen(Screen):
 
     def _run_action(self, action) -> None:
         if classify(action) == "form":
-            self.run_worker(self._open_form(action), exclusive=True)  # type: ignore[arg-type]
+            self.run_worker(self._open_form(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         if action.method == "GET":
-            self.run_worker(self._show_result(action), exclusive=True)  # type: ignore[arg-type]
+            self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         body = {}
         schema = action.request_schema

@@ -46,6 +46,21 @@ FAKE_SCHEMA = {
             }
         },
         "/project.remove": {"post": {}},
+        "/project.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"name": {"type": "string"}},
+                                "required": ["name"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/environment.one": {"get": {"parameters": [{"name": "environmentId", "in": "query", "required": True}]}},
         "/compose.one": {"get": {"parameters": [{"name": "composeId", "in": "query", "required": True}]}},
         "/compose.update": {
@@ -1034,5 +1049,37 @@ def test_command_provider_lists_form_commands(mocker):
             names = [hit.text for hit in hits]
             assert "Submit form" in names
             assert "Wizard mode" in names
+
+    _run(main())
+
+
+def test_palette_runs_update_action(mocker):
+    """We expect an action chosen from the palette to run after the palette closes."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            await pilot.press("ctrl+p")
+            for _ in range(10):
+                await pilot.pause()
+            await pilot.press(*"run update")
+            for _ in range(15):
+                await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(5):
+                await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, ActionFormScreen):
+                    break
+            assert isinstance(app.screen, ActionFormScreen)
 
     _run(main())
