@@ -228,7 +228,15 @@ class BrowserScreen(Screen):
         """Drill out to the parent level."""
         if len(self.path) > 1:
             self.path.pop()
+            self._reset_filter()
             self._rerender()
+
+    def _reset_filter(self) -> None:
+        """Clear the active filter when navigating to a new level."""
+        self._filter = ""
+        filter_input = self.query_one("#filter", Input)
+        filter_input.display = False
+        filter_input.value = ""
 
     async def action_right(self) -> None:
         """Drill into the selected item."""
@@ -269,6 +277,7 @@ class BrowserScreen(Screen):
                 return
             items = [{"_kind": child_entity, **child} for child_entity, child in children]
             self.path.append(Level(kind="children", items=items, entity=entity_name, record=record))
+        self._reset_filter()
         self._rerender()
 
     async def action_refresh(self) -> None:

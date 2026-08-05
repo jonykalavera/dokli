@@ -381,6 +381,33 @@ def test_filter_navigation_stays_in_filtered_list(mocker):
     _run(main())
 
 
+def test_filter_reset_after_drill(mocker):
+    """We expect the filter to reset when navigating to a new level."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            await pilot.press("/")
+            await pilot.pause()
+            filter_input = app.screen.query_one("#filter")
+            filter_input.value = "pro"
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert len(_current_labels(app)) == 1
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            labels = _current_labels(app)
+            assert any("media" in label for label in labels)
+            assert any("services" in label for label in labels)
+            assert app.screen._filter == ""
+
+    _run(main())
+
+
 async def _select_connection(app, pilot):
     list_view = app.screen.query_one("#connections-list")
     list_view.index = 0
