@@ -6,6 +6,7 @@ instance. See :issue:`20`.
 
 from typing import Annotated, Literal
 
+import yaml
 from pydantic import BaseModel, Field
 
 
@@ -110,3 +111,9 @@ class Manifest(BaseModel):
             return next(provider for provider in self.git_providers if provider.name == name)
         except StopIteration:
             raise ValueError(f"Git provider '{name}' is not defined in the manifest.") from None
+
+    @classmethod
+    def load(cls, path: str) -> "Manifest":
+        """Load a manifest from a YAML file."""
+        with open(path) as file:
+            return cls.model_validate(yaml.safe_load(file))
