@@ -2,7 +2,8 @@
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from types import NoneType, UnionType
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, Union, get_args, get_origin
 
 from pydantic import BaseModel, SecretBytes, SecretStr, ValidationError
 from pydantic_core import ErrorDetails
@@ -10,7 +11,7 @@ from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.reactive import reactive
-from textual.widgets import Input, Label, Static
+from textual.widgets import Input, Label, Select, Static, Switch, TextArea
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -19,13 +20,23 @@ if TYPE_CHECKING:
 M = TypeVar("M", bound=BaseModel)
 
 
+def _core_annotation(annotation: Any) -> Any:
+    """Strip ``None`` from an ``X | None`` union annotation."""
+    origin = get_origin(annotation)
+    if origin is Union or origin is UnionType:
+        non_none = [arg for arg in get_args(annotation) if arg is not NoneType]
+        if len(non_none) == 1:
+            return non_none[0]
+    return annotation
+
+
 class FormControl(Static):
-    """Form control widget."""
+    """Base form control widget."""
 
     label = reactive("")
-    value = reactive("")
+    value: reactive[Any] = reactive("")
     placeholder = reactive("")
-    default = reactive("")
+    default: reactive[Any] = reactive("")
     error: reactive[ErrorDetails | None] = reactive(None)
 
     def __init__(
@@ -36,30 +47,22 @@ class FormControl(Static):
         placeholder: str = "",
         default: Any = "",
         error: ErrorDetails | None = None,
-        password: bool = False,
         **kwargs,
     ) -> None:
         """Construct a form control widget."""
         super().__init__(id=id, **kwargs)
         self.label = label
-        self.value = "" if value is None else str(value)
+        self.value = value if value is not None else ""
         self.placeholder = placeholder
-        self.default = "" if default is None else str(default)
-        self.password = password
+        self.default = default if default is not None else ""
         self.error = error
 
     def compose(self) -> "ComposeResult":
-        """Yield children widgets."""
+        """Yield the label and error label (inputs are added by subclasses)."""
         yield Label(
             self.label,
             id=f"{self.id}-label",
             classes="hidden form-label" if not self.label else "form-label",
-        )
-        yield Input(
-            self.value,
-            id=f"{self.id}-input",
-            placeholder=self.placeholder,
-            password=self.password,
         )
         yield Label(
             str(self.error) if self.error else "ERRORR",
@@ -67,26 +70,26 @@ class FormControl(Static):
             classes="error-msg",
         )
 
+    def get_data(self) -> Any:
+        """The value to submit for this control."""
+        return self.value
+
     @staticmethod
     def from_field(name, field, **kwargs) -> "FormControl":
         """Construct a form control from a pydantic field."""
-        return FormControl(
-            id=name,
+        annotation = _core_annotation(field.annotation)
+        base = dict(
             label=field.title if field.title else name.replace("_", " ").title(),
             placeholder=field.description or "",
-            password=field.annotation in (SecretStr, SecretBytes),
-            **kwargs,
         )
-
-    def watch_value(self, old_value: str, new_value: str) -> None:
-        """Watch value changes."""
-        self.value = new_value
-        try:
-            input = self.query_one(f"#{self.id}-input")
-            assert isinstance(input, Input)
-            input.value = new_value
-        except NoMatches:
-            pass
+        base.update(kwargs)
+        if annotation is bool:
+            return SwitchControl(id=name, **base)
+        if get_origin(annotation) is Literal:
+            return SelectControl(id=name, options=list(get_args(annotation)), **base)
+        if annotation in (list, dict):
+            return TextAreaControl(id=name, **base)
+        return TextControl(id=name, password=annotation in (SecretStr, SecretBytes), **base)
 
     def watch_error(self, old_value: ErrorDetails | None, new_value: ErrorDetails | None) -> None:
         """Watch error changes."""
@@ -98,10 +101,6 @@ class FormControl(Static):
         except NoMatches:
             pass
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """On input changed."""
-        self.value = event.value
-
     def reset(self, reset_classes=True, reset_value=True, reset_error=True) -> None:
         """Reset."""
         if reset_value:
@@ -110,6 +109,132 @@ class FormControl(Static):
             self.classes = []
         if reset_error:
             self.error = None
+
+
+class TextControl(FormControl):
+    """A single-line text/number/password input."""
+
+    def __init__(self, id: str, value: Any = "", password: bool = False, **kwargs) -> None:
+        """Construct a text control."""
+        super().__init__(id=id, value=value, **kwargs)
+        self.password = password
+
+    def compose(self) -> "ComposeResult":
+        """Yield the widgets."""
+        yield from super().compose()
+        yield Input(
+            "" if self.value in ("", None) else str(self.value),
+            id=f"{self.id}-input",
+            placeholder=self.placeholder,
+            password=self.password,
+        )
+
+    def watch_value(self, old_value: Any, new_value: Any) -> None:
+        """Watch value changes."""
+        try:
+            input = self.query_one(f"#{self.id}-input")
+            assert isinstance(input, Input)
+            input.value = "" if new_value in ("", None) else str(new_value)
+        except NoMatches:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """On input changed."""
+        self.value = event.value
+
+
+class SelectControl(FormControl):
+    """A dropdown for string enums."""
+
+    def __init__(self, id: str, options: list[str], value: Any = "", **kwargs) -> None:
+        """Construct a select control."""
+        super().__init__(id=id, value=value, **kwargs)
+        self.options = options
+
+    def compose(self) -> "ComposeResult":
+        """Yield the widgets."""
+        yield from super().compose()
+        current = self.value if self.value in self.options else Select.BLANK
+        yield Select(
+            [(str(option), option) for option in self.options],
+            value=current,
+            prompt="Select...",
+            id=f"{self.id}-input",
+        )
+
+    def watch_value(self, old_value: Any, new_value: Any) -> None:
+        """Watch value changes."""
+        try:
+            select = self.query_one(f"#{self.id}-input")
+            assert isinstance(select, Select)
+            select.value = new_value if new_value in self.options else Select.BLANK
+        except NoMatches:
+            pass
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """On select changed."""
+        self.value = "" if event.value is Select.BLANK else event.value
+
+
+class SwitchControl(FormControl):
+    """A boolean toggle."""
+
+    def compose(self) -> "ComposeResult":
+        """Yield the widgets."""
+        yield from super().compose()
+        yield Switch(value=bool(self.value), id=f"{self.id}-input")
+
+    def watch_value(self, old_value: Any, new_value: Any) -> None:
+        """Watch value changes."""
+        try:
+            switch = self.query_one(f"#{self.id}-input")
+            assert isinstance(switch, Switch)
+            switch.value = bool(new_value)
+        except NoMatches:
+            pass
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        """On switch changed."""
+        self.value = event.value
+
+    def get_data(self) -> Any:
+        """The boolean value."""
+        return bool(self.value)
+
+
+class TextAreaControl(FormControl):
+    """A JSON text area for object/array fields."""
+
+    def __init__(self, id: str, value: Any = "", **kwargs) -> None:
+        """Construct a text area control."""
+        if isinstance(value, dict | list):
+            value = json.dumps(value)
+        super().__init__(id=id, value=value, **kwargs)
+
+    def compose(self) -> "ComposeResult":
+        """Yield the widgets."""
+        yield from super().compose()
+        yield TextArea("" if self.value in ("", None) else str(self.value), id=f"{self.id}-input")
+
+    def watch_value(self, old_value: Any, new_value: Any) -> None:
+        """Watch value changes."""
+        try:
+            area = self.query_one(f"#{self.id}-input")
+            assert isinstance(area, TextArea)
+            area.text = "" if new_value in ("", None) else str(new_value)
+        except NoMatches:
+            pass
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """On text area changed."""
+        self.value = event.text_area.text
+
+    def get_data(self) -> Any:
+        """Parse the JSON text into an object/array."""
+        try:
+            return json.loads(self.value)
+        except (json.JSONDecodeError, TypeError):
+            return self.value
 
 
 class Form(Generic[M], Container):
@@ -164,7 +289,7 @@ class Form(Generic[M], Container):
         if data is None:
             data = cls._get_data_from_instance(instance)
         controls = (
-            FormControl.from_field(name=name, field=field, value=data.get(name, ""))
+            FormControl.from_field(name=name, field=field, value=data.get(name))
             for n, (name, field) in enumerate(model.model_fields.items())
         )
         return cls(*controls, model=model, instance=instance, data=data, **kwargs)
@@ -173,10 +298,25 @@ class Form(Generic[M], Container):
     def _get_data_from_instance(cls, instance: BaseModel | None) -> dict[str, Any]:
         return {} if instance is None else json.loads(instance.model_dump_json())
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        """On input changed."""
+    def _validate_on_input(self) -> None:
         if self.validate_on_input:
             self.validate()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """On input changed."""
+        self._validate_on_input()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """On select changed."""
+        self._validate_on_input()
+
+    def on_switch_changed(self, event: Switch.Changed) -> None:
+        """On switch changed."""
+        self._validate_on_input()
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """On text area changed."""
+        self._validate_on_input()
 
     def validate(self) -> bool:
         """Validate form data against model, if any."""
@@ -225,5 +365,9 @@ class Form(Generic[M], Container):
             field.error = error
 
     def _get_form_data(self) -> dict[str, Any]:
-        data = {child.id: child.value for child in self.children if child.id and isinstance(child, FormControl)}
+        data = {
+            child.id: child.get_data()
+            for child in self.children
+            if child.id and isinstance(child, FormControl)
+        }
         return data

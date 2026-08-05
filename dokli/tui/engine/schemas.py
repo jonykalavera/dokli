@@ -55,7 +55,16 @@ def _annotation_for(field_name: str, prop: dict[str, Any]) -> Any:
         return SecretStr
     if "enum" in prop and prop.get("type") == "string":
         return Literal[tuple(prop["enum"])]
-    return JSON_TO_ANNOTATION.get(str(prop.get("type")), str)
+    json_type = prop.get("type")
+    if json_type is None and isinstance(prop.get("anyOf"), list):
+        for sub in prop["anyOf"]:
+            if not sub.get("type") or sub.get("type") == "null":
+                continue
+            if sub.get("type") == "string" and "enum" in sub:
+                return Literal[tuple(sub["enum"])]
+            json_type = sub.get("type")
+            break
+    return JSON_TO_ANNOTATION.get(str(json_type), str)
 
 
 def _label_for(field_name: str) -> str:
