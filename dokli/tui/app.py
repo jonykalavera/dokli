@@ -10,7 +10,7 @@ from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.engine import parse_spec
 from dokli.tui.screens.connections import ConnectionsScreen
-from dokli.tui.screens.generic.home import HomeScreen
+from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.settings import SettingsScreen
 
 TUI_PATH = Path(__file__).parent
@@ -62,10 +62,10 @@ class DokliApp(App):
         schema = APIClient(event.connection).schema
         registry = parse_spec(schema)
         self.install_screen(
-            HomeScreen(name="Home", connection=self.connection, registry=registry),
-            name="Home",
+            BrowserScreen(name="Browser", connection=self.connection, registry=registry),
+            name="Browser",
         )
-        self.push_screen("Home")
+        self.push_screen("Browser")
 
     def action_connections(self) -> None:
         """Action connections."""
