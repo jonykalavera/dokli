@@ -157,8 +157,9 @@ def _fake_requests():
         "compose.one": {
             "composeId": "c1",
             "name": "torrents",
-            "sourceType": "raw",
+            "appName": "media-torrents-abc123",
             "composeType": "docker-compose",
+            "sourceType": "raw",
             "composeFile": "version: '3'",
         },
         "docker.getContainersByAppNameMatch": [
@@ -765,6 +766,39 @@ def test_detail_shows_related_containers(mocker):
             ]
             assert any("Containers (2)" in label for label in detail)
             assert any("frigate" in label for label in detail)
+
+    _run(main())
+
+
+def test_related_containers_enrich_via_one(mocker):
+    """We expect the browser to enrich a compose record via one to get the docker
+    project name (appName) and appType before fetching its containers."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            related = screen._related_records(screen.selected)
+            docker_call = next(
+                call
+                for call in screen.client.request.call_args_list
+                if call[0][1] == "docker.getContainersByAppNameMatch"
+            )
+            _, _, params = docker_call.args
+            assert params["appName"] == "media-torrents-abc123"
+            assert params["appType"] == "docker-compose"
+            assert [r["name"] for r in related] == ["frigate", "frigate-notify"]
 
     _run(main())
 
