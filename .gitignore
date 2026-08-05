@@ -165,3 +165,4 @@ poetry.lock
 .luarc*
 .nvimrc*
 .exrc*
+/.tmuxp.yaml
