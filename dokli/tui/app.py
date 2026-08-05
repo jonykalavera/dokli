@@ -68,6 +68,7 @@ class DokliApp(App):
         ("d", "toggle_dark", "Toggle dark mode"),
         ("C", "connections", "Connections"),
         ("?", "help", "Help"),
+        ("ctrl+p", "command_palette", "Command palette"),
         ("escape", "cancel", "Cancel/Back"),
         ("q", "quit", "Quit"),
     ]

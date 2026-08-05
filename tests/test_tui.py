@@ -963,14 +963,14 @@ def test_help_screen_shows_bindings(mocker):
 
 
 def test_command_palette_opens(mocker):
-    """We expect the command palette to open on ctrl+backslash."""
+    """We expect the command palette to open on ctrl+p."""
     _patch_api(mocker)
 
     async def main():
         app = DokliApp(config=_config())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.press("ctrl+backslash")
+            await pilot.press("ctrl+p")
             await pilot.pause()
             assert isinstance(app.screen, CommandPalette)
 
