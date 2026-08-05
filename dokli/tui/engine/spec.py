@@ -29,6 +29,32 @@ class Entity(BaseModel):
         """Get an action by verb."""
         return self.actions.get(verb)
 
+    @property
+    def listable(self) -> bool:
+        """Whether the entity has an ``all`` action (top-level listable)."""
+        return "all" in self.actions
+
+    @property
+    def parent_entity(self) -> str | None:
+        """The parent entity, inferred from foreign keys in the create schema.
+
+        A required (or present) ``<parent>Id`` field in the request body (other
+        than the entity's own id and ``serverId`` placement) points to its
+        parent. E.g. ``compose.create`` requires ``environmentId``.
+        """
+        create = self.actions.get("create")
+        if create is None:
+            return None
+        schema = create.request_schema
+        fields = list(schema.get("required", [])) + list(schema.get("properties", {}))
+        for field in fields:
+            if not field.endswith("Id"):
+                continue
+            if field in (f"{self.name}Id", "serverId"):
+                continue
+            return field[:-2]
+        return None
+
 
 class EntityRegistry(BaseModel):
     """All entities discovered from an OpenAPI document."""
@@ -43,26 +69,57 @@ class EntityRegistry(BaseModel):
         """Get an entity by name."""
         return self.entities.get(name)
 
+    def listable(self) -> list[str]:
+        """Entities that can be listed at the top level (have ``all``)."""
+        return sorted(name for name, entity in self.entities.items() if entity.listable)
+
+    def navigation_path(self, name: str) -> list[str]:
+        """Chain of ancestors from a top-level entity down to ``name``."""
+        path = [name]
+        seen = {name}
+        current = name
+        while True:
+            entity = self.get(current)
+            parent = entity.parent_entity if entity else None
+            if not parent or parent in seen or parent not in self.entities:
+                break
+            path.append(parent)
+            seen.add(parent)
+            current = parent
+        return list(reversed(path))
+
 
 LIST_VERBS = {"all"}
 DETAIL_VERBS = {"one"}
 DESTRUCTIVE_VERBS = {"remove", "delete"}
 FORM_PREFIXES = ("create", "update", "save", "edit", "new")
 
-CORE_ENTITIES = [
-    "project",
-    "compose",
-    "application",
-    "postgres",
-    "mysql",
-    "mariadb",
-    "mongo",
-    "redis",
-    "libsql",
-    "server",
-    "domain",
-    "deployment",
-]
+# Response keys (nested arrays) → child entity name.
+NESTED_CHILD_KEYS = {
+    "environments": "environment",
+    "applications": "application",
+    "compose": "compose",
+    "postgres": "postgres",
+    "mysql": "mysql",
+    "mariadb": "mariadb",
+    "mongo": "mongo",
+    "redis": "redis",
+    "libsql": "libsql",
+    "domains": "domain",
+    "ports": "port",
+    "mounts": "mount",
+    "backups": "backup",
+    "schedules": "schedule",
+    "security": "security",
+    "redirects": "redirects",
+    "patches": "patch",
+    "previewDeployments": "previewDeployment",
+}
+
+
+def nested_child_entity(key: str) -> str | None:
+    """Map a nested response array key to its child entity, if known."""
+    return NESTED_CHILD_KEYS.get(key)
 
 
 def classify(action: EntityAction) -> str:

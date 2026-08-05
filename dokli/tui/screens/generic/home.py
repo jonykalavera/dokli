@@ -8,7 +8,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, Input, Label, ListItem, ListView
 
 from dokli.config import ConnectionConfig
-from dokli.tui.engine.spec import CORE_ENTITIES, EntityRegistry
+from dokli.tui.engine import EntityRegistry
 from dokli.tui.screens.generic.entity_list import EntityListScreen
 
 if TYPE_CHECKING:
@@ -18,16 +18,22 @@ if TYPE_CHECKING:
 class EntityItem(ListItem):
     """An entity in the home list."""
 
-    def __init__(self, name: str, core: bool, *args, **kwargs) -> None:
+    def __init__(self, name: str, path: list[str], *args, **kwargs) -> None:
         """Construct an entity item."""
         super().__init__(*args, **kwargs)
         self.entity_name = name
-        self.core = core
+        self.navigation_path = path
+
+    @property
+    def listable(self) -> bool:
+        """Whether the entity can be listed directly."""
+        return len(self.navigation_path) == 1
 
     def compose(self) -> "ComposeResult":
         """Compose the widget."""
-        yield Label(f"{'●' if self.core else '○'} {self.entity_name}", id="name", classes="title")
-        yield Label("core" if self.core else "discovered", id="meta")
+        yield Label(f"{'●' if self.listable else '○'} {self.entity_name}", id="name", classes="title")
+        if not self.listable:
+            yield Label("via " + " → ".join(self.navigation_path), id="path")
 
 
 class HomeScreen(Screen):
@@ -77,27 +83,27 @@ class HomeScreen(Screen):
         query = ""
         try:
             search = self.query_one("#search", Input)
-            query = search.value.lower()
+            query = search.value.lower().strip()
         except NoMatches:
             pass
         names = self.registry.names()
-        ordered = [name for name in CORE_ENTITIES if name in names] + [
-            name for name in names if name not in CORE_ENTITIES
-        ]
-        filtered = [name for name in ordered if query in name.lower()]
+        matches = [name for name in names if query in name.lower()] if query else self.registry.listable()
+        items = []
+        for name in matches:
+            path = self.registry.navigation_path(name)
+            items.append(EntityItem(name, path, id=f"entity__{name}"))
         list_view = self.query_one("#entities", ListView)
         await list_view.clear()
-        list_view.extend(
-            [
-                EntityItem(name, name in CORE_ENTITIES, id=f"entity__{name}")
-                for name in filtered
-            ]
-        )
+        list_view.extend(items)
         list_view.focus()
 
     def on_list_view_selected(self, event) -> None:
         """Open the selected entity."""
-        if isinstance(event.item, EntityItem):
+        if not isinstance(event.item, EntityItem):
+            return
+        if event.item.listable:
             self.app.push_screen(
                 EntityListScreen(self.connection, self.registry, event.item.entity_name, classes="Entities")
             )
+        else:
+            self.notify(f"{event.item.entity_name} is reached via " + " → ".join(event.item.navigation_path))

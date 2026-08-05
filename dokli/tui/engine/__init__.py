@@ -6,7 +6,14 @@ generic list/detail/form views for any Dokploy API version.
 
 from dokli.tui.engine.introspect import field_label, infer_columns, record_id, record_subtitle, record_title
 from dokli.tui.engine.schemas import build_form_model
-from dokli.tui.engine.spec import Entity, EntityAction, EntityRegistry, classify, parse_spec
+from dokli.tui.engine.spec import (
+    Entity,
+    EntityAction,
+    EntityRegistry,
+    classify,
+    nested_child_entity,
+    parse_spec,
+)
 
 __all__ = [
     "Entity",
@@ -16,6 +23,7 @@ __all__ = [
     "classify",
     "field_label",
     "infer_columns",
+    "nested_child_entity",
     "parse_spec",
     "record_id",
     "record_subtitle",

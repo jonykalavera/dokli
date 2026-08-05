@@ -92,11 +92,15 @@ def test_record_screen_resume_does_not_duplicate(mocker):
     """We expect resuming a record screen (e.g. after closing a form) not to duplicate actions."""
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     config = Config(connections=[connection])
-    client = mocker.Mock()
-    client.schema = FAKE_SCHEMA
-    mocker.patch("dokli.tui.app.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient")
     registry = parse_spec(FAKE_SCHEMA)
     record = {"projectId": "p1", "name": "app"}
+
+    response = mocker.Mock()
+    response.json.return_value = record
+    client = mocker.Mock()
+    client.request.return_value = response
+    mocker.patch("dokli.tui.screens.generic.record.APIClient", return_value=client)
 
     async def main():
         app = DokliApp(config=config)

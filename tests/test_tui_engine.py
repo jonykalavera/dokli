@@ -10,6 +10,7 @@ from dokli.tui.engine import (
     classify,
     field_label,
     infer_columns,
+    nested_child_entity,
     parse_spec,
     record_id,
     record_title,
@@ -42,6 +43,43 @@ def _spec() -> dict:
                 }
             },
             "/project.remove": {"post": {}},
+            "/environment.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "projectId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                    },
+                                    "required": ["name", "projectId"],
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "/compose.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "environmentId": {"type": "string"},
+                                        "serverId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                    },
+                                    "required": ["name", "environmentId"],
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "/compose.deploy": {"post": {}},
         }
     }
@@ -56,9 +94,35 @@ class TestParseSpec:
         assert isinstance(registry, EntityRegistry)
         assert "project" in registry.names()
         assert "compose" in registry.names()
+        assert "environment" in registry.names()
         project = registry.get("project")
         assert isinstance(project, Entity)
         assert set(project.actions) == {"all", "one", "create", "remove"}
+
+    def test_listable(self):
+        """We expect entities with an all action to be listable."""
+        registry = parse_spec(_spec())
+        assert registry.listable() == ["project"]
+        assert registry.get("compose").listable is False
+
+    def test_parent_entity_inference(self):
+        """We expect the parent to be inferred from create foreign keys."""
+        registry = parse_spec(_spec())
+        assert registry.get("environment").parent_entity == "project"
+        assert registry.get("compose").parent_entity == "environment"
+        assert registry.get("project").parent_entity is None
+
+    def test_navigation_path(self):
+        """We expect the ancestor chain to be computed."""
+        registry = parse_spec(_spec())
+        assert registry.navigation_path("compose") == ["project", "environment", "compose"]
+        assert registry.navigation_path("project") == ["project"]
+
+    def test_nested_child_entity(self):
+        """We expect nested array keys to map to child entities."""
+        assert nested_child_entity("environments") == "environment"
+        assert nested_child_entity("compose") == "compose"
+        assert nested_child_entity("unknown") is None
 
     def test_action_details(self):
         """We expect action metadata to be extracted."""

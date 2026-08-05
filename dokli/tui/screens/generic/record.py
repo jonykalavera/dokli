@@ -1,14 +1,23 @@
-"""Generic record detail + action picker."""
+"""Generic record detail + child navigation + action picker."""
 
 from typing import TYPE_CHECKING
 
+import httpx
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, ListItem, ListView, Static
 
+from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
-from dokli.tui.engine import EntityRegistry, classify, field_label, record_id
+from dokli.tui.engine import (
+    EntityRegistry,
+    classify,
+    field_label,
+    nested_child_entity,
+    record_id,
+    record_title,
+)
 from dokli.tui.screens.generic.form import ActionFormScreen
 
 if TYPE_CHECKING:
@@ -32,6 +41,20 @@ class FieldRow(Static):
         return f"[b]{field_label(self.key)}:[/b] {value}"
 
 
+class ChildItem(ListItem):
+    """A nested child record (drill-down)."""
+
+    def __init__(self, child_entity: str, record: dict, *args, **kwargs) -> None:
+        """Construct a child item."""
+        super().__init__(*args, **kwargs)
+        self.child_entity = child_entity
+        self.record = record
+
+    def compose(self) -> "ComposeResult":
+        """Compose the widget."""
+        yield Label(f"{self.child_entity} · {record_title(self.record)}", id="name", classes="title")
+
+
 class ActionItem(ListItem):
     """An action available on the record."""
 
@@ -48,9 +71,10 @@ class ActionItem(ListItem):
 
 
 class RecordScreen(Screen):
-    """Show a record and its actions."""
+    """Show a record, its nested children and its actions."""
 
     BINDINGS = [
+        Binding("r", "refresh", "Refresh"),
         Binding("escape", "cancel", "Back"),
     ]
 
@@ -75,10 +99,10 @@ class RecordScreen(Screen):
         yield Header()
         yield Footer()
         yield Label(self.record_title(), id="title", classes="title")
-        yield VerticalScroll(
-            *(FieldRow(key, value) for key, value in self.record.items()),
-            id="fields",
-        )
+        yield Label("Children", id="children-title")
+        yield ListView(id="children")
+        yield Label("Fields", id="fields-title")
+        yield VerticalScroll(id="fields")
         yield Label("Actions", id="actions-title")
         yield ListView(id="actions")
 
@@ -92,28 +116,96 @@ class RecordScreen(Screen):
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
         self.app.sub_title = f"{self.connection.name} - {self.entity_name}"
-        self.run_worker(self._refresh(), exclusive=True)
+        self.action_refresh()
 
-    async def _refresh(self) -> None:
+    def action_refresh(self) -> None:
+        """Refresh the record detail."""
+        self.run_worker(self._load(), exclusive=True)
+
+    async def _load(self) -> None:
+        entity = self.registry.get(self.entity_name)
+        action = entity.get("one") if entity else None
+        if action is not None:
+            params = self._action_params(action)
+            if params:
+                client = APIClient(self.connection)
+                try:
+                    response = client.request("GET", action.route, params)
+                    self.record = response.json()
+                except httpx.HTTPError as err:
+                    self.notify(f"API error: {err}", severity="error", timeout=10)
+        await self._refresh_view()
+
+    def _action_params(self, action) -> dict:
+        params = {}
+        for param in action.param_names:
+            value = self.record.get(param) or record_id(self.record, self.entity_name)
+            if value:
+                params[param] = value
+        return params
+
+    async def _refresh_view(self) -> None:
+        await self._render_children()
+        await self._render_fields()
+        await self._render_actions()
+
+    def _collect_children(self) -> list[tuple[str, dict]]:
+        children = []
+        for key, records in self.record.items():
+            child_entity = nested_child_entity(key)
+            if not child_entity or not isinstance(records, list):
+                continue
+            for record in records:
+                if isinstance(record, dict):
+                    children.append((child_entity, record))
+        return children
+
+    async def _render_children(self) -> None:
+        children = self._collect_children()
+        list_view = self.query_one("#children", ListView)
+        await list_view.clear()
+        list_view.extend(
+            [
+                ChildItem(entity, record, id=f"child__{n}")
+                for n, (entity, record) in enumerate(children)
+            ]
+        )
+        self.query_one("#children-title").display = bool(children)
+        if children:
+            list_view.focus()
+
+    async def _render_fields(self) -> None:
+        container = self.query_one("#fields", VerticalScroll)
+        container.remove_children()
+        await container.mount(*(FieldRow(key, value) for key, value in self.record.items()))
+
+    async def _render_actions(self) -> None:
         entity = self.registry.get(self.entity_name)
         actions = list(entity.actions.values()) if entity else []
-        await self._populate_actions(actions)
-
-    async def _populate_actions(self, actions) -> None:
         list_view = self.query_one("#actions", ListView)
         await list_view.clear()
         form_actions = [a for a in actions if classify(a) == "form"]
-        other_actions = [a for a in actions if classify(a) in ("action",)]
+        other_actions = [a for a in actions if classify(a) == "action"]
         list_view.extend(
             [
                 *(ActionItem(a.verb, "form", id=f"action__{a.verb}") for a in form_actions),
                 *(ActionItem(a.verb, "action", id=f"action__{a.verb}") for a in other_actions),
             ]
         )
-        list_view.focus()
 
     def on_list_view_selected(self, event) -> None:
-        """Run the selected action."""
+        """Navigate or run the selected action."""
+        if isinstance(event.item, ChildItem):
+            self.app.push_screen(
+                RecordScreen(
+                    self.connection,
+                    self.registry,
+                    event.item.child_entity,
+                    event.item.record,
+                    classes="Entities",
+                )
+            )
+            return
         if not isinstance(event.item, ActionItem):
             return
         entity = self.registry.get(self.entity_name)
