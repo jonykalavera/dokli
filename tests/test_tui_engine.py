@@ -225,23 +225,23 @@ class TestIcons:
     def test_icon_label_wraps_in_color(self):
         """We expect icon_label to put the icon in a colored box."""
         label = icon_label("project")
-        assert "on yellow" in label
+        assert "on #f9e2af" in label
         assert "\uf07b" in label
         fallback = icon_label("totally_unknown")
-        assert "on grey70" in fallback
+        assert "on #6c7086" in fallback
 
     def test_state_color(self):
         """We expect a traffic-light color per container state."""
-        assert state_color("running") == "green"
-        assert state_color("paused") == "yellow"
-        assert state_color("restarting") == "yellow"
-        assert state_color("exited") == "red"
-        assert state_color("") == "grey70"
+        assert state_color("running") == "#a6e3a1"
+        assert state_color("paused") == "#f9e2af"
+        assert state_color("restarting") == "#f9e2af"
+        assert state_color("exited") == "#f38ba8"
+        assert state_color("") == "#6c7086"
 
     def test_state_indicator(self):
         """We expect a colored dot for the container state."""
-        assert state_indicator("running") == "[bold green]●[/]"
-        assert state_indicator("exited") == "[bold red]●[/]"
+        assert state_indicator("running") == "[bold #a6e3a1]●[/]"
+        assert state_indicator("exited") == "[bold #f38ba8]●[/]"
 
 
 class TestBuildFormModel:

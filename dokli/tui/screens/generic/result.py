@@ -186,7 +186,7 @@ class ResultScreen(Screen):
                 break
             text.append(line[start:index])
             current = line_index == self._matches[self._match_index]
-            style = "bold reverse" if current else "bold yellow"
+            style = "bold reverse" if current else "#f9e2af"
             text.append(line[index : index + len(query)], style=style)
             start = index + len(query)
         return text

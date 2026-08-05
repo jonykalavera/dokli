@@ -34,39 +34,39 @@ ENTITY_ICONS = {
 
 FALLBACK_ICON = "\uf15b"  # fa-file
 
-DEFAULT_ICON_COLOR = "grey70"
+DEFAULT_ICON_COLOR = "#6c7086"  # catppuccin overlay0
 
-# A distinct color per entity so icons are easy to tell apart.
+# A distinct Catppuccin color per entity so icons are easy to tell apart.
 ENTITY_ICON_COLORS = {
-    "project": "yellow",
-    "compose": "cyan",
-    "application": "magenta",
-    "postgres": "blue",
-    "mysql": "cyan",
-    "mariadb": "cyan",
-    "mongo": "green",
-    "redis": "red",
-    "libsql": "blue",
-    "server": "green",
-    "domain": "blue",
-    "deployment": "magenta",
-    "user": "blue",
-    "notification": "yellow",
-    "backup": "blue",
-    "sshKey": "yellow",
-    "environment": "magenta",
-    "docker": "cyan",
-    "registry": "yellow",
-    "tag": "cyan",
-    "organization": "magenta",
-    "certificate": "yellow",
-    "settings": "grey",
-    "port": "green",
-    "mount": "blue",
-    "gitea": "grey",
-    "github": "grey",
-    "gitlab": "grey",
-    "bitbucket": "grey",
+    "project": "#f9e2af",  # yellow
+    "compose": "#94e2d5",  # teal
+    "application": "#f5c2e7",  # pink
+    "postgres": "#89b4fa",  # blue
+    "mysql": "#94e2d5",  # teal
+    "mariadb": "#94e2d5",  # teal
+    "mongo": "#a6e3a1",  # green
+    "redis": "#f38ba8",  # red
+    "libsql": "#89b4fa",  # blue
+    "server": "#a6e3a1",  # green
+    "domain": "#89dceb",  # sky
+    "deployment": "#cba6f7",  # mauve
+    "user": "#89b4fa",  # blue
+    "notification": "#fab387",  # peach
+    "backup": "#89b4fa",  # blue
+    "sshKey": "#f9e2af",  # yellow
+    "environment": "#f5c2e7",  # pink
+    "docker": "#94e2d5",  # teal
+    "registry": "#fab387",  # peach
+    "tag": "#94e2d5",  # teal
+    "organization": "#cba6f7",  # mauve
+    "certificate": "#f9e2af",  # yellow
+    "settings": "#7f849c",  # overlay1
+    "port": "#a6e3a1",  # green
+    "mount": "#89b4fa",  # blue
+    "gitea": "#7f849c",  # overlay1
+    "github": "#7f849c",  # overlay1
+    "gitlab": "#7f849c",  # overlay1
+    "bitbucket": "#7f849c",  # overlay1
 }
 
 
@@ -85,18 +85,18 @@ def icon_label(name: str) -> str:
     return f"[b on {entity_icon_color(name)}] {entity_icon(name)} [/]"
 
 
-# Container/docker states -> traffic-light color.
+# Container/docker states -> Catppuccin traffic-light color.
 _STATE_COLORS = {
-    "running": "green",
-    "paused": "yellow",
-    "restarting": "yellow",
-    "created": "yellow",
-    "exited": "red",
-    "dead": "red",
-    "removing": "red",
-    "removed": "red",
-    "killed": "red",
-    "stopped": "red",
+    "running": "#a6e3a1",  # green
+    "paused": "#f9e2af",  # yellow
+    "restarting": "#f9e2af",  # yellow
+    "created": "#f9e2af",  # yellow
+    "exited": "#f38ba8",  # red
+    "dead": "#f38ba8",  # red
+    "removing": "#f38ba8",  # red
+    "removed": "#f38ba8",  # red
+    "killed": "#f38ba8",  # red
+    "stopped": "#f38ba8",  # red
 }
 
 

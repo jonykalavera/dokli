@@ -9,6 +9,7 @@ import httpx
 from textual import events, log
 from textual.app import App, ComposeResult, get_system_commands
 from textual.command import DiscoveryHit, Hit, Hits, Provider
+from textual.design import ColorSystem
 from textual.widgets import Footer, Header, Static
 
 from dokli.api_client import APIClient
@@ -22,6 +23,34 @@ from dokli.tui.screens.settings import SettingsScreen
 
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
+
+
+def _catppuccin_design() -> dict[str, ColorSystem]:
+    """A Catppuccin (Mocha/Latte) color system for the app."""
+    return {
+        "dark": ColorSystem(
+            primary="#cba6f7",
+            secondary="#f5c2e7",
+            warning="#f9e2af",
+            error="#f38ba8",
+            success="#a6e3a1",
+            accent="#89b4fa",
+            background="#1e1e2e",
+            surface="#313244",
+            dark=True,
+        ),
+        "light": ColorSystem(
+            primary="#8839ef",
+            secondary="#ea76cb",
+            warning="#df8e1d",
+            error="#d20f39",
+            success="#40a02b",
+            accent="#1e66f5",
+            background="#eff1f5",
+            surface="#ccd0da",
+            dark=False,
+        ),
+    }
 
 
 class DokliCommands(Provider):
@@ -147,6 +176,7 @@ class DokliApp(App):
     ) -> None:
         """Construct a new TUI app."""
         super().__init__(**kwargs)
+        self.design = _catppuccin_design()
         self.config = config or Config()
         self.connection: ConnectionConfig | None = connection
 
