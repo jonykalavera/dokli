@@ -38,10 +38,14 @@ class HelpScreen(Screen):
         sources = []
         previous = self.app.screen_stack[-2] if len(self.app.screen_stack) >= 2 else None
         if previous is not None:
-            sources.append((type(previous).__name__, previous.BINDINGS))
-        sources.append(("App", self.app.BINDINGS))
-        for title, bindings in sources:
+            sources.append(
+                (type(previous).__name__, previous.BINDINGS, getattr(previous, "contextual_bindings", None))
+            )
+        sources.append(("App", self.app.BINDINGS, None))
+        for title, bindings, contextual in sources:
             entries = _binding_entries(bindings)
+            if contextual is not None:
+                entries.extend(contextual())
             if not entries:
                 continue
             widgets.append(Label(title, classes="section"))

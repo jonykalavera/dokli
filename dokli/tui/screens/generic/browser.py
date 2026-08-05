@@ -264,6 +264,20 @@ class BrowserScreen(Screen):
             ]
         return bindings
 
+    def contextual_bindings(self) -> list[tuple[str, str]]:
+        """The current selection's action keybindings, for the help screen."""
+        entries: list[tuple[str, str]] = []
+        entity = self.registry.get(self._selected_kind() or "")
+        if entity is None:
+            return entries
+        selected = self.selected or {}
+        title = record_title(selected) if selected else ""
+        for action, key in self._entity_bindings(entity):
+            if key:
+                label = action.verb if not title else f"{action.verb} {title}"
+                entries.append((key, label))
+        return entries
+
     def _fmt(self, value) -> str:
         if isinstance(value, dict | list):
             return f"{type(value).__name__} ({len(value)})"
@@ -537,7 +551,9 @@ class BrowserScreen(Screen):
         params[missing[0]] = value
         data = await self._api_get(action, params)
         if data is not None:
-            self.app.push_screen(ResultScreen(self.connection, action, data, classes="Entities"))
+            self.app.push_screen(
+                ResultScreen(self.connection, action, data, params=params, classes="Entities")
+            )
 
     async def _open_form(self, action) -> None:
         """Open an action form.

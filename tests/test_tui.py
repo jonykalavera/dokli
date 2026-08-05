@@ -636,6 +636,117 @@ def test_query_action_shows_result(mocker):
     _run(main())
 
 
+def test_result_search_highlights_and_navigates(mocker):
+    """We expect / to open a search that counts matches and navigates with n/N."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("homeStats")
+    logs = "\n".join(f"2026-08-05 line {i} GET /api/projects" for i in range(5))
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, logs)
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            # no matches query
+            await pilot.press("/")
+            await pilot.pause()
+            await pilot.press(*"zzz")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "No matches"
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("/")
+            await pilot.pause()
+            await pilot.press(*"api")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "1/5 matches"
+            # commit search (blur) then navigate
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "2/5 matches"
+            await pilot.press("N")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "1/5 matches"
+
+    _run(main())
+
+
+def test_result_search_escape_clears(mocker):
+    """We expect escape to clear the search and restore the plain result."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("homeStats")
+    logs = "\n".join(f"2026-08-05 line {i} GET /api/projects" for i in range(3))
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, logs)
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.press("/")
+            await pilot.pause()
+            await pilot.press(*"api")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "1/3 matches"
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == ""
+            assert isinstance(app.screen, ResultScreen)
+
+    _run(main())
+
+
+def test_result_refresh_refetches(mocker):
+    """We expect r to re-run the action with the original params and update the result."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("homeStats")
+    params = {"projectId": "p1"}
+
+    def fake_request(method, path, params_):
+        return FakeResponse({"projects": 99, "status": {"running": 1, "idle": 0}})
+
+    client = mocker.Mock()
+    client.request.side_effect = fake_request
+    mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, {"projects": 0}, params=params)
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.press("r")
+            await pilot.pause()
+            await pilot.pause()
+            client.request.assert_called_once_with("GET", action.route, params)
+            text = "\n".join(
+                str(label.renderable)
+                for label in screen.query_one("#result-scroll").children
+                if isinstance(label, Label)
+            )
+            assert "99" in text
+
+    _run(main())
+
+
 def test_read_logs_params_only_backfill_entity_id(mocker):
     """We expect GET params to backfill only the entity's own id, never other params."""
     _patch_api(mocker)
@@ -994,6 +1105,13 @@ def test_help_screen_shows_bindings(mocker):
                 await pilot.pause()
                 if isinstance(app.screen, BrowserScreen):
                     break
+            # select 'project' so its contextual actions are available
+            screen = app.screen
+            vis = screen._visible_items(screen.current)
+            screen.current.index = next(
+                i for i, item in enumerate(vis) if item.get("name") == "project"
+            )
+            await pilot.pause()
             await pilot.press("?")
             for _ in range(10):
                 await pilot.pause()
@@ -1007,6 +1125,8 @@ def test_help_screen_shows_bindings(mocker):
             )
             assert "Quit" in text
             assert "Connections" in text
+            # contextual action of the selected entity is listed
+            assert "create project" in text
 
     _run(main())
 
