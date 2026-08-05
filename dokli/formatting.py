@@ -1,8 +1,9 @@
 """Dokli formatting utility functions."""
 
 import json
+import re
 from enum import Enum
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import typer
 import yaml
@@ -10,6 +11,12 @@ from httpx import Response
 from rich.table import Table
 
 app = typer.Typer()
+
+SECRET_KEY_PATTERN = re.compile(
+    r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)"
+)
+
+D = TypeVar("D")
 
 
 class Format(str, Enum):
@@ -21,16 +28,51 @@ class Format(str, Enum):
     table = "table"
 
 
-def format_response(response: Response, format: Format) -> str | Table | dict | list:
+def format_response(response: Response, format: Format, show_secrets: bool = False) -> str | Table | dict | list:
     """Format the given Response in the given format."""
     raw_data = response.text
     if not raw_data:
         return ""
     data = json.loads(raw_data)
+    if not show_secrets:
+        data = redact_secrets(data)
     return format_data(data, format)
 
 
-D = TypeVar("D")
+def redact_secrets(data: Any) -> Any:
+    """Recursively replace values of secret-like keys with ``***``.
+
+    Keys matching ``password``, ``secret``, ``token``, ``api_key``,
+    ``private_key`` or ``access_key`` are redacted. The ``env`` field is
+    handled specially: only the values of secret-like variables are redacted.
+    """
+    match data:
+        case dict():
+            redacted = {}
+            for key, value in data.items():
+                if SECRET_KEY_PATTERN.search(str(key)):
+                    redacted[key] = "***" if value is not None else None
+                elif str(key) == "env" and isinstance(value, str):
+                    redacted[key] = _redact_env_lines(value)
+                else:
+                    redacted[key] = redact_secrets(value)
+            return redacted
+        case list():
+            return [redact_secrets(item) for item in data]
+        case _:
+            return data
+
+
+def _redact_env_lines(value: str) -> str:
+    lines = []
+    for line in value.splitlines():
+        if "=" in line:
+            key, _, _ = line.partition("=")
+            if SECRET_KEY_PATTERN.search(key):
+                lines.append(f"{key}=***")
+                continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def format_data(data: D, format: Format) -> str | D | Table:
