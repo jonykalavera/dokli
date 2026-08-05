@@ -1,5 +1,6 @@
 """OpenAPI CLI."""
 
+import keyword
 import re
 from inspect import Parameter, Signature
 from typing import Annotated, Any
@@ -34,13 +35,26 @@ def _camel_case_to_snake_case(camel_case_str):
     return re.sub(r"(?<!^)(?=[A-Z])", "_", camel_case_str).lower()
 
 
+def _safe_param_name(name: str) -> str:
+    """Return a valid Python parameter name for an OpenAPI parameter.
+
+    Some schemas use reserved words (e.g. ``from``) or characters that are not
+    valid in Python identifiers. Invalid names are prefixed with ``p_``.
+    """
+    name = _camel_case_to_snake_case(name)
+    name = re.sub(r"\W", "_", name)
+    if keyword.iskeyword(name) or not name.isidentifier():
+        name = f"p_{name}"
+    return name
+
+
 def _api_command_factory(connection, route, method="GET", params=None, request_body=None, client=None):
     """Create a command from an OpenAPI endpoint."""
     # Create a list of parameters for the signature
-    param_hints = {p["name"]: _infer_param_type(p) for p in params}
-    original_name = {_camel_case_to_snake_case(x["name"]): x["name"] for x in params}
+    original_name = {_safe_param_name(x["name"]): x["name"] for x in params}
+    param_hints = {_safe_param_name(p["name"]): _infer_param_type(p) for p in params}
     parameters = [
-        Parameter(_camel_case_to_snake_case(name), Parameter.KEYWORD_ONLY, annotation=typ)
+        Parameter(name, Parameter.KEYWORD_ONLY, annotation=typ)
         for name, typ in param_hints.items()
     ]
     if request_body and request_body.get("required", False):
