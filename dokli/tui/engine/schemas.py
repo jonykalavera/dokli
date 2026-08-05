@@ -27,6 +27,19 @@ READ_ONLY_FIELDS = {
     "refreshToken",
 }
 
+# String fields that are expected to hold multi-line content.
+MULTILINE_FIELDS = {
+    "description",
+    "env",
+    "composeFile",
+    "command",
+    "notes",
+    "buildArgs",
+    "buildSecrets",
+    "previewEnv",
+    "dockerCompose",
+}
+
 
 def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
     """Build a pydantic model from an OpenAPI request body schema.
@@ -46,7 +59,11 @@ def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
         if "enum" in prop:
             options = ", ".join(str(value) for value in prop["enum"])
             description = f"{description} [{options}]" if description else f"Options: {options}"
-        fields[field_name] = (annotation | None, Field(None, title=label, description=description))
+        extra: dict[str, Any] | None = {"multiline": True} if field_name in MULTILINE_FIELDS else None
+        fields[field_name] = (
+            annotation | None,
+            Field(None, title=label, description=description, json_schema_extra=extra),
+        )
     return create_model(name, **fields)
 
 

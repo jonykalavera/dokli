@@ -83,12 +83,16 @@ class FormControl(Static):
             placeholder=field.description or "",
         )
         base.update(kwargs)
+        extra = getattr(field, "json_schema_extra", None) or {}
+        value = kwargs.get("value", "")
         if annotation is bool:
             return SwitchControl(id=name, **base)
         if get_origin(annotation) is Literal:
             return SelectControl(id=name, options=list(get_args(annotation)), **base)
         if annotation in (list, dict):
-            return TextAreaControl(id=name, **base)
+            return TextAreaControl(id=name, parse_json=True, **base)
+        if annotation is str and (extra.get("multiline") or (isinstance(value, str) and "\n" in value)):
+            return TextAreaControl(id=name, parse_json=False, **base)
         return TextControl(id=name, password=annotation in (SecretStr, SecretBytes), **base)
 
     def watch_error(self, old_value: ErrorDetails | None, new_value: ErrorDetails | None) -> None:
@@ -203,13 +207,14 @@ class SwitchControl(FormControl):
 
 
 class TextAreaControl(FormControl):
-    """A JSON text area for object/array fields."""
+    """A text area for multi-line strings or JSON objects/arrays."""
 
-    def __init__(self, id: str, value: Any = "", **kwargs) -> None:
+    def __init__(self, id: str, value: Any = "", parse_json: bool = True, **kwargs) -> None:
         """Construct a text area control."""
         if isinstance(value, dict | list):
             value = json.dumps(value)
         super().__init__(id=id, value=value, **kwargs)
+        self.parse_json = parse_json
 
     def compose(self) -> "ComposeResult":
         """Yield the widgets."""
@@ -230,7 +235,9 @@ class TextAreaControl(FormControl):
         self.value = event.text_area.text
 
     def get_data(self) -> Any:
-        """Parse the JSON text into an object/array."""
+        """Parse JSON when the field is an object/array, otherwise return the text."""
+        if not self.parse_json:
+            return self.value
         try:
             return json.loads(self.value)
         except (json.JSONDecodeError, TypeError):

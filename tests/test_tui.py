@@ -71,6 +71,21 @@ def test_form_rich_controls():
     assert form.fields["enabled"].get_data() is True
 
 
+def test_multiline_string_fields():
+    """We expect known multiline and newline-valued strings to be text areas."""
+    model = build_form_model(
+        {"properties": {"description": {"type": "string"}, "name": {"type": "string"}}}
+    )
+    form = Form.from_model(model, data={"description": "line1\nline2"})
+    assert isinstance(form.fields["description"], TextAreaControl)
+    assert form.fields["description"].get_data() == "line1\nline2"
+    assert not isinstance(form.fields["name"], TextAreaControl)
+
+    model2 = build_form_model({"properties": {"foo": {"type": "string"}}})
+    form2 = Form.from_model(model2, data={"foo": "a\nb"})
+    assert isinstance(form2.fields["foo"], TextAreaControl)
+
+
 def test_wizard_steps_through_fields(mocker):
     """We expect the wizard to step through fields one at a time."""
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
