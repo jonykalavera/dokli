@@ -71,6 +71,9 @@ class HomeScreen(Screen):
         self.query_one(ListView).focus()
 
     def _refresh(self) -> None:
+        self.run_worker(self._refresh_entities(), exclusive=True)
+
+    async def _refresh_entities(self) -> None:
         query = ""
         try:
             search = self.query_one("#search", Input)
@@ -83,7 +86,7 @@ class HomeScreen(Screen):
         ]
         filtered = [name for name in ordered if query in name.lower()]
         list_view = self.query_one("#entities", ListView)
-        list_view.clear()
+        await list_view.clear()
         list_view.extend(
             [
                 EntityItem(name, name in CORE_ENTITIES, id=f"entity__{name}")

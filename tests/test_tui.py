@@ -4,7 +4,9 @@ import asyncio
 
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
+from dokli.tui.engine import parse_spec
 from dokli.tui.screens.generic.home import EntityItem, HomeScreen
+from dokli.tui.screens.generic.record import ActionItem, RecordScreen
 
 FAKE_SCHEMA = {
     "paths": {
@@ -82,5 +84,37 @@ def test_home_lists_core_entities(mocker):
             labels = [item.query_one("#name").renderable for item in items]
             assert any("project" in label for label in labels)
             assert any("redis" in label for label in labels)
+
+    _run(main())
+
+
+def test_record_screen_resume_does_not_duplicate(mocker):
+    """We expect resuming a record screen (e.g. after closing a form) not to duplicate actions."""
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    config = Config(connections=[connection])
+    client = mocker.Mock()
+    client.schema = FAKE_SCHEMA
+    mocker.patch("dokli.tui.app.APIClient", return_value=client)
+    registry = parse_spec(FAKE_SCHEMA)
+    record = {"projectId": "p1", "name": "app"}
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            screen = RecordScreen(connection, registry, "project", record)
+            app.install_screen(screen, name="record")
+            app.push_screen("record")
+            await pilot.pause()
+            screen.on_screen_resume(None)
+            await pilot.pause()
+            screen.on_screen_resume(None)
+            await pilot.pause()
+            actions = [
+                child
+                for child in screen.query_one("#actions").children
+                if isinstance(child, ActionItem)
+            ]
+            verbs = [action.verb for action in actions]
+            assert verbs == ["create"]
 
     _run(main())

@@ -92,17 +92,18 @@ class RecordScreen(Screen):
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
         self.app.sub_title = f"{self.connection.name} - {self.entity_name}"
-        self._refresh()
+        self.run_worker(self._refresh(), exclusive=True)
 
-    def _refresh(self) -> None:
+    async def _refresh(self) -> None:
         entity = self.registry.get(self.entity_name)
         actions = list(entity.actions.values()) if entity else []
-        self._populate_actions(actions)
+        await self._populate_actions(actions)
 
-    def _populate_actions(self, actions) -> None:
+    async def _populate_actions(self, actions) -> None:
         list_view = self.query_one("#actions", ListView)
+        await list_view.clear()
         form_actions = [a for a in actions if classify(a) == "form"]
-        other_actions = [a for a in actions if classify(a) != "form"]
+        other_actions = [a for a in actions if classify(a) in ("action",)]
         list_view.extend(
             [
                 *(ActionItem(a.verb, "form", id=f"action__{a.verb}") for a in form_actions),
