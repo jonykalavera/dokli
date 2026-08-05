@@ -56,7 +56,7 @@ class BrowserScreen(Screen):
         Binding("up", "cursor_up", "Up", show=False),
         Binding("h", "left", "Parent"),
         Binding("l", "right", "Child", show=False),
-        Binding("enter", "right", "Child"),
+        Binding("right", "right", "Child", show=False),
         Binding("r", "refresh", "Refresh"),
         Binding("/", "filter", "Filter"),
         Binding("escape", "cancel", "Back"),
@@ -311,11 +311,18 @@ class BrowserScreen(Screen):
         """Close the filter or drill out."""
         filter_input = self.query_one("#filter", Input)
         if self.focused is filter_input:
-            filter_input.display = False
-            self._filter = ""
-            self._rerender()
+            self._confirm_filter(clear=True)
         else:
             self.action_left()
+
+    def _confirm_filter(self, clear: bool = False) -> None:
+        """Close the filter, keeping the applied filter (or clearing it)."""
+        filter_input = self.query_one("#filter", Input)
+        filter_input.display = False
+        if clear:
+            filter_input.value = ""
+            self._filter = ""
+        self._rerender()
 
     def action_quit(self) -> None:
         """Quit the app."""
@@ -324,8 +331,16 @@ class BrowserScreen(Screen):
     # -- actions ----------------------------------------------------------
 
     def on_key(self, event) -> None:
-        """Handle auto-generated action keybindings."""
-        if isinstance(self.focused, Input):
+        """Handle enter (filter confirm / drill) and auto-generated action keys."""
+        filter_input = self.query_one("#filter", Input)
+        if self.focused is filter_input:
+            if event.key == "enter":
+                self._confirm_filter()
+                event.stop()
+            return
+        if event.key == "enter":
+            self.run_worker(self.action_right, exclusive=True)  # type: ignore[arg-type]
+            event.stop()
             return
         if not event.character:
             return

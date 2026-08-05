@@ -326,6 +326,31 @@ def test_browser_action_key_opens_form(mocker):
     _run(main())
 
 
+def test_filter_enter_confirms_and_keeps_filter(mocker):
+    """We expect Enter in the filter to close it and keep the filter applied."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            await pilot.press("/")
+            await pilot.pause()
+            filter_input = app.screen.query_one("#filter")
+            assert app.screen.focused is filter_input
+            filter_input.value = "project"
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert filter_input.display is False
+            labels = _current_labels(app)
+            assert any("project" in label for label in labels)
+            assert not any("server" in label for label in labels)
+
+    _run(main())
+
+
 async def _select_connection(app, pilot):
     list_view = app.screen.query_one("#connections-list")
     list_view.index = 0
