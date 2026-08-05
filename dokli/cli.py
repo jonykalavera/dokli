@@ -7,6 +7,7 @@ import yaml
 from rich import print as rprint
 from rich.table import Table
 
+from dokli.api_client import APIClient
 from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
 from dokli.diff import build_plan
@@ -65,6 +66,14 @@ def init_command(
         rprint(f"[red]{err}[/red]")
         raise typer.Exit(code=1) from None
     rprint(f"[green]Wrote {path}[/green]")
+
+
+@app.command(name="refresh")
+def refresh_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:
+    """Refetch and refresh the cached OpenAPI schema for a connection."""
+    connection = _get_connection(connection_name)
+    APIClient(connection, force_refresh=True)
+    rprint(f"[green]Refreshed OpenAPI schema for {connection.name}.[/green]")
 
 
 @app.command(name="state")
