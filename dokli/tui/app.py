@@ -27,6 +27,14 @@ ASCII_ART_PATH = TUI_PATH / "asciiart"
 class DokliCommands(Provider):
     """Commands for the Dokli command palette (context-aware)."""
 
+    # Core commands that have an app-level keybinding shown in the help line.
+    _CORE_KEYS = {
+        "Toggle dark mode": "d",
+        "Connections": "C",
+        "Help": "?",
+        "Quit": "q",
+    }
+
     def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
         app = cast(DokliApp, self.app)
         commands = [
@@ -35,6 +43,10 @@ class DokliCommands(Provider):
             ("Settings", "Open the settings screen", app.action_settings),
             ("Help", "Show the keybindings", app.action_help),
             ("Quit", "Exit the app", app.action_quit),
+        ]
+        commands = [
+            (name, _with_key(help_text, self._CORE_KEYS.get(name)), callback)
+            for name, help_text, callback in commands
         ]
         commands.extend(_screen_commands(self.screen))
         for connection in app.config.connections:
@@ -83,6 +95,11 @@ def _screen_commands(screen) -> list[tuple[str, str, Callable[[], Any]]]:
     return commands
 
 
+def _with_key(help_text: str, key: str | None) -> str:
+    """Prepend a shortcut to a command's help line when it has one."""
+    return f"[{key}] {help_text}" if key else help_text
+
+
 def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[], Any]]]:
     """Commands for the browser: the selected entity's available actions."""
     commands: list[tuple[str, str, Callable[[], Any]]] = []
@@ -92,11 +109,12 @@ def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[]
         return commands
     selected = screen.selected or {}
     title = record_title(selected) if selected else (kind or "record")
-    for action, _key in screen._entity_bindings(entity):
+    for action, key in screen._entity_bindings(entity):
+        help_text = _with_key(f"{action.verb} · {kind} ({action.method})", key)
         commands.append(
             (
                 f"Run {action.verb} on {title}",
-                f"{action.verb} · {kind} ({action.method})",
+                help_text,
                 partial(screen._run_action, action),
             )
         )

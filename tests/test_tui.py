@@ -1160,6 +1160,9 @@ def test_command_provider_lists_connections(mocker):
             assert "Open test-env" in names
             assert "Help" in names
             assert "Quit" in names
+            by_name = {hit.text: hit.help for hit in hits}
+            assert by_name["Toggle dark mode"] == "[d] Switch between light and dark themes"
+            assert by_name["Help"] == "[?] Show the keybindings"
 
     _run(main())
 
@@ -1181,6 +1184,8 @@ def test_command_provider_lists_browser_actions(mocker):
             assert "Run create on project" in names
             assert "Run homeStats on project" in names
             assert not any(name == "Run remove on project" for name in names)
+            create_help = next(hit.help for hit in hits if hit.text == "Run create on project")
+            assert create_help == "[c] create · project (POST)"
 
     _run(main())
 
