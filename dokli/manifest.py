@@ -79,7 +79,30 @@ class ApplicationService(BaseModel):
     env: str | None = Field(default=None, description="Environment variables as KEY=VALUE lines.")
 
 
-Service = Annotated[ComposeService | ApplicationService, Field(discriminator="type")]
+class DatabaseService(BaseModel):
+    """A database service."""
+
+    type: Literal["postgres", "mysql", "mariadb", "mongo", "redis"]
+    name: str
+    description: str | None = None
+    image: str | None = None
+    database_name: str | None = Field(default=None, description="Defaults to the service name.")
+    database_user: str | None = Field(default=None, description="Defaults to the service name.")
+    password: str | None = Field(
+        default=None,
+        description="Database password (secret). Prefer password_cmd; never commit real passwords.",
+    )
+    password_cmd: str | None = Field(
+        default=None,
+        description="Command that outputs the database password. Resolved at apply time.",
+    )
+    env: str | None = Field(default=None, description="Environment variables as KEY=VALUE lines.")
+
+
+Service = Annotated[
+    ComposeService | ApplicationService | DatabaseService,
+    Field(discriminator="type"),
+]
 
 
 class ProjectDef(BaseModel):
