@@ -1,16 +1,16 @@
 test:
-	pytest -vv --cov dokli --blockage
+	uv run pytest -vv --cov dokli --blockage
 
 format:
-	ruff format dokli/
-	ruff check dokli/ --fix-only
+	uv run ruff format dokli/
+	uv run ruff check dokli/ --fix-only
 
 lint:
-	ruff check dokli/
-	mypy dokli
+	uv run ruff check dokli/
+	uv run mypy dokli
 
 dev-tui:
-	textual run --dev dokli.tui.app:DokliApp
+	uv run textual run --dev dokli.tui.app:DokliApp
 
 def-tui-console:
-	textual console - SYSTEM -X EVENT
+	uv run textual console - SYSTEM -X EVENT

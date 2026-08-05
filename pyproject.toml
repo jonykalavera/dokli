@@ -79,50 +79,58 @@ ignore_errors = true
 show_missing = true
 
 ##############################################################################
-# POETRY SETTINGS                                                            #
+# PROJECT SETTINGS                                                           #
 ##############################################################################
-[tool.poetry]
+[project]
 name = "dokli"
 version = "0.1.0"
 description = "Dokploy CLI and TUI"
-authors = ["Jony Kalavera <mr.jony@gmail.com>"]
-license = "MIT"
 readme = "README.md"
+requires-python = ">=3.10,<4.0"
+license = { text = "MIT" }
+authors = [
+    { name = "Jony Kalavera", email = "mr.jony@gmail.com" },
+]
+dependencies = [
+    "typer>=0.16.0,<0.17.0",
+    "pydantic>=2.8.2,<3.0.0",
+    "pydantic-settings[yaml]>=2.4.0,<3.0.0",
+    "humanize>=4.10.0,<5.0.0",
+    "httpx>=0.28.1,<0.29.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-typer = "^0.16.0"
-pydantic = "^2.8.2"
-textual = { optional = true, version = "^0.75.1"}
-pydantic-settings = {extras = ["yaml"], version = "^2.4.0"}
-humanize = "^4.10.0"
-httpx = "^0.28.1"
+[project.optional-dependencies]
+tui = [
+    "textual>=0.75.1,<0.76.0",
+]
 
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.5.6"
-mypy = "^1.11.1"
-pytest = "^8.3.2"
-pytest-cov = "^5.0.0"
-textual-dev = "^1.5.1"
-types-tree-sitter = "^0.20.1.20240311"
-types-setuptools = "^71.1.0.20240726"
-types-pyyaml = "^6.0.12.20240724"
-types-docutils = "^0.21.0.20240724"
-tree-sitter = "^0.22.3"
-types-tree-sitter-languages = "^1.10.0.20240612"
-types-pygments = "^2.18.0.20240506"
-datamodel-code-generator = "^0.25.8"
-pytest-mock = "^3.14.0"
-pytest-randomly = "^3.16.0"
-polyfactory = "^2.19.0"
-pytest-blockage = "^0.2.4"
+[project.scripts]
+dokli = "dokli.cli:app"
 
-[tool.poetry.extras]
-tui = ["textual"]
+[dependency-groups]
+dev = [
+    "ruff>=0.5.6,<0.6.0",
+    "mypy>=1.11.1,<2.0.0",
+    "pytest>=8.3.2,<9.0.0",
+    "pytest-cov>=5.0.0,<6.0.0",
+    "textual-dev>=1.5.1,<2.0.0",
+    "types-tree-sitter>=0.20.1.20240311,<0.21.0",
+    "types-setuptools>=71.1.0.20240726,<72.0.0",
+    "types-pyyaml>=6.0.12.20240724,<7.0.0",
+    "types-docutils>=0.21.0.20240724,<0.22.0",
+    "tree-sitter>=0.22.3,<0.23.0",
+    "types-tree-sitter-languages>=1.10.0.20240612,<2.0.0",
+    "types-pygments>=2.18.0.20240506,<3.0.0",
+    "datamodel-code-generator>=0.25.8,<0.26.0",
+    "pytest-mock>=3.14.0,<4.0.0",
+    "pytest-randomly>=3.16.0,<4.0.0",
+    "polyfactory>=2.19.0,<3.0.0",
+    "pytest-blockage>=0.2.4,<0.3.0",
+]
 
-[tool.poetry.scripts]
-dokli = 'dokli.cli:app'
+[tool.hatch.build.targets.wheel]
+packages = ["dokli"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
