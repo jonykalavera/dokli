@@ -111,7 +111,7 @@ $ dokly
 
 
 $ dokly api test-env project all
-- adminId: ysHDHlhX4a3zOG2fLsske
+- organizationId: ysHDHlhX4a3zOG2fLsske
   applications: []
   compose: []
   createdAt: '2024-08-05T02:45:38.168Z'
@@ -126,19 +126,19 @@ $ dokly api test-env project all
 
 $ dokli api test-env project create --body '%json:{"name": "Dokli"}' --format table
                API Response
-┏━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Key         ┃ Value                    ┃
-┡━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ projectId   │ zuanf1SWHMFO11y6xqpRR
-│ name        │ Dokli                    │
-│ description │ None                     │
-│ createdAt   │ 2024-08-05T02:45:38.168Z │
-│ adminId     │ ysHDHlhX4a3zOG2fLsske    │
-└─────────────┴──────────────────────────┘
+┏━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Key                ┃ Value                    ┃
+┡━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ projectId          │ zuanf1SWHMFO11y6xqpRR    │
+│ name               │ Dokli                    │
+│ description        │ None                     │
+│ createdAt          │ 2024-08-05T02:45:38.168Z │
+│ organizationId     │ ysHDHlhX4a3zOG2fLsske    │
+└────────────────────┴──────────────────────────┘
 
 $ dokli api test-env project one --format json zuanf1SWHMFO11y6xqpRR
 {"projectId": "zuanf1SWHMFO11y6xqpRR", "name": "Dokli", "description": null,
-"createdAt": "2024-08-05T02:45:38.168Z", "adminId": "ysHDHlhX4a3zOG2fLsske",
+"createdAt": "2024-08-05T02:45:38.168Z", "organizationId": "ysHDHlhX4a3zOG2fLsske",
 "applications": [], "mariadb": [], "mongo": [], "mysql": [], "postgres": [],
 "redis": [], "compose": []}
 ```

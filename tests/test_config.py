@@ -45,7 +45,7 @@ class TestConnectionConfig:
 
     def test_connection_with_api_key(self):
         """We expect to be able to declare a connection with an API key."""
-        config = ConnectionConfigFactory.build(api_key="*" * 40)
+        config = ConnectionConfigFactory.build(api_key="*" * 64)
         assert config.get_api_key() == config.api_key.get_secret_value()
 
     def test_connection_with_api_key_cmd(self, mocker):
@@ -58,6 +58,6 @@ class TestConnectionConfig:
 
     def test_model_dump_clear_prints_clear_secrets(self):
         """We expect to be able to dump the config with clear secrets."""
-        config = ConnectionConfigFactory.build(api_key="*" * 40)
+        config = ConnectionConfigFactory.build(api_key="*" * 64)
         result = config.model_dump_clear()
-        assert result["api_key"] == "*" * 40
+        assert result["api_key"] == "*" * 64
