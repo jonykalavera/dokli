@@ -192,3 +192,71 @@ class TestBuildPlan:
         assert plan.items[0].action == "update"
         assert "database_name" in plan.items[0].changed
         assert "database_user" not in plan.items[0].changed
+
+    def test_missing_environment_to_create(self):
+        """We expect a plan with creates for a missing named environment."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "environments": [
+                            {
+                                "name": "staging",
+                                "services": [{"type": "compose", "name": "api", "compose_file": "x: 1"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = _state(projects=[_project_live("app", [])])
+
+        plan = build_plan(manifest, state)
+
+        assert plan.items[0].action == "create"
+        assert plan.items[0].kind == "environment"
+        assert plan.items[0].name == "staging"
+        assert plan.items[1].kind == "compose"
+        assert plan.items[1].name == "api"
+
+    def test_existing_environment_service_change(self):
+        """We expect an update for a service inside an existing environment."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "environments": [
+                            {
+                                "name": "staging",
+                                "services": [{"type": "compose", "name": "api", "compose_file": "version: '3.8'"}],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        staging = LiveEnvironment(
+            environment_id="e-staging",
+            name="staging",
+            is_default=False,
+            services=[_compose_live("api", "s2")],
+        )
+        state = _state(
+            projects=[
+                LiveProject(
+                    project_id="app",
+                    name="app",
+                    environments=[staging],
+                )
+            ]
+        )
+
+        plan = build_plan(manifest, state)
+
+        assert plan.items[0].action == "update"
+        assert plan.items[0].name == "api"
+        assert plan.items[0].changed == ["compose_file"]

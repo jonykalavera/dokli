@@ -105,12 +105,26 @@ Service = Annotated[
 ]
 
 
+class EnvironmentDef(BaseModel):
+    """A named environment with its services."""
+
+    name: str
+    services: list[Service] = Field(default_factory=list)
+
+
 class ProjectDef(BaseModel):
     """A project with its services."""
 
     name: str
     description: str | None = None
-    services: list[Service] = Field(default_factory=list)
+    services: list[Service] = Field(
+        default_factory=list,
+        description="Services in the project's default environment.",
+    )
+    environments: list[EnvironmentDef] = Field(
+        default_factory=list,
+        description="Named environments (besides the default one).",
+    )
 
 
 class Manifest(BaseModel):
