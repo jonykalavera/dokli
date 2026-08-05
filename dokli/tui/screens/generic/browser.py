@@ -23,6 +23,7 @@ from dokli.tui.engine import (
 )
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
+from dokli.tui.screens.generic.result import ResultScreen
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -399,6 +400,9 @@ class BrowserScreen(Screen):
         if classify(action) == "form":
             self.run_worker(self._open_form(action), exclusive=True)  # type: ignore[arg-type]
             return
+        if action.method == "GET":
+            self.run_worker(self._show_result(action), exclusive=True)  # type: ignore[arg-type]
+            return
         body = {}
         schema = action.request_schema
         if schema.get("properties") and self.selected:
@@ -414,6 +418,22 @@ class BrowserScreen(Screen):
             body,
             on_success=self._refresh_after_action,
         )
+
+    async def _show_result(self, action) -> None:
+        """Run a read-only GET action and show its result."""
+        params = {}
+        record = self.selected or {}
+        entity = self.registry.get(self._selected_kind() or "")
+        entity_name = entity.name if entity else ""
+        for param in action.param_names:
+            value = record.get(param) or record_id(record, entity_name)
+            if value:
+                params[param] = value
+        data = await self._api_get(action, params)
+        if data is not None:
+            self.app.push_screen(
+                ResultScreen(self.connection, action, data, classes="Entities")
+            )
 
     async def _open_form(self, action) -> None:
         """Open an action form.

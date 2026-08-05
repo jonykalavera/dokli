@@ -12,12 +12,14 @@ from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
+from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
 
 FAKE_SCHEMA = {
     "paths": {
         "/auditLog.all": {"get": {}},
         "/project.all": {"get": {}},
+        "/project.homeStats": {"get": {}},
         "/project.one": {
             "get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}
         },
@@ -92,6 +94,12 @@ def _config() -> Config:
 def _fake_requests():
     return {
         "project.all": [{"projectId": "p1", "name": "media"}, {"projectId": "p2", "name": "services"}],
+        "project.homeStats": {
+            "projects": 6,
+            "compose": 10,
+            "services": 10,
+            "status": {"running": 8, "idle": 2},
+        },
         "project.one": {
             "projectId": "p1",
             "name": "media",
@@ -556,6 +564,34 @@ def test_create_form_opens_empty(mocker):
             assert isinstance(app.screen, ActionFormScreen)
             form = app.screen.form
             assert form.fields["name"].value == ""
+
+    _run(main())
+
+
+def test_query_action_shows_result(mocker):
+    """We expect a GET action to show its result in a result screen."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            await pilot.press("o")
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, ResultScreen)
+            text = "\n".join(
+                str(label.renderable)
+                for label in app.screen.query_one("#result-scroll").children
+            )
+            assert "Projects" in text
+            assert "Compose" in text
+            assert "Running" in text
 
     _run(main())
 
