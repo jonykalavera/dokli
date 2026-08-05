@@ -1,0 +1,138 @@
+"""State collection tests."""
+
+from dokli.config import ConnectionConfig
+from dokli.state import State, collect_state
+
+
+class FakeResponse:
+    """Minimal httpx.Response stand-in for tests."""
+
+    def __init__(self, data):
+        """Initialize with the payload to return from json()."""
+        self._data = data
+
+    def json(self):
+        """Return the canned payload."""
+        return self._data
+
+
+def _connection() -> ConnectionConfig:
+    return ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+
+
+def _responses():
+    return {
+        "project.all": [{"projectId": "p1", "name": "myapp", "description": None}],
+        "project.one": {
+            "projectId": "p1",
+            "name": "myapp",
+            "description": None,
+            "environments": [
+                {
+                    "environmentId": "e1",
+                    "name": "production",
+                    "isDefault": True,
+                    "compose": [
+                        {
+                            "composeId": "c1",
+                            "appName": "backend",
+                            "name": "backend",
+                            "sourceType": "github",
+                            "githubId": "gh1",
+                            "repository": "jonykalavera/backend",
+                            "owner": "jonykalavera",
+                            "branch": "main",
+                            "composePath": "docker-compose.yml",
+                            "serverId": "srv1",
+                            "description": None,
+                        }
+                    ],
+                    "applications": [
+                        {
+                            "applicationId": "a1",
+                            "appName": "web",
+                            "name": "web",
+                            "sourceType": "github",
+                            "githubId": "gh1",
+                            "repository": "jonykalavera/web",
+                            "owner": "jonykalavera",
+                            "branch": "main",
+                            "buildType": "dockerfile",
+                            "dockerfileLocation": "./web/Dockerfile",
+                            "serverId": "srv1",
+                            "description": None,
+                        }
+                    ],
+                }
+            ],
+        },
+        "git-provider.getAll": [
+            {
+                "gitProviderId": "gp1",
+                "name": "github-main",
+                "providerType": "github",
+                "isConfigured": True,
+                "github": {"githubId": "gh1", "githubAppName": "dokli", "isConfigured": True},
+                "gitlab": None,
+                "gitea": None,
+                "bitbucket": None,
+            }
+        ],
+        "server.all": [{"serverId": "srv1", "name": "local"}],
+    }
+
+
+class TestCollectState:
+    """State collection tests."""
+
+    def test_collect_state(self, mocker):
+        """We expect a normalized state with projects, services and providers."""
+        responses = _responses()
+        client = mocker.Mock()
+        client.request.side_effect = lambda _method, path, _params: FakeResponse(responses[path])
+        mocker.patch("dokli.state.APIClient", return_value=client)
+
+        state = collect_state(_connection())
+
+        assert isinstance(state, State)
+        assert state.connection == "test-env"
+        assert len(state.servers) == 1
+        assert state.servers[0].name == "local"
+
+        project = state.projects[0]
+        assert project.project_id == "p1"
+        assert len(project.environments) == 1
+        environment = project.environments[0]
+        assert environment.is_default
+        assert [s.name for s in environment.services] == ["backend", "web"]
+
+        compose = environment.services[0]
+        assert compose.type == "compose"
+        assert compose.provider == "github-main"
+        assert compose.repository == "jonykalavera/backend"
+        assert compose.compose_path == "docker-compose.yml"
+
+        application = environment.services[1]
+        assert application.type == "application"
+        assert application.build_type == "dockerfile"
+        assert application.dockerfile_location == "./web/Dockerfile"
+
+        provider = state.git_providers[0]
+        assert provider.name == "github-main"
+        assert provider.github_id == "gh1"
+        assert provider.is_configured
+
+    def test_request_paths(self, mocker):
+        """We expect state to read projects, git providers and servers."""
+        responses = _responses()
+        client = mocker.Mock()
+        client.request.side_effect = lambda _method, path, _params: FakeResponse(responses[path])
+        mocker.patch("dokli.state.APIClient", return_value=client)
+
+        collect_state(_connection())
+
+        paths = [call.args[1] for call in client.request.call_args_list]
+        assert "project.all" in paths
+        assert "project.one" in paths
+        assert "git-provider.getAll" in paths
+        assert "server.all" in paths
