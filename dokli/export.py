@@ -9,6 +9,7 @@ from dokli.config import ConnectionConfig
 from dokli.manifest import (
     ApplicationService,
     ComposeService,
+    DatabaseService,
     GitProvider,
     GitSource,
     Manifest,
@@ -83,7 +84,9 @@ def _export_project(project, include_secrets: bool, warnings: list[str]) -> Proj
 def _export_service(live: LiveService, include_secrets: bool, warnings: list[str]) -> Service | None:
     if live.type == "compose":
         return _export_compose(live, include_secrets, warnings)
-    return _export_application(live, include_secrets, warnings)
+    if live.type == "application":
+        return _export_application(live, include_secrets, warnings)
+    return _export_database(live, include_secrets, warnings)
 
 
 def _redact_env(live: LiveService, include_secrets: bool, warnings: list[str]) -> str | None:
@@ -137,6 +140,25 @@ def _export_application(live: LiveService, include_secrets: bool, warnings: list
         build_type=live.build_type,
         dockerfile_location=live.dockerfile_location,
         build_path=live.build_path,
+        env=_redact_env(live, include_secrets, warnings),
+    )
+
+
+def _export_database(live: LiveService, include_secrets: bool, warnings: list[str]) -> DatabaseService:
+    if live.database_password:
+        warnings.append(
+            f"Database password of '{live.name}' was not exported. "
+            "Set password or password_cmd in the manifest for apply."
+        )
+    return DatabaseService(
+        type=live.type,  # type: ignore[arg-type]
+        name=live.name,
+        description=live.description or None,
+        image=live.docker_image,
+        database_name=live.database_name,
+        database_user=live.database_user,
+        password=None,
+        password_cmd=None,
         env=_redact_env(live, include_secrets, warnings),
     )
 

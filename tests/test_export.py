@@ -2,7 +2,7 @@
 
 from dokli.export import export_manifest
 from dokli.config import ConnectionConfig
-from dokli.manifest import ApplicationService, ComposeService
+from dokli.manifest import ApplicationService, ComposeService, DatabaseService
 from dokli.state import LiveEnvironment, LiveGitProvider, LiveProject, LiveService, State
 
 
@@ -269,3 +269,40 @@ class TestExportGitProviders:
 
         assert manifest.git_providers == []
         assert any("unsupported type" in warning for warning in warnings)
+
+
+class TestExportDatabases:
+    """Database export tests."""
+
+    def test_database_export_redacts_password(self, mocker):
+        """We expect a database to be exported without its password."""
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[
+                    _project_live(
+                        "app",
+                        [
+                            _live_service(
+                                "postgres",
+                                "db",
+                                database_name="appdb",
+                                database_user="app",
+                                database_password="hunter2",
+                                docker_image="postgres:16",
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+
+        manifest, warnings = export_manifest(_connection())
+
+        service = manifest.projects[0].services[0]
+        assert isinstance(service, DatabaseService)
+        assert service.database_name == "appdb"
+        assert service.password is None
+        assert service.password_cmd is None
+        assert any("password" in warning and "not exported" in warning for warning in warnings)
