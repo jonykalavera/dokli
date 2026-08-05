@@ -11,6 +11,7 @@ from dokli.tui.engine import (
     classify,
     entity_icon,
     field_label,
+    icon_label,
     infer_columns,
     key_for_verb,
     nested_child_entity,
@@ -220,6 +221,14 @@ class TestIcons:
     def test_fallback_for_unknown(self):
         """We expect unknown entities to get a fallback icon."""
         assert entity_icon("totally_unknown") == "\uf15b"
+
+    def test_icon_label_wraps_in_color(self):
+        """We expect icon_label to put the icon in a colored box."""
+        label = icon_label("project")
+        assert "on yellow" in label
+        assert "\uf07b" in label
+        fallback = icon_label("totally_unknown")
+        assert "on grey70" in fallback
 
 
 class TestBuildFormModel:

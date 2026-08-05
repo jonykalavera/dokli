@@ -18,8 +18,8 @@ from dokli.tui.engine import (
     classify,
     clear_probe_cache,
     collect_children,
-    entity_icon,
     field_label,
+    icon_label,
     param_source,
     probe_entities,
     record_id,
@@ -166,10 +166,10 @@ class BrowserScreen(Screen):
     def _item_label(self, item: dict, level: Level) -> str:
         title = record_title(item)
         if level.kind == "entities":
-            return f"{entity_icon(title)}  {title}"
+            return f"{icon_label(title)}  {title}"
         if level.kind == "children":
-            return f"{entity_icon(item.get('_kind') or '')}  {title}"
-        return f"{entity_icon(level.kind)}  {title}"
+            return f"{icon_label(item.get('_kind') or '')}  {title}"
+        return f"{icon_label(level.kind)}  {title}"
 
     def _visible_items(self, level: Level) -> list[dict]:
         items = level.items
@@ -230,7 +230,7 @@ class BrowserScreen(Screen):
             if children:
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
                 for child_entity, child in children[:10]:
-                    widgets.append(Label(f"  {entity_icon(child_entity)}  {record_title(child)}"))
+                    widgets.append(Label(f"  {icon_label(child_entity)}  {record_title(child)}"))
             related = self._related_records(selected)
             if related:
                 spec = related_spec(kind)
@@ -240,14 +240,7 @@ class BrowserScreen(Screen):
                     title = item.get("name") or record_id(item) or "?"
                     status = item.get("state") or item.get("status")
                     suffix = f" ({status})" if status else ""
-                    widgets.append(Label(f"  {entity_icon('docker')}  {title}{suffix}"))
-            entity = self.registry.get(kind)
-            if entity:
-                bindings = self._entity_bindings(entity)
-                if bindings:
-                    widgets.append(Label("Actions", classes="section"))
-                    for action, key in bindings:
-                        widgets.append(Label(f"  [{'b'}]{key or '-'}[/] {action.verb}"))
+                    widgets.append(Label(f"  {icon_label('docker')}  {title}{suffix}"))
         await container.mount(*widgets)
 
     def _detail_field_labels(self, selected: dict, skip: set[str]) -> list[Label]:
@@ -267,7 +260,7 @@ class BrowserScreen(Screen):
         )
         if not kind:
             return None, title_key
-        header = f"{entity_icon(kind)}  {kind}"
+        header = f"{icon_label(kind)}  {kind}"
         if title_key:
             header += f"  [b]·  {self._fmt(selected[title_key])}[/b]"
         return header, title_key

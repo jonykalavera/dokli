@@ -4,7 +4,7 @@ Parses the OpenAPI document into an entity registry so the TUI can render
 generic list/detail/form views for any Dokploy API version.
 """
 
-from dokli.tui.engine.icons import entity_icon
+from dokli.tui.engine.icons import entity_icon, entity_icon_color, icon_label
 from dokli.tui.engine.introspect import (
     collect_children,
     field_label,
@@ -46,7 +46,9 @@ __all__ = [
     "clear_probe_cache",
     "collect_children",
     "entity_icon",
+    "entity_icon_color",
     "field_label",
+    "icon_label",
     "infer_columns",
     "key_for_verb",
     "nested_child_entity",

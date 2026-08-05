@@ -34,7 +34,52 @@ ENTITY_ICONS = {
 
 FALLBACK_ICON = "\uf15b"  # fa-file
 
+DEFAULT_ICON_COLOR = "grey70"
+
+# A distinct color per entity so icons are easy to tell apart.
+ENTITY_ICON_COLORS = {
+    "project": "yellow",
+    "compose": "cyan",
+    "application": "magenta",
+    "postgres": "blue",
+    "mysql": "cyan",
+    "mariadb": "cyan",
+    "mongo": "green",
+    "redis": "red",
+    "libsql": "blue",
+    "server": "green",
+    "domain": "blue",
+    "deployment": "magenta",
+    "user": "blue",
+    "notification": "yellow",
+    "backup": "blue",
+    "sshKey": "yellow",
+    "environment": "magenta",
+    "docker": "cyan",
+    "registry": "yellow",
+    "tag": "cyan",
+    "organization": "magenta",
+    "certificate": "yellow",
+    "settings": "grey",
+    "port": "green",
+    "mount": "blue",
+    "gitea": "grey",
+    "github": "grey",
+    "gitlab": "grey",
+    "bitbucket": "grey",
+}
+
 
 def entity_icon(name: str) -> str:
     """Return the Nerd Font icon for an entity (with a fallback)."""
     return ENTITY_ICONS.get(name, FALLBACK_ICON)
+
+
+def entity_icon_color(name: str) -> str:
+    """Return the color for an entity's icon."""
+    return ENTITY_ICON_COLORS.get(name, DEFAULT_ICON_COLOR)
+
+
+def icon_label(name: str) -> str:
+    """Rich markup for an entity icon inside a colored box."""
+    return f"[b on {entity_icon_color(name)}] {entity_icon(name)} [/]"
