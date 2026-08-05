@@ -19,7 +19,7 @@ from dokli.tui.engine import (
     record_id,
     record_title,
 )
-from dokli.tui.screens.generic.confirm import ConfirmScreen
+from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
 
 if TYPE_CHECKING:
@@ -231,26 +231,11 @@ class RecordScreen(Screen):
                 for key, value in self.record.items()
                 if key in schema["properties"] and value is not None
             }
-        danger = action.verb in DESTRUCTIVE_VERBS
-        title = f"Run {action.route}?"
-        message = ", ".join(f"{key}={value}" for key, value in body.items()) or "(no body)"
-        self.app.push_screen(
-            ConfirmScreen(title=title, message=message, danger=danger),
-            callback=lambda confirmed: self._run_action(action, body) if confirmed else None,
-        )
-
-    def _run_action(self, action, body: dict) -> None:
-        client = APIClient(self.connection)
-        params: dict = {}
-        if body:
-            params["body"] = body
-        try:
-            client.request(action.method, action.route, params)
-        except httpx.HTTPError as err:
-            self.notify(f"API error: {err}", severity="error", timeout=10)
-            return
-        self.notify(f"{action.route} OK")
         if action.verb in DESTRUCTIVE_VERBS:
-            self.dismiss(None)
+
+            def on_success() -> None:
+                self.dismiss(None)
+
         else:
-            self.action_refresh()
+            on_success = self.action_refresh
+        confirm_and_run(self, self.connection, action, body, on_success=on_success)
