@@ -11,6 +11,7 @@ from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
 from dokli.diff import build_plan
 from dokli.export import export_manifest
+from dokli.init import init_manifest
 from dokli.manifest import Manifest
 from dokli.openapi_cli import register_connections
 from dokli.state import collect_state
@@ -51,6 +52,19 @@ def _get_connection(connection_name: str | None) -> ConnectionConfig:
     if len(config.connections) == 1:
         return config.connections[0]
     raise typer.BadParameter("Specify a connection name.")
+
+
+@app.command(name="init")
+def init_command(
+    output: str = typer.Option("dokploy.yaml", "--output", "-o", help="Output file."),
+) -> None:
+    """Scaffold a new dokli manifest."""
+    try:
+        path = init_manifest(state["config"], output)
+    except FileExistsError as err:
+        rprint(f"[red]{err}[/red]")
+        raise typer.Exit(code=1) from None
+    rprint(f"[green]Wrote {path}[/green]")
 
 
 @app.command(name="state")
