@@ -1131,6 +1131,16 @@ def test_help_screen_shows_bindings(mocker):
     _run(main())
 
 
+def test_help_default_bindings_win_over_contextual():
+    """We expect default keybindings to win over contextual ones on collision."""
+    from dokli.tui.screens.generic.help import _merge_entries
+
+    default = [("c", "Copy"), ("r", "Refresh")]
+    contextual = [("r", "Run redeploy on app"), ("x", "Deploy")]
+    merged = _merge_entries(default, contextual)
+    assert merged == [("c", "Copy"), ("r", "Refresh"), ("x", "Deploy")]
+
+
 def test_command_palette_opens(mocker):
     """We expect the command palette to open on ctrl+p."""
     _patch_api(mocker)
