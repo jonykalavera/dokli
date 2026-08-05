@@ -86,7 +86,7 @@ def collect_state(connection: ConnectionConfig) -> State:
     """Collect the live state of a connection."""
     client = APIClient(connection)
     raw_projects = client.request("GET", "project.all", {}).json()
-    raw_providers = client.request("GET", "git-provider.getAll", {}).json()
+    raw_providers = client.request("GET", "gitProvider.getAll", {}).json()
     raw_servers = client.request("GET", "server.all", {}).json()
 
     provider_map = _build_provider_map(raw_providers)
