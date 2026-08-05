@@ -306,3 +306,47 @@ class TestExportDatabases:
         assert service.password is None
         assert service.password_cmd is None
         assert any("password" in warning and "not exported" in warning for warning in warnings)
+
+
+class TestExportEnvironments:
+    """Multi-environment export tests."""
+
+    def test_exports_named_environments(self, mocker):
+        """We expect non-default environments to be exported under environments."""
+        default_env = LiveEnvironment(
+            environment_id="e1",
+            name="production",
+            is_default=True,
+            services=[
+                _live_service("compose", "backend", source_type="raw", compose_file="version: '3'"),
+            ],
+        )
+        staging_env = LiveEnvironment(
+            environment_id="e2",
+            name="staging",
+            is_default=False,
+            services=[
+                _live_service("compose", "api", source_type="raw", compose_file="version: '3'"),
+            ],
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[
+                    LiveProject(
+                        project_id="app",
+                        name="app",
+                        environments=[default_env, staging_env],
+                    )
+                ],
+            ),
+        )
+
+        manifest, _ = export_manifest(_connection())
+
+        project = manifest.projects[0]
+        assert [s.name for s in project.services] == ["backend"]
+        assert len(project.environments) == 1
+        assert project.environments[0].name == "staging"
+        assert [s.name for s in project.environments[0].services] == ["api"]
