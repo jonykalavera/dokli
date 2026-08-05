@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label
 
@@ -52,9 +52,12 @@ class WizardScreen(Screen):
         yield Footer()
         yield Label("", id="prompt", classes="title")
         yield Container(id="control")
-        yield Button("Back", id="back")
-        yield Button("Next", id="next", variant="primary")
-        yield Button("Cancel", id="cancel")
+        yield Horizontal(
+            Button("Back", id="back"),
+            Button("Next", id="next", variant="primary"),
+            Button("Cancel", id="cancel"),
+            classes="actions",
+        )
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""

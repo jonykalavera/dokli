@@ -106,6 +106,17 @@ ConnectionWidget Label#icon {
   background: $success;
 }
 
+Horizontal.actions {
+  margin-top: 1;
+  height: 5;
+}
+
+Horizontal.actions Button {
+  width: 1fr;
+  margin-left: 1;
+  margin-right: 1;
+}
+
 ConnectionScreen Horizontal {
   margin-top: 1;
   min-width: 50;

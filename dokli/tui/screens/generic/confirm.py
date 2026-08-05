@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label
 
@@ -35,8 +36,11 @@ class ConfirmScreen(Screen):
         yield Footer()
         yield Label(self._title, id="title", classes="title")
         yield Label(self._message, id="message")
-        yield Button("Yes", id="yes", variant="error" if self._danger else "primary")
-        yield Button("No", id="no")
+        yield Horizontal(
+            Button("Yes", id="yes", variant="error" if self._danger else "primary"),
+            Button("No", id="no"),
+            classes="actions",
+        )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle buttons."""
