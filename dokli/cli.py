@@ -118,16 +118,18 @@ def plan_command(
 def _print_apply_report(report) -> None:
     if not report.actions:
         rprint("[green]No changes.[/green]")
-        return
-    table = Table(title="Apply report")
-    table.add_column("Action")
-    table.add_column("Kind")
-    table.add_column("Project")
-    table.add_column("Name")
-    table.add_column("Details")
-    for action in report.actions:
-        table.add_row(action.action, action.kind, action.project, action.name, action.details)
-    rprint(table)
+    else:
+        table = Table(title="Apply report")
+        table.add_column("Action")
+        table.add_column("Kind")
+        table.add_column("Project")
+        table.add_column("Name")
+        table.add_column("Details")
+        for action in report.actions:
+            table.add_row(action.action, action.kind, action.project, action.name, action.details)
+        rprint(table)
+    for warning in report.warnings:
+        rprint(f"[yellow]{warning}[/yellow]")
 
 
 @app.command(name="apply")

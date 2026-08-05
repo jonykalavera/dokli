@@ -70,6 +70,9 @@ def _applier(mocker, state: State, responses: dict | None = None):
             return FakeResponse({"composeId": "c-new"})
         if path == "application.create":
             return FakeResponse({"applicationId": "a-new"})
+        for service_type in ("postgres", "mysql", "mariadb", "mongo", "redis"):
+            if path == f"{service_type}.create":
+                return FakeResponse({f"{service_type}Id": f"{service_type}-new"})
         return FakeResponse({})
 
     client.request.side_effect = fake_request
@@ -268,3 +271,110 @@ class TestApplyDeploy:
         deploy_calls = [call for call in client.request.call_args_list if call.args[1] == "compose.deploy"]
         assert len(deploy_calls) == 1
         assert deploy_calls[0].args[2]["body"] == {"composeId": "c-new"}
+
+
+class TestApplyDatabases:
+    """Database apply flows."""
+
+    def test_creates_database_with_password_cmd(self, mocker):
+        """We expect a postgres create with a resolved password."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "postgres",
+                                "name": "db",
+                                "password_cmd": "echo secret123",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        client = _applier(mocker, State(connection="test-env"))
+
+        Applier(manifest, _connection()).run()
+
+        create_calls = [call for call in client.request.call_args_list if call.args[1] == "postgres.create"]
+        assert len(create_calls) == 1
+        body = create_calls[0].args[2]["body"]
+        assert body["databasePassword"] == "secret123"
+        assert body["databaseName"] == "db"
+        assert body["databaseUser"] == "db"
+        assert body["environmentId"] == "e-new"
+
+    def test_generates_password_when_missing(self, mocker):
+        """We expect a generated password with a warning when none is provided."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [{"name": "app", "services": [{"type": "redis", "name": "cache"}]}],
+            }
+        )
+        _applier(mocker, State(connection="test-env"))
+
+        report = Applier(manifest, _connection()).run()
+
+        assert any("generated a random password" in warning for warning in report.warnings)
+        assert report.actions
+
+    def test_updates_database(self, mocker):
+        """We expect a database update when fields differ."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "postgres",
+                                "name": "db",
+                                "database_name": "newdb",
+                                "password_cmd": "echo secret123",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        live = LiveService(
+            service_id="pg1",
+            app_name="db",
+            type="postgres",
+            name="db",
+            database_name="olddb",
+            database_user="db",
+            database_password="secret123",
+        )
+        state = State(
+            connection="test-env",
+            projects=[
+                LiveProject(
+                    project_id="app",
+                    name="app",
+                    environments=[
+                        LiveEnvironment(
+                            environment_id="e1",
+                            name="production",
+                            is_default=True,
+                            services=[live],
+                        )
+                    ],
+                )
+            ],
+        )
+        client = _applier(mocker, state)
+
+        Applier(manifest, _connection()).run()
+
+        update_calls = [call for call in client.request.call_args_list if call.args[1] == "postgres.update"]
+        assert len(update_calls) == 1
+        body = update_calls[0].args[2]["body"]
+        assert body["postgresId"] == "pg1"
+        assert body["databaseName"] == "newdb"
+        assert "databasePassword" not in body  # password unchanged

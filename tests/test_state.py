@@ -136,3 +136,32 @@ class TestCollectState:
         assert "project.one" in paths
         assert "gitProvider.getAll" in paths
         assert "server.all" in paths
+
+    def test_collects_database_services(self, mocker):
+        """We expect database services to be collected."""
+        responses = _responses()
+        responses["project.one"]["environments"][0]["postgres"] = [
+            {
+                "postgresId": "pg1",
+                "appName": "db",
+                "name": "db",
+                "databaseName": "appdb",
+                "databaseUser": "app",
+                "databasePassword": "hunter2",
+                "dockerImage": "postgres:16",
+                "serverId": "srv1",
+                "description": None,
+            }
+        ]
+        client = mocker.Mock()
+        client.request.side_effect = lambda _method, path, _params: FakeResponse(responses[path])
+        mocker.patch("dokli.state.APIClient", return_value=client)
+
+        state = collect_state(_connection())
+
+        service = state.projects[0].environments[0].services[-1]
+        assert service.type == "postgres"
+        assert service.service_id == "pg1"
+        assert service.database_name == "appdb"
+        assert service.database_user == "app"
+        assert service.database_password == "hunter2"

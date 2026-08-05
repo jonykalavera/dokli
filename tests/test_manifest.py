@@ -3,7 +3,7 @@
 import pytest
 import yaml
 
-from dokli.manifest import ApplicationService, ComposeService, Manifest
+from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest
 
 
 def _load_manifest(raw_yaml: str) -> Manifest:
@@ -49,6 +49,26 @@ class TestManifest:
         service = manifest.projects[0].services
         assert isinstance(service[0], ComposeService)
         assert isinstance(service[1], ApplicationService)
+
+    def test_database_service(self):
+        """We expect database services to be parsed."""
+        manifest = _load_manifest(
+            """
+            connection: prod
+            projects:
+              - name: myapp
+                services:
+                  - type: postgres
+                    name: db
+                    database_name: appdb
+                    database_user: app
+                    password_cmd: "secret-tool lookup dokli db"
+            """
+        )
+        service = manifest.projects[0].services[0]
+        assert isinstance(service, DatabaseService)
+        assert service.database_name == "appdb"
+        assert service.password_cmd == "secret-tool lookup dokli db"
 
     def test_get_git_provider_raises_for_unknown(self):
         """We expect an error when a git provider is not defined."""

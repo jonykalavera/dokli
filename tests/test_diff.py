@@ -163,3 +163,32 @@ class TestBuildPlan:
 
         assert plan.items[0].action == "validate"
         assert "type mismatch" in plan.items[0].reason
+
+    def test_database_service_changes(self):
+        """We expect a database service diff to detect field changes."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "postgres",
+                                "name": "db",
+                                "database_name": "newdb",
+                                "database_user": "app",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        live = _compose_live("db", "pg1", type="postgres", database_name="olddb", database_user="app")
+        state = _state(projects=[_project_live("app", [live])])
+
+        plan = build_plan(manifest, state)
+
+        assert plan.items[0].action == "update"
+        assert "database_name" in plan.items[0].changed
+        assert "database_user" not in plan.items[0].changed

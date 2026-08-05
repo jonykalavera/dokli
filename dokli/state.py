@@ -18,7 +18,15 @@ class LiveService(BaseModel):
 
     service_id: str
     app_name: str
-    type: Literal["compose", "application"]
+    type: Literal[
+        "compose",
+        "application",
+        "postgres",
+        "mysql",
+        "mariadb",
+        "mongo",
+        "redis",
+    ]
     name: str
     description: str | None = None
     source_type: str | None = None
@@ -33,6 +41,9 @@ class LiveService(BaseModel):
     compose_path: str | None = None
     compose_file: str | None = None
     command: str | None = None
+    database_name: str | None = None
+    database_user: str | None = None
+    database_password: str | None = None
     env: str | None = None
     server_id: str | None = None
 
@@ -117,6 +128,11 @@ def _collect_project(client: APIClient, raw_project: dict[str, Any], provider_ma
             services=[
                 *_collect_services("compose", environment.get("compose", []), provider_map),
                 *_collect_services("application", environment.get("applications", []), provider_map),
+                *_collect_services("postgres", environment.get("postgres", []), provider_map),
+                *_collect_services("mysql", environment.get("mysql", []), provider_map),
+                *_collect_services("mariadb", environment.get("mariadb", []), provider_map),
+                *_collect_services("mongo", environment.get("mongo", []), provider_map),
+                *_collect_services("redis", environment.get("redis", []), provider_map),
             ],
         )
         for environment in detail.get("environments", [])
@@ -130,20 +146,20 @@ def _collect_project(client: APIClient, raw_project: dict[str, Any], provider_ma
 
 
 def _collect_services(
-    service_type: Literal["compose", "application"],
+    service_type: str,
     raw_services: list[dict[str, Any]],
     provider_map: dict[str, str],
 ) -> list[LiveService]:
     services = []
     for raw in raw_services:
-        service_id = raw.get("composeId") or raw.get("applicationId")
+        service_id = _service_id(raw)
         if not service_id:
             continue
         services.append(
             LiveService(
                 service_id=service_id,
                 app_name=raw.get("appName") or "",
-                type=service_type,
+                type=service_type,  # type: ignore[arg-type]
                 name=raw.get("name") or "",
                 description=raw.get("description"),
                 source_type=raw.get("sourceType"),
@@ -158,6 +174,9 @@ def _collect_services(
                 compose_path=raw.get("composePath"),
                 compose_file=raw.get("composeFile"),
                 command=raw.get("command"),
+                database_name=raw.get("databaseName"),
+                database_user=raw.get("databaseUser"),
+                database_password=raw.get("databasePassword"),
                 env=raw.get("env"),
                 server_id=raw.get("serverId"),
             )
@@ -214,4 +233,19 @@ def _first(mapping: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         if mapping.get(key) is not None:
             return mapping[key]
+    return None
+
+
+def _service_id(raw: dict[str, Any]) -> str | None:
+    for key in (
+        "composeId",
+        "applicationId",
+        "postgresId",
+        "mysqlId",
+        "mariadbId",
+        "mongoId",
+        "redisId",
+    ):
+        if raw.get(key):
+            return raw[key]
     return None

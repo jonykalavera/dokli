@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from dokli.manifest import ApplicationService, ComposeService, GitSource, Manifest, Service
+from dokli.manifest import ApplicationService, ComposeService, DatabaseService, GitSource, Manifest, Service
 from dokli.state import LiveEnvironment, LiveProject, LiveService, State
 
 
@@ -13,7 +13,17 @@ class PlanItem(BaseModel):
     """A single planned change."""
 
     action: Literal["create", "update", "validate"]
-    kind: Literal["project", "compose", "application", "git_provider"]
+    kind: Literal[
+        "project",
+        "compose",
+        "application",
+        "postgres",
+        "mysql",
+        "mariadb",
+        "mongo",
+        "redis",
+        "git_provider",
+    ]
     project: str = ""
     name: str
     changed: list[str] = Field(default_factory=list)
@@ -140,8 +150,10 @@ def _service_changes(service_def: Service, live: LiveService) -> list[str]:
     changes: list[str] = []
     if isinstance(service_def, ComposeService):
         _compose_changes(service_def, live, changes)
-    else:
+    elif isinstance(service_def, ApplicationService):
         _application_changes(service_def, live, changes)
+    else:
+        _database_changes(service_def, live, changes)
     return changes
 
 
@@ -176,6 +188,21 @@ def _application_changes(service_def: ApplicationService, live: LiveService, cha
         changes.append("dockerfile_location")
     if service_def.build_path and live.build_path != service_def.build_path:
         changes.append("build_path")
+    if service_def.env is not None and (live.env or "") != service_def.env:
+        changes.append("env")
+
+
+def _database_changes(service_def: DatabaseService, live: LiveService, changes: list[str]) -> None:
+    if service_def.description is not None and (live.description or "") != service_def.description:
+        changes.append("description")
+    if service_def.image and live.docker_image != service_def.image:
+        changes.append("image")
+    if service_def.database_name and live.database_name != service_def.database_name:
+        changes.append("database_name")
+    if service_def.database_user and live.database_user != service_def.database_user:
+        changes.append("database_user")
+    if service_def.password and live.database_password != service_def.password:
+        changes.append("password")
     if service_def.env is not None and (live.env or "") != service_def.env:
         changes.append("env")
 
