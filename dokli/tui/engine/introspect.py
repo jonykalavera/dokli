@@ -61,3 +61,18 @@ def infer_columns(records: list[dict[str, Any]], entity_name: str = "") -> list[
     if not columns:
         columns = [key for key in keys if key not in NOISE_FIELDS][:4]
     return columns[:5]
+
+
+def collect_children(record: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Flatten the nested child arrays of a record, tagged with their entity."""
+    from dokli.tui.engine.spec import nested_child_entity
+
+    children = []
+    for key, value in record.items():
+        child_entity = nested_child_entity(key)
+        if not child_entity or not isinstance(value, list):
+            continue
+        for item in value:
+            if isinstance(item, dict):
+                children.append((child_entity, item))
+    return children

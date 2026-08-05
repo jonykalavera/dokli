@@ -135,6 +135,48 @@ def classify(action: EntityAction) -> str:
     return "action"
 
 
+# Keys used by the browser navigation; never assigned to actions.
+RESERVED_KEYS = frozenset("hjklrq")
+
+VERB_KEYS = {
+    "create": "c",
+    "new": "c",
+    "update": "e",
+    "edit": "e",
+    "save": "e",
+    "remove": "d",
+    "delete": "d",
+    "deploy": "x",
+    "redeploy": "X",
+    "testConnection": "t",
+    "restart": "R",
+}
+
+
+def key_for_verb(verb: str, taken: frozenset[str] = frozenset()) -> str | None:
+    """Assign a deterministic, collision-free keybinding to an action verb."""
+    if verb in VERB_KEYS and VERB_KEYS[verb] not in taken:
+        return VERB_KEYS[verb]
+    for character in verb:
+        if character.isalpha() and character.lower() not in taken and character.lower() not in RESERVED_KEYS:
+            return character.lower()
+    return None
+
+
+def action_bindings(entity: Entity) -> list[tuple[EntityAction, str | None]]:
+    """Assign keybindings to an entity's actions (skipping list/detail verbs)."""
+    taken: set[str] = set()
+    bindings = []
+    for action in entity.actions.values():
+        if classify(action) in ("list", "detail"):
+            continue
+        key = key_for_verb(action.verb, frozenset(taken))
+        if key:
+            taken.add(key)
+        bindings.append((action, key))
+    return bindings
+
+
 def parse_spec(schema: dict) -> EntityRegistry:
     """Build an entity registry from an OpenAPI document."""
     registry = EntityRegistry()
