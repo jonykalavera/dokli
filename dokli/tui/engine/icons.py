@@ -36,6 +36,9 @@ FALLBACK_ICON = "\uf15b"  # fa-file
 
 DEFAULT_ICON_COLOR = "#6c7086"  # catppuccin overlay0
 
+# Dark glyph on the pastel colored boxes so the icon stays readable.
+ICON_FOREGROUND = "#1e1e2e"  # catppuccin base
+
 # A distinct Catppuccin color per entity so icons are easy to tell apart.
 ENTITY_ICON_COLORS = {
     "project": "#f9e2af",  # yellow
@@ -82,7 +85,7 @@ def entity_icon_color(name: str) -> str:
 
 def icon_label(name: str) -> str:
     """Rich markup for an entity icon inside a colored box."""
-    return f"[b on {entity_icon_color(name)}] {entity_icon(name)} [/]"
+    return f"[b {ICON_FOREGROUND} on {entity_icon_color(name)}] {entity_icon(name)} [/]"
 
 
 # Container/docker states -> Catppuccin traffic-light color.

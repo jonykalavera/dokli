@@ -223,9 +223,10 @@ class TestIcons:
         assert entity_icon("totally_unknown") == "\uf15b"
 
     def test_icon_label_wraps_in_color(self):
-        """We expect icon_label to put the icon in a colored box."""
+        """We expect icon_label to put a dark icon in a colored box."""
         label = icon_label("project")
         assert "on #f9e2af" in label
+        assert "#1e1e2e" in label
         assert "\uf07b" in label
         fallback = icon_label("totally_unknown")
         assert "on #6c7086" in fallback
