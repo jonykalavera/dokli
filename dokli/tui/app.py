@@ -6,9 +6,11 @@ from textual import events, log
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Static
 
+from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
+from dokli.tui.engine import parse_spec
 from dokli.tui.screens.connections import ConnectionsScreen
-from dokli.tui.screens.projects import ProjectsScreen
+from dokli.tui.screens.generic.home import HomeScreen
 from dokli.tui.screens.settings import SettingsScreen
 
 TUI_PATH = Path(__file__).parent
@@ -54,11 +56,16 @@ class DokliApp(App):
             self.bell()
 
     def on_connections_screen_set_connection(self, event: ConnectionsScreen.SetConnection) -> None:
-        """Set the active connection."""
+        """Set the active connection and open the entity browser."""
         self.connection = event.connection
         log.info(f"Setting connection: {event.connection}")
-        self.install_screen(ProjectsScreen(name="Projects", connection=self.connection), name="Projects")
-        self.push_screen("Projects")
+        schema = APIClient(event.connection).schema
+        registry = parse_spec(schema)
+        self.install_screen(
+            HomeScreen(name="Home", connection=self.connection, registry=registry),
+            name="Home",
+        )
+        self.push_screen("Home")
 
     def action_connections(self) -> None:
         """Action connections."""

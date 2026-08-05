@@ -1,0 +1,168 @@
+"""OpenAPI document → entity registry."""
+
+from pydantic import BaseModel, Field
+
+
+class EntityAction(BaseModel):
+    """An API action of an entity (e.g. ``project.create``)."""
+
+    verb: str
+    method: str
+    route: str
+    summary: str = ""
+    request_schema: dict = Field(default_factory=dict)
+    param_names: list[str] = Field(default_factory=list)
+
+    @property
+    def label(self) -> str:
+        """A human-friendly label for the action."""
+        return f"{self.verb} ({self.method})"
+
+
+class Entity(BaseModel):
+    """An API entity with its actions."""
+
+    name: str
+    actions: dict[str, EntityAction] = Field(default_factory=dict)
+
+    def get(self, verb: str) -> EntityAction | None:
+        """Get an action by verb."""
+        return self.actions.get(verb)
+
+    @property
+    def listable(self) -> bool:
+        """Whether the entity has an ``all`` action (top-level listable)."""
+        return "all" in self.actions
+
+    @property
+    def parent_entity(self) -> str | None:
+        """The parent entity, inferred from foreign keys in the create schema.
+
+        A required (or present) ``<parent>Id`` field in the request body (other
+        than the entity's own id and ``serverId`` placement) points to its
+        parent. E.g. ``compose.create`` requires ``environmentId``.
+        """
+        create = self.actions.get("create")
+        if create is None:
+            return None
+        schema = create.request_schema
+        fields = list(schema.get("required", [])) + list(schema.get("properties", {}))
+        for field in fields:
+            if not field.endswith("Id"):
+                continue
+            if field in (f"{self.name}Id", "serverId"):
+                continue
+            return field[:-2]
+        return None
+
+
+class EntityRegistry(BaseModel):
+    """All entities discovered from an OpenAPI document."""
+
+    entities: dict[str, Entity] = Field(default_factory=dict)
+
+    def names(self) -> list[str]:
+        """Sorted entity names."""
+        return sorted(self.entities)
+
+    def get(self, name: str) -> Entity | None:
+        """Get an entity by name."""
+        return self.entities.get(name)
+
+    def listable(self) -> list[str]:
+        """Entities that can be listed at the top level (have ``all``)."""
+        return sorted(name for name, entity in self.entities.items() if entity.listable)
+
+    def navigation_path(self, name: str) -> list[str]:
+        """Chain of ancestors from a top-level entity down to ``name``."""
+        path = [name]
+        seen = {name}
+        current = name
+        while True:
+            entity = self.get(current)
+            parent = entity.parent_entity if entity else None
+            if not parent or parent in seen or parent not in self.entities:
+                break
+            path.append(parent)
+            seen.add(parent)
+            current = parent
+        return list(reversed(path))
+
+
+LIST_VERBS = {"all"}
+DETAIL_VERBS = {"one"}
+DESTRUCTIVE_VERBS = {"remove", "delete"}
+FORM_PREFIXES = ("create", "update", "save", "edit", "new")
+
+# Response keys (nested arrays) → child entity name.
+NESTED_CHILD_KEYS = {
+    "environments": "environment",
+    "applications": "application",
+    "compose": "compose",
+    "postgres": "postgres",
+    "mysql": "mysql",
+    "mariadb": "mariadb",
+    "mongo": "mongo",
+    "redis": "redis",
+    "libsql": "libsql",
+    "domains": "domain",
+    "ports": "port",
+    "mounts": "mount",
+    "backups": "backup",
+    "schedules": "schedule",
+    "security": "security",
+    "redirects": "redirects",
+    "patches": "patch",
+    "previewDeployments": "previewDeployment",
+}
+
+
+def nested_child_entity(key: str) -> str | None:
+    """Map a nested response array key to its child entity, if known."""
+    return NESTED_CHILD_KEYS.get(key)
+
+
+def classify(action: EntityAction) -> str:
+    """Classify an action into a generic interaction type."""
+    if action.verb in LIST_VERBS:
+        return "list"
+    if action.verb in DETAIL_VERBS:
+        return "detail"
+    if action.verb in DESTRUCTIVE_VERBS:
+        return "action"
+    if action.verb.startswith(FORM_PREFIXES):
+        return "form"
+    return "action"
+
+
+def parse_spec(schema: dict) -> EntityRegistry:
+    """Build an entity registry from an OpenAPI document."""
+    registry = EntityRegistry()
+    for path, methods in schema.get("paths", {}).items():
+        route = path.strip("/")
+        if "." not in route:
+            continue
+        entity_name, _, verb = route.partition(".")
+        for method, details in methods.items():
+            action = EntityAction(
+                verb=verb,
+                method=method.upper(),
+                route=route,
+                summary=(details.get("summary") or details.get("description") or "").strip(),
+                request_schema=_extract_request_schema(details),
+                param_names=[parameter["name"] for parameter in details.get("parameters", [])],
+            )
+            entity = registry.entities.setdefault(entity_name, Entity(name=entity_name))
+            entity.actions[verb] = action
+    return registry
+
+
+def _extract_request_schema(details: dict) -> dict:
+    body = details.get("requestBody", {})
+    schema = body.get("content", {}).get("application/json", {}).get("schema", {})
+    if schema.get("type") != "object":
+        return {}
+    return {
+        "properties": schema.get("properties", {}),
+        "required": schema.get("required", []),
+    }

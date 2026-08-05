@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from pydantic import BaseModel, SecretBytes, SecretStr, ValidationError
 from pydantic_core import ErrorDetails
-from textual import log
 from textual.containers import Container
 from textual.css.query import NoMatches
 from textual.message import Message
@@ -33,9 +32,9 @@ class FormControl(Static):
         self,
         id: str,
         label: str,
-        value: str = "",
+        value: Any = "",
         placeholder: str = "",
-        default: str = "",
+        default: Any = "",
         error: ErrorDetails | None = None,
         password: bool = False,
         **kwargs,
@@ -43,9 +42,9 @@ class FormControl(Static):
         """Construct a form control widget."""
         super().__init__(id=id, **kwargs)
         self.label = label
-        self.value = value
+        self.value = "" if value is None else str(value)
         self.placeholder = placeholder
-        self.default = default
+        self.default = "" if default is None else str(default)
         self.password = password
         self.error = error
 
@@ -150,15 +149,25 @@ class Form(Generic[M], Container):
         self.validate_on_input = validate_on_input
 
     @classmethod
-    def from_model(cls, model: type[M], instance: M | None = None, **kwargs) -> "Form":
-        """Construct a form form a model."""
-        data = cls._get_data_from_instance(instance)
-        log("Form", data)
+    def from_model(
+        cls,
+        model: type[M],
+        instance: M | None = None,
+        data: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> "Form":
+        """Construct a form from a model.
+
+        Controls are prefilled from ``data`` when given, otherwise from the
+        ``instance``.
+        """
+        if data is None:
+            data = cls._get_data_from_instance(instance)
         controls = (
             FormControl.from_field(name=name, field=field, value=data.get(name, ""))
             for n, (name, field) in enumerate(model.model_fields.items())
         )
-        return cls(*controls, model=model, instance=instance, **kwargs)
+        return cls(*controls, model=model, instance=instance, data=data, **kwargs)
 
     @classmethod
     def _get_data_from_instance(cls, instance: BaseModel | None) -> dict[str, Any]:

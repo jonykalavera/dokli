@@ -1,8 +1,5 @@
 """Dokli TUI."""
 
-from .app import DokliApp, app
+from .app import DokliApp
 
-__all__ = (
-    "DokliApp",
-    "app",
-)
+__all__ = ("DokliApp",)
