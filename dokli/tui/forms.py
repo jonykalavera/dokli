@@ -32,9 +32,9 @@ class FormControl(Static):
         self,
         id: str,
         label: str,
-        value: str = "",
+        value: Any = "",
         placeholder: str = "",
-        default: str = "",
+        default: Any = "",
         error: ErrorDetails | None = None,
         password: bool = False,
         **kwargs,
@@ -42,9 +42,9 @@ class FormControl(Static):
         """Construct a form control widget."""
         super().__init__(id=id, **kwargs)
         self.label = label
-        self.value = value
+        self.value = "" if value is None else str(value)
         self.placeholder = placeholder
-        self.default = default
+        self.default = "" if default is None else str(default)
         self.password = password
         self.error = error
 

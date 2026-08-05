@@ -6,6 +6,8 @@ from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
 from dokli.tui.engine import build_form_model, parse_spec
 from dokli.tui.forms import Form
+from dokli.tui.screens.generic.confirm import ConfirmScreen
+from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.home import EntityItem, HomeScreen
 from dokli.tui.screens.generic.record import ActionItem, RecordScreen
 
@@ -44,6 +46,37 @@ def test_form_prefills_from_data():
     model = build_form_model({"properties": {"name": {"type": "string"}}})
     form = Form.from_model(model, data={"name": "prefilled"})
     assert form.fields["name"].value == "prefilled"
+
+
+def test_form_control_coerces_non_string_values():
+    """We expect boolean/number prefill values not to crash the input."""
+    model = build_form_model({"properties": {"autoDeploy": {"type": "boolean"}}})
+    form = Form.from_model(model, data={"autoDeploy": True})
+    assert form.fields["autoDeploy"].value == "True"
+
+
+def test_form_submit_asks_confirmation(mocker):
+    """We expect submitting a form to require explicit confirmation first."""
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    config = Config(connections=[connection])
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.form.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("create")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(connection, action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            screen.form.fields["name"].value = "test"
+            await pilot.press("ctrl+s")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmScreen)
+
+    _run(main())
 
 
 async def _select_connection(app, pilot):
