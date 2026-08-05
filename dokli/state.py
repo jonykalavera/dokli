@@ -29,7 +29,11 @@ class LiveService(BaseModel):
     build_type: str | None = None
     dockerfile_location: str | None = None
     docker_image: str | None = None
+    build_path: str | None = None
     compose_path: str | None = None
+    compose_file: str | None = None
+    command: str | None = None
+    env: str | None = None
     server_id: str | None = None
 
 
@@ -150,7 +154,11 @@ def _collect_services(
                 build_type=raw.get("buildType"),
                 dockerfile_location=raw.get("dockerfileLocation"),
                 docker_image=raw.get("dockerImage"),
+                build_path=raw.get("buildPath"),
                 compose_path=raw.get("composePath"),
+                compose_file=raw.get("composeFile"),
+                command=raw.get("command"),
+                env=raw.get("env"),
                 server_id=raw.get("serverId"),
             )
         )
