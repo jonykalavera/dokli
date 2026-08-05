@@ -143,6 +143,61 @@ $ dokli api test-env project one --format json zuanf1SWHMFO11y6xqpRR
 "redis": [], "compose": []}
 ```
 
+## Dokli as Code
+
+Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokploy. A manifest file (`dokploy.yaml`) describes the desired state and `dokli apply` brings the instance to match it — idempotent and additive (it never deletes resources that are not in the manifest).
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `dokli init` | Scaffold a new manifest. |
+| `dokli state [connection]` | Show the current state of an instance. |
+| `dokli plan [-f dokploy.yaml]` | Preview what would change. |
+| `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
+| `dokli export [connection] [-o file] [--include-secrets]` | Reverse-engineer a live instance into a manifest. |
+
+### Manifest
+
+```yaml
+# dokploy.yaml
+connection: prod
+
+git_providers:
+  - name: github-main
+    provider: github
+    token_cmd: "secret-tool lookup dokli github-main"
+
+projects:
+  - name: myapp
+    services:
+      - type: compose
+        name: backend
+        source:
+          provider: github-main
+          repository: jonykalavera/backend
+          branch: main
+        compose_path: docker-compose.yml
+      - type: application
+        name: web
+        image: nginx:latest
+        env: |
+          NODE_ENV=production
+```
+
+- Services live in the project's **default environment** (Dokploy creates one per project).
+- `compose_file` accepts raw compose YAML or a path to a local file (mutually exclusive with `source`).
+- **Secrets are never stored in the manifest.** Git provider credentials are write-only in Dokploy's API; reference them with `token_cmd` (same pattern as `api_key_cmd`). `export` redacts service environment variables by default (`--include-secrets` to include them) and reports which providers need credentials.
+
+### Workflow
+
+```bash
+dokli export meche -o dokploy.yaml   # capture an existing instance
+dokli plan                           # preview changes
+dokli apply --dry-run                # dry run
+dokli apply                          # configure the instance
+```
+
 ## TUI
 
 Still a WIP. Basic functionality will be implemented at 0.2.0 release.
