@@ -27,6 +27,19 @@ READ_ONLY_FIELDS = {
     "refreshToken",
 }
 
+# String fields that are expected to hold multi-line content.
+MULTILINE_FIELDS = {
+    "description",
+    "env",
+    "composeFile",
+    "command",
+    "notes",
+    "buildArgs",
+    "buildSecrets",
+    "previewEnv",
+    "dockerCompose",
+}
+
 
 def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
     """Build a pydantic model from an OpenAPI request body schema.
@@ -46,7 +59,11 @@ def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
         if "enum" in prop:
             options = ", ".join(str(value) for value in prop["enum"])
             description = f"{description} [{options}]" if description else f"Options: {options}"
-        fields[field_name] = (annotation | None, Field(None, title=label, description=description))
+        extra: dict[str, Any] | None = {"multiline": True} if field_name in MULTILINE_FIELDS else None
+        fields[field_name] = (
+            annotation | None,
+            Field(None, title=label, description=description, json_schema_extra=extra),
+        )
     return create_model(name, **fields)
 
 
@@ -55,7 +72,16 @@ def _annotation_for(field_name: str, prop: dict[str, Any]) -> Any:
         return SecretStr
     if "enum" in prop and prop.get("type") == "string":
         return Literal[tuple(prop["enum"])]
-    return JSON_TO_ANNOTATION.get(str(prop.get("type")), str)
+    json_type = prop.get("type")
+    if json_type is None and isinstance(prop.get("anyOf"), list):
+        for sub in prop["anyOf"]:
+            if not sub.get("type") or sub.get("type") == "null":
+                continue
+            if sub.get("type") == "string" and "enum" in sub:
+                return Literal[tuple(sub["enum"])]
+            json_type = sub.get("type")
+            break
+    return JSON_TO_ANNOTATION.get(str(json_type), str)
 
 
 def _label_for(field_name: str) -> str:

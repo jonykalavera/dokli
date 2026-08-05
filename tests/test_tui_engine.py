@@ -181,6 +181,13 @@ class TestBuildFormModel:
         )
         assert model(mode="dev").mode == "dev"
 
+    def test_anyof_annotation(self):
+        """We expect anyOf null-unions to be unwrapped."""
+        model = build_form_model(
+            {"properties": {"autoDeploy": {"anyOf": [{"type": "boolean"}, {"type": "null"}]}}}
+        )
+        assert model(autoDeploy=True).autoDeploy is True
+
     def test_filters_read_only_fields(self):
         """We expect server-managed fields to be filtered from the form."""
         model = build_form_model(

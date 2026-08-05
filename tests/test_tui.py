@@ -5,11 +5,12 @@ import asyncio
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
 from dokli.tui.engine import build_form_model, parse_spec
-from dokli.tui.forms import Form
+from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.home import EntityItem, HomeScreen
 from dokli.tui.screens.generic.record import ActionItem, RecordScreen
+from dokli.tui.screens.generic.wizard import WizardScreen
 
 FAKE_SCHEMA = {
     "paths": {
@@ -24,7 +25,10 @@ FAKE_SCHEMA = {
                         "application/json": {
                             "schema": {
                                 "type": "object",
-                                "properties": {"name": {"type": "string"}},
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "description": {"type": "string"},
+                                },
                                 "required": ["name"],
                             }
                         }
@@ -48,11 +52,72 @@ def test_form_prefills_from_data():
     assert form.fields["name"].value == "prefilled"
 
 
+def test_form_rich_controls():
+    """We expect enums, booleans and objects to map to rich controls."""
+    model = build_form_model(
+        {
+            "properties": {
+                "mode": {"type": "string", "enum": ["dev", "prod"]},
+                "enabled": {"type": "boolean"},
+                "labels": {"type": "object"},
+                "name": {"type": "string"},
+            }
+        }
+    )
+    form = Form.from_model(model, data={"enabled": True, "labels": {"a": 1}})
+    assert isinstance(form.fields["mode"], SelectControl)
+    assert isinstance(form.fields["enabled"], SwitchControl)
+    assert isinstance(form.fields["labels"], TextAreaControl)
+    assert form.fields["enabled"].get_data() is True
+
+
+def test_multiline_string_fields():
+    """We expect known multiline and newline-valued strings to be text areas."""
+    model = build_form_model(
+        {"properties": {"description": {"type": "string"}, "name": {"type": "string"}}}
+    )
+    form = Form.from_model(model, data={"description": "line1\nline2"})
+    assert isinstance(form.fields["description"], TextAreaControl)
+    assert form.fields["description"].get_data() == "line1\nline2"
+    assert not isinstance(form.fields["name"], TextAreaControl)
+
+    model2 = build_form_model({"properties": {"foo": {"type": "string"}}})
+    form2 = Form.from_model(model2, data={"foo": "a\nb"})
+    assert isinstance(form2.fields["foo"], TextAreaControl)
+
+
+def test_wizard_steps_through_fields(mocker):
+    """We expect the wizard to step through fields one at a time."""
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    config = Config(connections=[connection])
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("create")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            screen = WizardScreen(connection, action)
+            app.install_screen(screen, name="wizard")
+            app.push_screen("wizard")
+            await pilot.pause()
+            prompt = app.screen.query_one("#prompt")
+            assert "1/2" in str(prompt.renderable)
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            assert "2/2" in str(app.screen.query_one("#prompt").renderable)
+
+    _run(main())
+
+
 def test_form_control_coerces_non_string_values():
-    """We expect boolean/number prefill values not to crash the input."""
+    """We expect boolean fields to map to a switch and not crash the input."""
     model = build_form_model({"properties": {"autoDeploy": {"type": "boolean"}}})
     form = Form.from_model(model, data={"autoDeploy": True})
-    assert form.fields["autoDeploy"].value == "True"
+    from dokli.tui.forms import SwitchControl
+
+    assert isinstance(form.fields["autoDeploy"], SwitchControl)
+    assert form.fields["autoDeploy"].get_data() is True
 
 
 def test_form_submit_asks_confirmation(mocker):
@@ -60,7 +125,7 @@ def test_form_submit_asks_confirmation(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     config = Config(connections=[connection])
     mocker.patch("dokli.tui.app.APIClient")
-    mocker.patch("dokli.tui.screens.generic.form.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
     registry = parse_spec(FAKE_SCHEMA)
     action = registry.get("project").get("create")
 
