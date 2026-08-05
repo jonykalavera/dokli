@@ -5,6 +5,8 @@ created with the minimal payload the API requires, then fully updated to the
 desired state (the API splits ``create`` and ``update`` inputs).
 """
 
+import secrets
+import subprocess
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -12,7 +14,7 @@ from pydantic import BaseModel, Field
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.diff import resolve_compose_file
-from dokli.manifest import ApplicationService, ComposeService, Manifest, Service
+from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
 from dokli.state import LiveGitProvider, LiveProject, LiveService, collect_state
 
 
@@ -20,7 +22,17 @@ class ApplyAction(BaseModel):
     """A single apply action."""
 
     action: Literal["create", "update", "validate", "skip"]
-    kind: Literal["project", "compose", "application", "git_provider"]
+    kind: Literal[
+        "project",
+        "compose",
+        "application",
+        "postgres",
+        "mysql",
+        "mariadb",
+        "mongo",
+        "redis",
+        "git_provider",
+    ]
     project: str = ""
     name: str
     details: str = ""
@@ -30,6 +42,7 @@ class ApplyReport(BaseModel):
     """Report of what apply did or would do."""
 
     actions: list[ApplyAction] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class Applier:
@@ -150,8 +163,10 @@ class Applier:
         try:
             if isinstance(service_def, ComposeService):
                 service_id = self._create_compose(service_def, environment_id)
-            else:
+            elif isinstance(service_def, ApplicationService):
                 service_id = self._create_application(service_def, environment_id)
+            else:
+                service_id = self._create_database(service_def, environment_id)
             payload = self._service_desired_payload(service_def, None)
             self._apply_update(service_def.type, service_id, payload)
         except ValueError as err:
@@ -228,22 +243,56 @@ class Applier:
         response = self.client.request("POST", "application.create", {"body": payload}).json()
         return response["applicationId"]
 
+    def _create_database(self, service_def: DatabaseService, environment_id: str) -> str:
+        password = self._resolve_database_password(service_def)
+        payload: dict[str, Any] = {
+            "name": service_def.name,
+            "environmentId": environment_id,
+            "databasePassword": password,
+        }
+        if service_def.type != "redis":
+            payload["databaseUser"] = service_def.database_user or service_def.name
+        if service_def.type in ("postgres", "mysql", "mariadb"):
+            payload["databaseName"] = service_def.database_name or service_def.name
+        if service_def.description:
+            payload["description"] = service_def.description
+        if service_def.image:
+            payload["dockerImage"] = service_def.image
+        response = self.client.request("POST", f"{service_def.type}.create", {"body": payload}).json()
+        return response[f"{service_def.type}Id"]
+
+    def _resolve_database_password(self, service_def: DatabaseService) -> str:
+        """Resolve a database password from the manifest (or generate one)."""
+        if service_def.password:
+            return service_def.password
+        if service_def.password_cmd:
+            output = subprocess.check_output(service_def.password_cmd.split())
+            return output.decode("utf-8").strip()
+        generated = secrets.token_urlsafe(24)
+        self.report.warnings.append(
+            f"Database '{service_def.name}': no password/password_cmd set, "
+            f"generated a random password (not stored): {generated}"
+        )
+        return generated
+
     def _apply_update(self, service_type: str, service_id: str, payload: dict[str, Any]) -> None:
         if not payload:
             return
-        id_field = {"compose": "composeId", "application": "applicationId"}[service_type]
+        id_field = f"{service_type}Id"
         payload[id_field] = service_id
         self.client.request("POST", f"{service_type}.update", {"body": payload})
 
     def _deploy(self, service_type: str, service_id: str) -> None:
-        id_field = {"compose": "composeId", "application": "applicationId"}[service_type]
+        id_field = f"{service_type}Id"
         self.client.request("POST", f"{service_type}.deploy", {"body": {id_field: service_id}})
 
     def _service_desired_payload(self, service_def: Service, live: LiveService | None) -> dict[str, Any]:
         """Return the desired fields for a service, skipping fields that already match."""
         if isinstance(service_def, ComposeService):
             return self._compose_payload(service_def, live)
-        return self._application_payload(service_def, live)
+        if isinstance(service_def, ApplicationService):
+            return self._application_payload(service_def, live)
+        return self._database_payload(service_def, live)
 
     def _compose_payload(self, service_def: ComposeService, live: LiveService | None) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -305,6 +354,30 @@ class Applier:
             payload["dockerfileLocation"] = service_def.dockerfile_location
         if service_def.build_path and (live is None or live.build_path != service_def.build_path):
             payload["buildPath"] = service_def.build_path
+        if service_def.env is not None and (live is None or (live.env or "") != service_def.env):
+            payload["env"] = service_def.env
+        return payload
+
+    def _database_payload(self, service_def: DatabaseService, live: LiveService | None) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if service_def.description is not None and (
+            live is None or (live.description or "") != service_def.description
+        ):
+            payload["description"] = service_def.description
+        if service_def.image and (live is None or live.docker_image != service_def.image):
+            payload["dockerImage"] = service_def.image
+        if service_def.type in ("postgres", "mysql", "mariadb"):
+            database_name = service_def.database_name or service_def.name
+            if live is None or live.database_name != database_name:
+                payload["databaseName"] = database_name
+        if service_def.type != "redis":
+            database_user = service_def.database_user or service_def.name
+            if live is None or live.database_user != database_user:
+                payload["databaseUser"] = database_user
+        if service_def.password or service_def.password_cmd:
+            password = self._resolve_database_password(service_def)
+            if live is None or live.database_password != password:
+                payload["databasePassword"] = password
         if service_def.env is not None and (live is None or (live.env or "") != service_def.env):
             payload["env"] = service_def.env
         return payload
