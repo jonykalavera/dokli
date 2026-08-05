@@ -4,7 +4,8 @@ import asyncio
 
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
-from dokli.tui.engine import parse_spec
+from dokli.tui.engine import build_form_model, parse_spec
+from dokli.tui.forms import Form
 from dokli.tui.screens.generic.home import EntityItem, HomeScreen
 from dokli.tui.screens.generic.record import ActionItem, RecordScreen
 
@@ -36,6 +37,13 @@ FAKE_SCHEMA = {
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def test_form_prefills_from_data():
+    """We expect Form.from_model to prefill controls from the data kwarg."""
+    model = build_form_model({"properties": {"name": {"type": "string"}}})
+    form = Form.from_model(model, data={"name": "prefilled"})
+    assert form.fields["name"].value == "prefilled"
 
 
 async def _select_connection(app, pilot):

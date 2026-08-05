@@ -181,6 +181,23 @@ class TestBuildFormModel:
         )
         assert model(mode="dev").mode == "dev"
 
+    def test_filters_read_only_fields(self):
+        """We expect server-managed fields to be filtered from the form."""
+        model = build_form_model(
+            {
+                "properties": {
+                    "name": {"type": "string"},
+                    "createdAt": {"type": "string"},
+                    "organizationId": {"type": "string"},
+                    "applicationStatus": {"type": "string"},
+                }
+            }
+        )
+        assert "name" in model.model_fields
+        assert "createdAt" not in model.model_fields
+        assert "organizationId" not in model.model_fields
+        assert "applicationStatus" not in model.model_fields
+
 
 class TestIntrospect:
     """Introspection helpers tests."""

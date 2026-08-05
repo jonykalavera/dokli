@@ -78,7 +78,7 @@ class ActionFormScreen(Screen):
             self.notify("Fix the highlighted fields.", severity="warning")
             return
         data = self.form.cleaned_data or {}
-        required = self.action.request_schema.get("required", [])
+        required = [name for name in self.action.request_schema.get("required", []) if name in self.form.fields]
         missing = [name for name in required if not data.get(name)]
         if missing:
             self.notify(f"Missing required: {', '.join(missing)}", severity="error", timeout=10)

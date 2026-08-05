@@ -16,6 +16,17 @@ JSON_TO_ANNOTATION = {
 
 SECRET_KEY = re.compile(r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)")
 
+# Server-managed fields that should not be edited in forms.
+READ_ONLY_FIELDS = {
+    "createdAt",
+    "updatedAt",
+    "organizationId",
+    "adminId",
+    "applicationStatus",
+    "composeStatus",
+    "refreshToken",
+}
+
 
 def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
     """Build a pydantic model from an OpenAPI request body schema.
@@ -27,6 +38,8 @@ def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
     """
     fields: dict[str, Any] = {}
     for field_name, prop in schema.get("properties", {}).items():
+        if field_name in READ_ONLY_FIELDS:
+            continue
         annotation = _annotation_for(field_name, prop)
         label = _label_for(field_name)
         description = prop.get("description")
