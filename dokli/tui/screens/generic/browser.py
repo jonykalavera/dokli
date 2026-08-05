@@ -169,7 +169,7 @@ class BrowserScreen(Screen):
             return f"{entity_icon(title)}  {title}"
         if level.kind == "children":
             return f"{entity_icon(item.get('_kind') or '')}  {title}"
-        return title
+        return f"{entity_icon(level.kind)}  {title}"
 
     def _visible_items(self, level: Level) -> list[dict]:
         items = level.items
@@ -218,13 +218,14 @@ class BrowserScreen(Screen):
             widgets.append(Label("(empty)", classes="field"))
         else:
             kind = self._selected_kind() or ""
-            if kind:
-                widgets.append(Label(f"{entity_icon(kind)}  {kind}", classes="title"))
+            header, title_key = self._record_header(selected, kind)
+            if header:
+                widgets.append(Label(header, classes="title"))
             widgets.append(Label(self._breadcrumb(), classes="subtitle"))
-            for key, value in selected.items():
-                if key in ("_kind", "id") or value in (None, [], {}):
-                    continue
-                widgets.append(Label(f"[b]{field_label(key)}:[/b] {self._fmt(value)}", classes="field"))
+            skip = {"_kind", "id"}
+            if title_key:
+                skip.add(title_key)
+            widgets.extend(self._detail_field_labels(selected, skip))
             children = collect_children(selected)
             if children:
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
@@ -248,6 +249,28 @@ class BrowserScreen(Screen):
                     for action, key in bindings:
                         widgets.append(Label(f"  [{'b'}]{key or '-'}[/] {action.verb}"))
         await container.mount(*widgets)
+
+    def _detail_field_labels(self, selected: dict, skip: set[str]) -> list[Label]:
+        """Field labels for a record, excluding the skip set and empty values."""
+        labels = []
+        for key, value in selected.items():
+            if key in skip or value in (None, [], {}):
+                continue
+            labels.append(Label(f"[b]{field_label(key)}:[/b] {self._fmt(value)}", classes="field"))
+        return labels
+
+    def _record_header(self, selected: dict, kind: str) -> tuple[str | None, str | None]:
+        """The detail header label and the title key to skip in the field list."""
+        title_key = next(
+            (key for key in ("name", "appName", "title", "label") if selected.get(key)),
+            None,
+        )
+        if not kind:
+            return None, title_key
+        header = f"{entity_icon(kind)}  {kind}"
+        if title_key:
+            header += f"  [b]·  {self._fmt(selected[title_key])}[/b]"
+        return header, title_key
 
     def _entity_bindings(self, entity) -> list:
         """Action keybindings for an entity.
