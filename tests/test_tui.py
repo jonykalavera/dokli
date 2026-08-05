@@ -16,6 +16,7 @@ from dokli.tui.screens.generic.wizard import WizardScreen
 
 FAKE_SCHEMA = {
     "paths": {
+        "/auditLog.all": {"get": {}},
         "/project.all": {"get": {}},
         "/project.one": {
             "get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}
@@ -347,6 +348,35 @@ def test_filter_enter_confirms_and_keeps_filter(mocker):
             labels = _current_labels(app)
             assert any("project" in label for label in labels)
             assert not any("server" in label for label in labels)
+
+    _run(main())
+
+
+def test_filter_navigation_stays_in_filtered_list(mocker):
+    """We expect navigation and drill to use the filtered list, not the full one."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            await pilot.press("/")
+            await pilot.pause()
+            filter_input = app.screen.query_one("#filter")
+            filter_input.value = "pro"
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            labels = _current_labels(app)
+            assert len(labels) == 1 and "project" in labels[0]
+            screen = app.screen
+            index_before = screen.current.index
+            await pilot.press("j")
+            await pilot.pause()
+            assert screen.current.index == index_before  # clamped to the filtered list
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
 
     _run(main())
 

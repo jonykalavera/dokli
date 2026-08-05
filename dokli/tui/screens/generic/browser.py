@@ -113,10 +113,10 @@ class BrowserScreen(Screen):
 
     @property
     def selected(self) -> dict | None:
-        """The selected item of the current level."""
-        level = self.current
-        if 0 <= level.index < len(level.items):
-            return level.items[level.index]
+        """The selected item of the current level (within the visible/filtered list)."""
+        items = self._visible_items(self.current)
+        if 0 <= self.current.index < len(items):
+            return items[self.current.index]
         return None
 
     def _selected_kind(self) -> str | None:
@@ -212,8 +212,9 @@ class BrowserScreen(Screen):
     # -- navigation -------------------------------------------------------
 
     def action_cursor_down(self) -> None:
-        """Move the cursor down."""
-        if self.current.index < len(self.current.items) - 1:
+        """Move the cursor down (within the visible/filtered list)."""
+        visible = self._visible_items(self.current)
+        if self.current.index < len(visible) - 1:
             self.current.index += 1
             self._rerender()
 
@@ -305,7 +306,14 @@ class BrowserScreen(Screen):
         """Filter the current list as the user types."""
         if event.input.id == "filter":
             self._filter = event.value
+            self._clamp_index()
             self._rerender()
+
+    def _clamp_index(self) -> None:
+        """Keep the cursor within the visible (filtered) items."""
+        visible = self._visible_items(self.current)
+        if self.current.index >= len(visible):
+            self.current.index = max(0, len(visible) - 1)
 
     def action_cancel(self) -> None:
         """Close the filter or drill out."""
@@ -322,6 +330,7 @@ class BrowserScreen(Screen):
         if clear:
             filter_input.value = ""
             self._filter = ""
+        self._clamp_index()
         self._rerender()
 
     def action_quit(self) -> None:
