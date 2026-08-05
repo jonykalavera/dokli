@@ -18,6 +18,8 @@ from dokli.tui.engine import (
     parse_spec,
     record_id,
     record_title,
+    state_color,
+    state_indicator,
 )
 
 
@@ -25,9 +27,7 @@ def _spec() -> dict:
     return {
         "paths": {
             "/project.all": {"get": {"summary": "List projects"}},
-            "/project.one": {
-                "get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}
-            },
+            "/project.one": {"get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}},
             "/project.create": {
                 "post": {
                     "requestBody": {
@@ -230,6 +230,19 @@ class TestIcons:
         fallback = icon_label("totally_unknown")
         assert "on grey70" in fallback
 
+    def test_state_color(self):
+        """We expect a traffic-light color per container state."""
+        assert state_color("running") == "green"
+        assert state_color("paused") == "yellow"
+        assert state_color("restarting") == "yellow"
+        assert state_color("exited") == "red"
+        assert state_color("") == "grey70"
+
+    def test_state_indicator(self):
+        """We expect a colored dot for the container state."""
+        assert state_indicator("running") == "[bold green]●[/]"
+        assert state_indicator("exited") == "[bold red]●[/]"
+
 
 class TestBuildFormModel:
     """Schema → form model tests."""
@@ -254,16 +267,12 @@ class TestBuildFormModel:
 
     def test_enum_fields(self):
         """We expect string enums to be Literal."""
-        model = build_form_model(
-            {"properties": {"mode": {"type": "string", "enum": ["dev", "prod"]}}}
-        )
+        model = build_form_model({"properties": {"mode": {"type": "string", "enum": ["dev", "prod"]}}})
         assert model(mode="dev").mode == "dev"
 
     def test_anyof_annotation(self):
         """We expect anyOf null-unions to be unwrapped."""
-        model = build_form_model(
-            {"properties": {"autoDeploy": {"anyOf": [{"type": "boolean"}, {"type": "null"}]}}}
-        )
+        model = build_form_model({"properties": {"autoDeploy": {"anyOf": [{"type": "boolean"}, {"type": "null"}]}}})
         assert model(autoDeploy=True).autoDeploy is True
 
     def test_filters_read_only_fields(self):

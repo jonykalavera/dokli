@@ -83,3 +83,28 @@ def entity_icon_color(name: str) -> str:
 def icon_label(name: str) -> str:
     """Rich markup for an entity icon inside a colored box."""
     return f"[b on {entity_icon_color(name)}] {entity_icon(name)} [/]"
+
+
+# Container/docker states -> traffic-light color.
+_STATE_COLORS = {
+    "running": "green",
+    "paused": "yellow",
+    "restarting": "yellow",
+    "created": "yellow",
+    "exited": "red",
+    "dead": "red",
+    "removing": "red",
+    "removed": "red",
+    "killed": "red",
+    "stopped": "red",
+}
+
+
+def state_color(state: str) -> str:
+    """Traffic-light color for a container state."""
+    return _STATE_COLORS.get(state.lower(), DEFAULT_ICON_COLOR) if state else DEFAULT_ICON_COLOR
+
+
+def state_indicator(state: str) -> str:
+    """Rich markup dot (traffic light) colored by the container state."""
+    return f"[bold {state_color(state)}]●[/]"

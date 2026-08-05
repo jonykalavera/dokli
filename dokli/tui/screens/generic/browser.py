@@ -26,6 +26,7 @@ from dokli.tui.engine import (
     record_title,
     related_records,
     related_spec,
+    state_indicator,
 )
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -51,6 +52,9 @@ class BrowserScreen(Screen):
     """3-column browser: parent | current | detail+actions."""
 
     CSS = """
+    #parent-pane { width: 2fr; }
+    #current-pane { width: 2fr; }
+    #detail-pane { width: 4fr; }
     #current-pane > .selected, #parent-pane > .selected {
         background: $primary;
         color: $text;
@@ -238,9 +242,10 @@ class BrowserScreen(Screen):
                 widgets.append(Label(f"{label} ({len(related)})", classes="section"))
                 for item in related[:10]:
                     title = item.get("name") or record_id(item) or "?"
-                    status = item.get("state") or item.get("status")
-                    suffix = f" ({status})" if status else ""
-                    widgets.append(Label(f"  {icon_label('docker')}  {title}{suffix}"))
+                    state = item.get("state") or ""
+                    status = item.get("status") or ""
+                    suffix = f" ({state})" if state else (f" ({status})" if status else "")
+                    widgets.append(Label(f"  {state_indicator(state)} {title}{suffix}"))
         await container.mount(*widgets)
 
     def _detail_field_labels(self, selected: dict, skip: set[str]) -> list[Label]:
@@ -567,9 +572,7 @@ class BrowserScreen(Screen):
         params[missing[0]] = value
         data = await self._api_get(action, params)
         if data is not None:
-            self.app.push_screen(
-                ResultScreen(self.connection, action, data, params=params, classes="Entities")
-            )
+            self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
 
     async def _open_form(self, action) -> None:
         """Open an action form.
