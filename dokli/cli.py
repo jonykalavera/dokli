@@ -32,10 +32,12 @@ state: dict[str, Any] = {
 register_connections(app, state["config"])
 
 
-def tui_command() -> None:
+def tui_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:
     """Text User Interface."""
     assert tui, "TUI not loaded"
     tui.config = state["config"]
+    if connection_name is not None:
+        tui.connection = _get_connection(connection_name)
     tui.run()
 
 

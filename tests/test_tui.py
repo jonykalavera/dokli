@@ -2,6 +2,7 @@
 
 import asyncio
 
+import httpx
 from textual.containers import VerticalScroll
 from textual.widgets import Label
 
@@ -10,6 +11,7 @@ from dokli.tui.app import DokliApp
 from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
 from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
+from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -22,9 +24,7 @@ FAKE_SCHEMA = {
         "/auditLog.all": {"get": {}},
         "/project.all": {"get": {}},
         "/project.homeStats": {"get": {}},
-        "/project.one": {
-            "get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}
-        },
+        "/project.one": {"get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}},
         "/project.create": {
             "post": {
                 "requestBody": {
@@ -44,12 +44,8 @@ FAKE_SCHEMA = {
             }
         },
         "/project.remove": {"post": {}},
-        "/environment.one": {
-            "get": {"parameters": [{"name": "environmentId", "in": "query", "required": True}]}
-        },
-        "/compose.one": {
-            "get": {"parameters": [{"name": "composeId", "in": "query", "required": True}]}
-        },
+        "/environment.one": {"get": {"parameters": [{"name": "environmentId", "in": "query", "required": True}]}},
+        "/compose.one": {"get": {"parameters": [{"name": "composeId", "in": "query", "required": True}]}},
         "/compose.update": {
             "post": {
                 "requestBody": {
@@ -134,9 +130,7 @@ def _fake_requests():
         "project.one": {
             "projectId": "p1",
             "name": "media",
-            "environments": [
-                {"environmentId": "e1", "name": "production", "isDefault": True}
-            ],
+            "environments": [{"environmentId": "e1", "name": "production", "isDefault": True}],
         },
         "environment.one": {
             "environmentId": "e1",
@@ -208,11 +202,7 @@ def _current_labels(app):
 
 def _select(app, label):
     screen = app.screen
-    index = next(
-        i
-        for i, item in enumerate(screen.current.items)
-        if record_title(item) == label
-    )
+    index = next(i for i, item in enumerate(screen.current.items) if record_title(item) == label)
     screen.current.index = index
 
 
@@ -247,9 +237,7 @@ def test_form_rich_controls():
 
 def test_multiline_string_fields():
     """We expect known multiline and newline-valued strings to be text areas."""
-    model = build_form_model(
-        {"properties": {"description": {"type": "string"}, "name": {"type": "string"}}}
-    )
+    model = build_form_model({"properties": {"description": {"type": "string"}, "name": {"type": "string"}}})
     form = Form.from_model(model, data={"description": "line1\nline2"})
     assert isinstance(form.fields["description"], TextAreaControl)
     assert form.fields["description"].get_data() == "line1\nline2"
@@ -622,10 +610,7 @@ def test_query_action_shows_result(mocker):
             await pilot.pause()
             await pilot.pause()
             assert isinstance(app.screen, ResultScreen)
-            text = "\n".join(
-                str(label.renderable)
-                for label in app.screen.query_one("#result-scroll").children
-            )
+            text = "\n".join(str(label.renderable) for label in app.screen.query_one("#result-scroll").children)
             assert "Projects" in text
             assert "Compose" in text
             assert "Running" in text
@@ -731,9 +716,7 @@ def test_read_logs_no_candidates_notifies(mocker):
             await screen._show_result(action)
             screen.notify.assert_called_once()
             assert "No Containers" in screen.notify.call_args.args[0]
-            assert not any(
-                call[0][1] == "compose.readLogs" for call in screen.client.request.call_args_list
-            )
+            assert not any(call[0][1] == "compose.readLogs" for call in screen.client.request.call_args_list)
 
     _run(main())
 
@@ -853,5 +836,40 @@ def test_connection_selection_opens_browser(mocker):
             await pilot.pause()
             await _select_connection(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
+
+    _run(main())
+
+
+def test_connection_argument_opens_browser_directly(mocker):
+    """We expect DokliApp(connection=...) to open the browser directly on mount."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, BrowserScreen):
+                    break
+            assert isinstance(app.screen, BrowserScreen)
+            assert app.connection is not None
+            assert app.connection.name == "test-env"
+
+    _run(main())
+
+
+def test_connection_argument_unreachable_falls_back(mocker):
+    """We expect an unreachable connection to fall back to the connections screen."""
+    error = httpx.ConnectError("boom", request=httpx.Request("GET", "https://example.com/"))
+    mocker.patch("dokli.tui.app.APIClient", side_effect=error)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, ConnectionsScreen):
+                    break
+            assert isinstance(app.screen, ConnectionsScreen)
 
     _run(main())
