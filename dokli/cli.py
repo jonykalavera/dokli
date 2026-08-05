@@ -10,6 +10,7 @@ from rich.table import Table
 from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
 from dokli.diff import build_plan
+from dokli.export import export_manifest
 from dokli.manifest import Manifest
 from dokli.openapi_cli import register_connections
 from dokli.state import collect_state
@@ -111,6 +112,26 @@ def apply_command(
     applier = Applier(manifest, connection, deploy=deploy)
     report = applier.run(dry_run=dry_run)
     _print_apply_report(report)
+
+
+@app.command(name="export")
+def export_command(
+    connection_name: str | None = typer.Argument(None, help="Connection name."),
+    output: str = typer.Option("dokploy.yaml", "--output", "-o", help="Output file, or '-' for stdout."),
+    include_secrets: bool = typer.Option(False, "--include-secrets", help="Export environment variables (secrets)."),
+) -> None:
+    """Export the live state of an instance into a manifest."""
+    connection = _get_connection(connection_name)
+    manifest, warnings = export_manifest(connection, include_secrets=include_secrets)
+    content = yaml.safe_dump(manifest.model_dump(mode="json", exclude_none=True), sort_keys=False)
+    if output == "-":
+        rprint(content)
+    else:
+        with open(output, "w") as file:
+            file.write(content)
+        rprint(f"[green]Wrote {output}[/green]")
+    for warning in warnings:
+        rprint(f"[yellow]{warning}[/yellow]")
 
 
 @app.callback(no_args_is_help=True)
