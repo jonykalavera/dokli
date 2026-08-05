@@ -13,9 +13,10 @@ from textual.widgets import Footer, Header, Static
 
 from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
-from dokli.tui.engine import parse_spec
+from dokli.tui.engine import parse_spec, record_title
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen
+from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.settings import SettingsScreen
 
@@ -24,7 +25,7 @@ ASCII_ART_PATH = TUI_PATH / "asciiart"
 
 
 class DokliCommands(Provider):
-    """Commands for the Dokli command palette."""
+    """Commands for the Dokli command palette (context-aware)."""
 
     def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
         app = cast(DokliApp, self.app)
@@ -35,6 +36,7 @@ class DokliCommands(Provider):
             ("Help", "Show the keybindings", app.action_help),
             ("Quit", "Exit the app", app.action_quit),
         ]
+        commands.extend(_screen_commands(self.screen))
         for connection in app.config.connections:
             commands.append(
                 (
@@ -56,6 +58,49 @@ class DokliCommands(Provider):
         """Show all commands when the palette is opened empty."""
         for name, help_text, callback in self._commands():
             yield DiscoveryHit(name, callback, name, help_text)
+
+
+def _screen_commands(screen) -> list[tuple[str, str, Callable[[], Any]]]:
+    """Context-aware commands for the screen that opened the palette."""
+    commands: list[tuple[str, str, Callable[[], Any]]] = []
+    if isinstance(screen, BrowserScreen):
+        commands.extend(_browser_commands(screen))
+    elif isinstance(screen, ActionFormScreen):
+        commands.extend(
+            [
+                ("Submit form", "Validate and run the form action", screen.action_submit),
+                ("Wizard mode", "Step through the fields one at a time", screen.action_wizard),
+                ("Cancel", "Close the form without running", screen.action_cancel),
+            ]
+        )
+    elif isinstance(screen, ConnectionsScreen):
+        commands.extend(
+            [
+                ("Add connection", "Create a new connection", screen.action_add_connection),
+                ("Edit connection", "Edit the highlighted connection", screen.action_edit_connection),
+            ]
+        )
+    return commands
+
+
+def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[], Any]]]:
+    """Commands for the browser: the selected entity's available actions."""
+    commands: list[tuple[str, str, Callable[[], Any]]] = []
+    kind = screen._selected_kind()
+    entity = screen.registry.get(kind or "")
+    if entity is None:
+        return commands
+    selected = screen.selected or {}
+    title = record_title(selected) if selected else (kind or "record")
+    for action, _key in screen._entity_bindings(entity):
+        commands.append(
+            (
+                f"Run {action.verb} on {title}",
+                f"{action.verb} · {kind} ({action.method})",
+                partial(screen._run_action, action),
+            )
+        )
+    return commands
 
 
 class DokliApp(App):

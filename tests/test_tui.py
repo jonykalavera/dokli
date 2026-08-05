@@ -993,3 +993,46 @@ def test_command_provider_lists_connections(mocker):
             assert "Quit" in names
 
     _run(main())
+
+
+def test_command_provider_lists_browser_actions(mocker):
+    """We expect the palette to expose the selected entity's available actions in the browser."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            provider = DokliCommands(app.screen)
+            hits = [hit async for hit in provider.discover()]
+            names = [hit.text for hit in hits]
+            assert "Run create on project" in names
+            assert "Run homeStats on project" in names
+            assert not any(name == "Run remove on project" for name in names)
+
+    _run(main())
+
+
+def test_command_provider_lists_form_commands(mocker):
+    """We expect the palette to expose form actions when a form is focused."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            provider = DokliCommands(app.screen)
+            hits = [hit async for hit in provider.discover()]
+            names = [hit.text for hit in hits]
+            assert "Submit form" in names
+            assert "Wizard mode" in names
+
+    _run(main())
