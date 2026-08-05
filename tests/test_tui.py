@@ -7,7 +7,7 @@ from textual.widgets import Label
 
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp
-from dokli.tui.engine import build_form_model, parse_spec
+from dokli.tui.engine import build_form_model, parse_spec, record_title
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.confirm import ConfirmScreen
@@ -116,7 +116,7 @@ async def _wait_for_label(app, pilot, label):
     """Wait until the current list shows the given label."""
     for _ in range(30):
         await pilot.pause()
-        if label in _current_labels(app):
+        if any(label in current for current in _current_labels(app)):
             return
     raise AssertionError(f"Label {label!r} never appeared")
 
@@ -135,7 +135,7 @@ def _select(app, label):
     index = next(
         i
         for i, item in enumerate(screen.current.items)
-        if screen._item_label(item, screen.current) == label
+        if record_title(item) == label
     )
     screen.current.index = index
 
@@ -236,8 +236,8 @@ def test_browser_starts_at_entities(mocker):
         async with app.run_test() as pilot:
             await _mount_browser(app, pilot, _connection(), registry)
             labels = _current_labels(app)
-            assert "project" in labels
-            assert "server" in labels
+            assert any("project" in label for label in labels)
+            assert any("server" in label for label in labels)
 
     _run(main())
 
@@ -275,7 +275,7 @@ def test_browser_drills_into_children(mocker):
             _select(app, "media")
             await pilot.pause()
             await pilot.press("enter")
-            await _wait_for_label(app, pilot, "environment · production")
+            await _wait_for_label(app, pilot, "production")
 
     _run(main())
 

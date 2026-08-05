@@ -16,6 +16,7 @@ from dokli.tui.engine import (
     action_bindings,
     classify,
     collect_children,
+    entity_icon,
     field_label,
     record_id,
     record_title,
@@ -127,9 +128,9 @@ class BrowserScreen(Screen):
     def _item_label(self, item: dict, level: Level) -> str:
         title = record_title(item)
         if level.kind == "entities":
-            return title
+            return f"{entity_icon(title)}  {title}"
         if level.kind == "children":
-            return f"{item.get('_kind')} · {title}"
+            return f"{entity_icon(item.get('_kind') or '')}  {title}"
         return title
 
     def _visible_items(self, level: Level) -> list[dict]:
@@ -148,6 +149,12 @@ class BrowserScreen(Screen):
         await self._render_pane("#parent-pane", self.parent_level)
         await self._render_pane("#current-pane", self.current)
         await self._render_detail()
+        path = " → ".join(level.kind for level in self.path)
+        sub_title = f"{self.connection.name} · {path}"
+        selected = self.selected
+        if selected:
+            sub_title += f" · {record_title(selected)}"
+        self.app.sub_title = sub_title
 
     async def _render_pane(self, container_id: str, level: Level | None) -> None:
         container = self.query_one(container_id, VerticalScroll)
@@ -169,7 +176,10 @@ class BrowserScreen(Screen):
         if selected is None:
             widgets.append(Label("(empty)", classes="field"))
         else:
-            widgets.append(Label(self._breadcrumb(), classes="title"))
+            kind = self._selected_kind() or ""
+            if kind:
+                widgets.append(Label(f"{entity_icon(kind)}  {kind}", classes="title"))
+            widgets.append(Label(self._breadcrumb(), classes="subtitle"))
             for key, value in selected.items():
                 if key in ("_kind", "id") or value in (None, [], {}):
                     continue
@@ -178,8 +188,8 @@ class BrowserScreen(Screen):
             if children:
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
                 for child_entity, child in children[:10]:
-                    widgets.append(Label(f"  {child_entity} · {record_title(child)}"))
-            entity = self.registry.get(self._selected_kind() or "")
+                    widgets.append(Label(f"  {entity_icon(child_entity)}  {record_title(child)}"))
+            entity = self.registry.get(kind)
             if entity:
                 bindings = action_bindings(entity)
                 if bindings:
