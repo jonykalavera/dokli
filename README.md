@@ -43,8 +43,12 @@ A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokp
 ## Installation
 
 ```bash
-pip install git+https://github.com/jonykalavera/dokli.git
+pip install dokli
 # with TUI support
+pip install "dokli[tui]"
+# latest from git
+pip install git+https://github.com/jonykalavera/dokli.git
+# with TUI support from git
 pip install git+https://github.com/jonykalavera/dokli.git#egg=dokli[tui]
 ```
 
@@ -213,6 +217,16 @@ Still a WIP. Basic functionality will be implemented at 0.2.0 release.
 The CLI is designed to keep up with any changes in the API. Commands are dynamically inferred from the OpenAPI spec.
 I did this because I want to do some test automation and the official CLI seems incomplete at the moment. The TUI is because I am into tools like [yazi](https://yazi-rs.github.io/), [lazygit](https://github.com/jesseduffield/lazygit), [k9s](https://k9scli.io/), [dry](https://github.com/moncho/dry), etc. I like to keep my terminal open at all times `$`.
 Also, it seemed to me like something cool to do this weekend. I learned a bunch about [texual](https://textual.textualize.io/), [typer](https://github.com/tiangolo/typer) and [Dokploy](https://github.com/Dokploy/dokploy).
+
+## Release
+
+Releases are automated via GitHub Actions (`.github/workflows/release.yml`): pushing a `v*` tag builds the package with `uv build`, publishes it to PyPI, and creates a GitHub Release.
+
+```bash
+make release VERSION=0.1.0
+```
+
+This requires a PyPI API token in the repository secrets as `PYPI_TOKEN`. The version in `pyproject.toml` must match the tag.
 
 ## Buy me a 🌮
 

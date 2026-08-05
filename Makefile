@@ -14,3 +14,8 @@ dev-tui:
 
 def-tui-console:
 	uv run textual console - SYSTEM -X EVENT
+
+release:
+	@test -n "$(VERSION)" || (echo "Usage: make release VERSION=0.1.0" && exit 1)
+	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
+	git push origin "v$(VERSION)"
