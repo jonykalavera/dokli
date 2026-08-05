@@ -141,9 +141,9 @@ RESERVED_KEYS = frozenset("hjklrq")
 VERB_KEYS = {
     "create": "c",
     "new": "c",
-    "update": "e",
+    "update": "u",
     "edit": "e",
-    "save": "e",
+    "save": "s",
     "remove": "d",
     "delete": "d",
     "deploy": "x",
@@ -164,7 +164,12 @@ def key_for_verb(verb: str, taken: frozenset[str] = frozenset()) -> str | None:
 
 
 def action_bindings(entity: Entity) -> list[tuple[EntityAction, str | None]]:
-    """Assign keybindings to an entity's actions (skipping list/detail verbs)."""
+    """Assign keybindings to an entity's actions.
+
+    Keys are assigned in **display order** (the order actions appear in the
+    spec): each action gets its preferred key (``VERB_KEYS``, else the first
+    available letter of the verb), and earlier actions win key collisions.
+    """
     taken: set[str] = set()
     bindings = []
     for action in entity.actions.values():
