@@ -5,8 +5,11 @@ from typing import Any
 import typer
 import yaml
 from rich import print as rprint
+from rich.table import Table
 
 from dokli.config import Config, ConnectionConfig
+from dokli.diff import build_plan
+from dokli.manifest import Manifest
 from dokli.openapi_cli import register_connections
 from dokli.state import collect_state
 
@@ -54,6 +57,30 @@ def state_command(connection_name: str | None = typer.Argument(None, help="Conne
     connection = _get_connection(connection_name)
     live_state = collect_state(connection)
     rprint(yaml.dump(live_state.model_dump(mode="json")))
+
+
+@app.command(name="plan")
+def plan_command(
+    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+) -> None:
+    """Show what would change between the manifest and the live instance."""
+    manifest = Manifest.load(manifest_file)
+    connection = _get_connection(manifest.connection)
+    live_state = collect_state(connection)
+    plan = build_plan(manifest, live_state)
+    if not plan.has_changes:
+        rprint("[green]No changes.[/green]")
+        return
+    table = Table(title=f"Plan for {manifest.connection}")
+    table.add_column("Action")
+    table.add_column("Kind")
+    table.add_column("Project")
+    table.add_column("Name")
+    table.add_column("Details")
+    for item in plan.items:
+        details = ", ".join(item.changed) if item.changed else item.reason
+        table.add_row(item.action, item.kind, item.project, item.name, details)
+    rprint(table)
 
 
 @app.callback(no_args_is_help=True)
