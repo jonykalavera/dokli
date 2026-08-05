@@ -41,8 +41,7 @@ class WizardScreen(Screen):
         self.model = build_form_model(action.request_schema, name=f"{action.route}Wizard")
         self.fields = list(self.model.model_fields.items())
         self.controls = {
-            name: FormControl.from_field(name, field, value=self.record.get(name))
-            for name, field in self.fields
+            name: FormControl.from_field(name, field, value=self.record.get(name)) for name, field in self.fields
         }
         self.index = 0
 
@@ -79,9 +78,7 @@ class WizardScreen(Screen):
         container = self.query_one("#control", Container)
         container.remove_children()
         container.mount(control)
-        self.query_one("#prompt", Label).update(
-            f"({self.index + 1}/{len(self.fields)}) {field.title or name}"
-        )
+        self.query_one("#prompt", Label).update(f"({self.index + 1}/{len(self.fields)}) {field.title or name}")
         control.focus()
 
     def action_next(self) -> None:

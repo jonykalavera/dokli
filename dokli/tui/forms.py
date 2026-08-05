@@ -386,9 +386,5 @@ class Form(Generic[M], Container):
             field.error = error
 
     def _get_form_data(self) -> dict[str, Any]:
-        data = {
-            child.id: child.get_data()
-            for child in self.children
-            if child.id and isinstance(child, FormControl)
-        }
+        data = {child.id: child.get_data() for child in self.children if child.id and isinstance(child, FormControl)}
         return data

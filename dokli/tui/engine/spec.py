@@ -156,6 +156,7 @@ VERB_KEYS = {
     "redeploy": "X",
     "testConnection": "t",
     "restart": "R",
+    "readLogs": "l",
 }
 
 
@@ -212,9 +213,7 @@ def parse_spec(schema: dict) -> EntityRegistry:
                 summary=(details.get("summary") or details.get("description") or "").strip(),
                 request_schema=_extract_request_schema(details),
                 param_names=[parameter["name"] for parameter in parameters],
-                required_params=[
-                    parameter["name"] for parameter in parameters if parameter.get("required")
-                ],
+                required_params=[parameter["name"] for parameter in parameters if parameter.get("required")],
             )
             entity = registry.entities.setdefault(entity_name, Entity(name=entity_name))
             entity.actions[verb] = action

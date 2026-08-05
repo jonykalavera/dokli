@@ -74,8 +74,7 @@ class DokliCommands(Provider):
             ("Quit", "Exit the app", app.action_quit),
         ]
         commands = [
-            (name, _with_key(help_text, self._CORE_KEYS.get(name)), callback)
-            for name, help_text, callback in commands
+            (name, _with_key(help_text, self._CORE_KEYS.get(name)), callback) for name, help_text, callback in commands
         ]
         commands.extend(_screen_commands(self.screen))
         for connection in app.config.connections:

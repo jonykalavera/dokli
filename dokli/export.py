@@ -46,9 +46,7 @@ def _export_git_providers(state: State, warnings: list[str]) -> list[GitProvider
     providers = []
     for provider in state.git_providers:
         if provider.provider not in SUPPORTED_PROVIDERS:
-            warnings.append(
-                f"Git provider '{provider.name}': unsupported type '{provider.provider}', skipping."
-            )
+            warnings.append(f"Git provider '{provider.name}': unsupported type '{provider.provider}', skipping.")
             continue
         kwargs: dict = {
             "name": provider.name,
@@ -113,8 +111,7 @@ def _redact_env(live: LiveService, include_secrets: bool, warnings: list[str]) -
     if include_secrets:
         return live.env
     warnings.append(
-        f"Environment variables of '{live.name}' were redacted. "
-        "Re-run with --include-secrets to export them."
+        f"Environment variables of '{live.name}' were redacted. " "Re-run with --include-secrets to export them."
     )
     return None
 

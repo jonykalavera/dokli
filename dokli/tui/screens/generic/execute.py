@@ -18,11 +18,7 @@ def build_body(action: EntityAction, data: dict) -> dict:
     for key, raw_value in data.items():
         if raw_value in ("", None):
             continue
-        value = (
-            raw_value.get_secret_value()
-            if isinstance(raw_value, SecretStr | SecretBytes)
-            else raw_value
-        )
+        value = raw_value.get_secret_value() if isinstance(raw_value, SecretStr | SecretBytes) else raw_value
         body[key] = value
     return body
 

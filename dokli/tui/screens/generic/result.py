@@ -148,9 +148,7 @@ class ResultScreen(Screen):
 
     def _recompute_matches(self) -> None:
         """Recompute the match lines for the current query."""
-        self._matches = [
-            i for i, line in enumerate(self._lines) if self._query.lower() in line.lower()
-        ]
+        self._matches = [i for i, line in enumerate(self._lines) if self._query.lower() in line.lower()]
         if self._matches:
             self._match_index = min(self._match_index, len(self._matches) - 1)
         else:

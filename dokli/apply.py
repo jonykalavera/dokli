@@ -117,9 +117,7 @@ class Applier:
             self._plan_services(project_def, project_def.services)
             for env_def in project_def.environments:
                 self.report.actions.append(
-                    ApplyAction(
-                        action="create", kind="environment", project=project_def.name, name=env_def.name
-                    )
+                    ApplyAction(action="create", kind="environment", project=project_def.name, name=env_def.name)
                 )
                 self._plan_services(project_def, env_def.services)
             return

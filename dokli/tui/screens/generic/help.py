@@ -30,6 +30,7 @@ class HelpScreen(Screen):
         """On screen resume."""
         self.app.sub_title = "Help"
         self.run_worker(self._render_items, exclusive=True)  # type: ignore[arg-type]
+
     async def _render_items(self) -> None:
         """Render the bindings of the app and the previous screen."""
         container = self.query_one("#help-scroll", VerticalScroll)
@@ -56,9 +57,7 @@ class HelpScreen(Screen):
         self.dismiss(None)
 
 
-def _merge_entries(
-    default: list[tuple[str, str]], contextual: list[tuple[str, str]] | None
-) -> list[tuple[str, str]]:
+def _merge_entries(default: list[tuple[str, str]], contextual: list[tuple[str, str]] | None) -> list[tuple[str, str]]:
     """Combine default and contextual bindings, default winning on collisions."""
     merged: dict[str, str] = {}
     for entries in (default, contextual or []):

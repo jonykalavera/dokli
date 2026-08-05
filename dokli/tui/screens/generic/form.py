@@ -90,9 +90,7 @@ class ActionFormScreen(Screen):
 
     def action_wizard(self) -> None:
         """Open the step-by-step wizard for the same action."""
-        self.app.push_screen(
-            WizardScreen(self.connection, self.action, record=self.record, classes="Entities")
-        )
+        self.app.push_screen(WizardScreen(self.connection, self.action, record=self.record, classes="Entities"))
 
     def action_cancel(self) -> None:
         """Cancel the form."""
