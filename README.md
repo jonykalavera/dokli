@@ -220,13 +220,13 @@ Also, it seemed to me like something cool to do this weekend. I learned a bunch 
 
 ## Release
 
-Releases are automated via GitHub Actions (`.github/workflows/release.yml`): pushing a `v*` tag builds the package with `uv build`, publishes it to PyPI, and creates a GitHub Release.
+Releases are automated via GitHub Actions (`.github/workflows/release.yml`): pushing a `v*` tag builds the package with `uv build`, publishes it to PyPI via **trusted publishing** (OIDC), and creates a GitHub Release.
 
 ```bash
 make release VERSION=0.1.0
 ```
 
-This requires a PyPI API token in the repository secrets as `PYPI_TOKEN`. The version in `pyproject.toml` must match the tag.
+This requires the repo to be configured as a trusted publisher on PyPI (no API token needed). The version in `pyproject.toml` must match the tag.
 
 ## Buy me a 🌮
 
