@@ -216,13 +216,22 @@ dokli apply                          # configure the instance
 
 ## TUI
 
-Still a WIP. Basic functionality will be implemented at 0.2.0 release.
+A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy OpenAPI document — no hand-written screens per entity, so it adapts to any API version.
 
-![Screenshot from 2024-08-04 23-39-14](https://github.com/user-attachments/assets/9943d053-f3a6-40dd-90b7-07502fb81925)
-![Screenshot from 2024-08-04 23-39-04](https://github.com/user-attachments/assets/acce2413-7b48-472d-899a-71d469b6113d)
-![Screenshot from 2024-08-05 00-06-58](https://github.com/user-attachments/assets/17fefe01-e072-4c18-8cc1-159de9e94adc)
+- **Yazi-style 3-column browser**: parent | current | detail, with `j`/`k` navigate, `h`/`l` drill in/out, `/` filter, `F5` refresh, and auto-generated action keybindings per entity.
+- **Command palette** (`ctrl+p`): search across commands and the focused screen's available actions, with shortcuts shown in the help line.
+- **Help** (`?`): lists the app, screen and contextual keybindings.
+- **Results**: read-only queries open a result screen with search (`/`, `n`/`N` to jump) and `F5` to re-fetch — handy for logs.
+- Entity icons are color-coded (Catppuccin palette), and container states show as a traffic-light dot.
+- Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.
+- Mask secret-like fields in forms and results.
 
-[http://www.youtube.com/watch?v=IAnHfFV9_jU](http://www.youtube.com/watch?v=IAnHfFV9_jU)
+| | |
+|---|---|
+| Connections | Yazi-style browser |
+| ![Connections](assets/tui-connections.png) | ![Browser](assets/tui-browser.png) |
+| Command palette | Result view (logs + search) |
+| ![Command palette](assets/tui-palette.png) | ![Result view](assets/tui-result.png) |
 
 ## Motivation
 
