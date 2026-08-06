@@ -11,12 +11,15 @@ from dokli.tui.engine import (
     classify,
     entity_icon,
     field_label,
+    icon_label,
     infer_columns,
     key_for_verb,
     nested_child_entity,
     parse_spec,
     record_id,
     record_title,
+    state_color,
+    state_indicator,
 )
 
 
@@ -24,9 +27,7 @@ def _spec() -> dict:
     return {
         "paths": {
             "/project.all": {"get": {"summary": "List projects"}},
-            "/project.one": {
-                "get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}
-            },
+            "/project.one": {"get": {"parameters": [{"name": "projectId", "in": "query", "required": True}]}},
             "/project.create": {
                 "post": {
                     "requestBody": {
@@ -184,6 +185,33 @@ class TestKeyBindings:
         assert by_verb["remove"] == "d"
         assert by_verb["restart"] == "R"
 
+    def test_read_logs_uses_uppercase_l(self):
+        """We expect readLogs to use L (uppercase), not the reserved drill-in l."""
+        assert key_for_verb("readLogs") == "L"
+        entity = self._entity("readLogs")
+        assert action_bindings(entity)[0][1] == "L"
+
+    def test_system_keys_are_not_assigned(self):
+        """We expect SYSTEM_KEYS (D) to never be assigned to an action."""
+        entity = self._entity(
+            "remove",
+            "redeploy",
+            "restart",
+            "search",
+            "start",
+            "save",
+            "suggest",
+            "sync",
+            "show",
+            "stop",
+            "status",
+            "submit",
+            "updateTeams",
+        )
+        bindings = action_bindings(entity)
+        keys = {key for _, key in bindings if key is not None}
+        assert "D" not in keys
+
     def test_fallback_to_free_key(self):
         """We expect a free key when all verb letters are taken."""
         assert key_for_verb("xyz", frozenset("xyzw")) == "a"
@@ -221,6 +249,28 @@ class TestIcons:
         """We expect unknown entities to get a fallback icon."""
         assert entity_icon("totally_unknown") == "\uf15b"
 
+    def test_icon_label_wraps_in_color(self):
+        """We expect icon_label to put a dark icon in a colored box."""
+        label = icon_label("project")
+        assert "on #f9e2af" in label
+        assert "#1e1e2e" in label
+        assert "\uf07b" in label
+        fallback = icon_label("totally_unknown")
+        assert "on #6c7086" in fallback
+
+    def test_state_color(self):
+        """We expect a traffic-light color per container state."""
+        assert state_color("running") == "#a6e3a1"
+        assert state_color("paused") == "#f9e2af"
+        assert state_color("restarting") == "#f9e2af"
+        assert state_color("exited") == "#f38ba8"
+        assert state_color("") == "#6c7086"
+
+    def test_state_indicator(self):
+        """We expect a colored dot for the container state."""
+        assert state_indicator("running") == "[bold #a6e3a1]●[/]"
+        assert state_indicator("exited") == "[bold #f38ba8]●[/]"
+
 
 class TestBuildFormModel:
     """Schema → form model tests."""
@@ -245,16 +295,12 @@ class TestBuildFormModel:
 
     def test_enum_fields(self):
         """We expect string enums to be Literal."""
-        model = build_form_model(
-            {"properties": {"mode": {"type": "string", "enum": ["dev", "prod"]}}}
-        )
+        model = build_form_model({"properties": {"mode": {"type": "string", "enum": ["dev", "prod"]}}})
         assert model(mode="dev").mode == "dev"
 
     def test_anyof_annotation(self):
         """We expect anyOf null-unions to be unwrapped."""
-        model = build_form_model(
-            {"properties": {"autoDeploy": {"anyOf": [{"type": "boolean"}, {"type": "null"}]}}}
-        )
+        model = build_form_model({"properties": {"autoDeploy": {"anyOf": [{"type": "boolean"}, {"type": "null"}]}}})
         assert model(autoDeploy=True).autoDeploy is True
 
     def test_filters_read_only_fields(self):

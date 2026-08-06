@@ -18,14 +18,15 @@ from dokli.tui.engine import (
     classify,
     clear_probe_cache,
     collect_children,
-    entity_icon,
     field_label,
+    icon_label,
     param_source,
     probe_entities,
     record_id,
     record_title,
     related_records,
     related_spec,
+    state_indicator,
 )
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -51,6 +52,9 @@ class BrowserScreen(Screen):
     """3-column browser: parent | current | detail+actions."""
 
     CSS = """
+    #parent-pane { width: 2fr; }
+    #current-pane { width: 2fr; }
+    #detail-pane { width: 4fr; }
     #current-pane > .selected, #parent-pane > .selected {
         background: $primary;
         color: $text;
@@ -65,7 +69,7 @@ class BrowserScreen(Screen):
         Binding("h", "left", "Parent"),
         Binding("l", "right", "Child", show=False),
         Binding("right", "right", "Child", show=False),
-        Binding("r", "refresh", "Refresh"),
+        Binding("f5", "refresh", "Refresh"),
         Binding("/", "filter", "Filter"),
         Binding("escape", "cancel", "Back"),
         Binding("q", "quit", "Quit"),
@@ -103,6 +107,19 @@ class BrowserScreen(Screen):
     async def on_mount(self) -> None:
         """On mount, probe which entities are usable with this API key."""
         await self._run_reprobe()
+
+    def reload(self, connection: ConnectionConfig, registry: EntityRegistry) -> None:
+        """Point this browser at a new connection/registry and re-probe."""
+        self.connection = connection
+        self.registry = registry
+        self.client = APIClient(connection)
+        entities = [{"_kind": name, "name": name} for name in registry.listable()]
+        self.path = [Level(kind="entities", items=entities)]
+        self._filter = ""
+        self._usable = None
+        self._related_cache = {}
+        clear_probe_cache(connection.name)
+        self.run_worker(self._run_reprobe())  # type: ignore[arg-type]
 
     async def _run_reprobe(self) -> None:
         """Probe entity usability in a worker thread, then refresh the list."""
@@ -166,10 +183,10 @@ class BrowserScreen(Screen):
     def _item_label(self, item: dict, level: Level) -> str:
         title = record_title(item)
         if level.kind == "entities":
-            return f"{entity_icon(title)}  {title}"
+            return f"{icon_label(title)}  {title}"
         if level.kind == "children":
-            return f"{entity_icon(item.get('_kind') or '')}  {title}"
-        return title
+            return f"{icon_label(item.get('_kind') or '')}  {title}"
+        return f"{icon_label(level.kind)}  {title}"
 
     def _visible_items(self, level: Level) -> list[dict]:
         items = level.items
@@ -218,18 +235,19 @@ class BrowserScreen(Screen):
             widgets.append(Label("(empty)", classes="field"))
         else:
             kind = self._selected_kind() or ""
-            if kind:
-                widgets.append(Label(f"{entity_icon(kind)}  {kind}", classes="title"))
+            header, title_key = self._record_header(selected, kind)
+            if header:
+                widgets.append(Label(header, classes="title"))
             widgets.append(Label(self._breadcrumb(), classes="subtitle"))
-            for key, value in selected.items():
-                if key in ("_kind", "id") or value in (None, [], {}):
-                    continue
-                widgets.append(Label(f"[b]{field_label(key)}:[/b] {self._fmt(value)}", classes="field"))
+            skip = {"_kind", "id"}
+            if title_key:
+                skip.add(title_key)
+            widgets.extend(self._detail_field_labels(selected, skip))
             children = collect_children(selected)
             if children:
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
                 for child_entity, child in children[:10]:
-                    widgets.append(Label(f"  {entity_icon(child_entity)}  {record_title(child)}"))
+                    widgets.append(Label(f"  {icon_label(child_entity)}  {record_title(child)}"))
             related = self._related_records(selected)
             if related:
                 spec = related_spec(kind)
@@ -237,17 +255,33 @@ class BrowserScreen(Screen):
                 widgets.append(Label(f"{label} ({len(related)})", classes="section"))
                 for item in related[:10]:
                     title = item.get("name") or record_id(item) or "?"
-                    status = item.get("state") or item.get("status")
-                    suffix = f" ({status})" if status else ""
-                    widgets.append(Label(f"  {entity_icon('docker')}  {title}{suffix}"))
-            entity = self.registry.get(kind)
-            if entity:
-                bindings = self._entity_bindings(entity)
-                if bindings:
-                    widgets.append(Label("Actions", classes="section"))
-                    for action, key in bindings:
-                        widgets.append(Label(f"  [{'b'}]{key or '-'}[/] {action.verb}"))
+                    state = item.get("state") or ""
+                    status = item.get("status") or ""
+                    suffix = f" ({state})" if state else (f" ({status})" if status else "")
+                    widgets.append(Label(f"  {state_indicator(state)} {title}{suffix}"))
         await container.mount(*widgets)
+
+    def _detail_field_labels(self, selected: dict, skip: set[str]) -> list[Label]:
+        """Field labels for a record, excluding the skip set and empty values."""
+        labels = []
+        for key, value in selected.items():
+            if key in skip or value in (None, [], {}):
+                continue
+            labels.append(Label(f"[b]{field_label(key)}:[/b] {self._fmt(value)}", classes="field"))
+        return labels
+
+    def _record_header(self, selected: dict, kind: str) -> tuple[str | None, str | None]:
+        """The detail header label and the title key to skip in the field list."""
+        title_key = next(
+            (key for key in ("name", "appName", "title", "label") if selected.get(key)),
+            None,
+        )
+        if not kind:
+            return None, title_key
+        header = f"{icon_label(kind)}  {kind}"
+        if title_key:
+            header += f"  [b]·  {self._fmt(selected[title_key])}[/b]"
+        return header, title_key
 
     def _entity_bindings(self, entity) -> list:
         """Action keybindings for an entity.
@@ -263,6 +297,20 @@ class BrowserScreen(Screen):
                 (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
             ]
         return bindings
+
+    def contextual_bindings(self) -> list[tuple[str, str]]:
+        """The current selection's action keybindings, for the help screen."""
+        entries: list[tuple[str, str]] = []
+        entity = self.registry.get(self._selected_kind() or "")
+        if entity is None:
+            return entries
+        selected = self.selected or {}
+        title = record_title(selected) if selected else ""
+        for action, key in self._entity_bindings(entity):
+            if key:
+                label = action.verb if not title else f"{action.verb} {title}"
+                entries.append((key, label))
+        return entries
 
     def _fmt(self, value) -> str:
         if isinstance(value, dict | list):
@@ -453,10 +501,10 @@ class BrowserScreen(Screen):
 
     def _run_action(self, action) -> None:
         if classify(action) == "form":
-            self.run_worker(self._open_form(action), exclusive=True)  # type: ignore[arg-type]
+            self.run_worker(self._open_form(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         if action.method == "GET":
-            self.run_worker(self._show_result(action), exclusive=True)  # type: ignore[arg-type]
+            self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         body = {}
         schema = action.request_schema
@@ -498,7 +546,9 @@ class BrowserScreen(Screen):
             return
         data = await self._api_get(action, params)
         if data is not None:
-            self.app.push_screen(ResultScreen(self.connection, action, data, classes="Entities"))
+            self.app.push_screen(
+                ResultScreen(self.connection, action, data, params=params, classes="Entities")
+            )
 
     async def _resolve_missing(self, action, params: dict, missing: list[str]) -> None:
         """Satisfy missing required params (e.g. containerId) via a picker."""
@@ -537,7 +587,7 @@ class BrowserScreen(Screen):
         params[missing[0]] = value
         data = await self._api_get(action, params)
         if data is not None:
-            self.app.push_screen(ResultScreen(self.connection, action, data, classes="Entities"))
+            self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
 
     async def _open_form(self, action) -> None:
         """Open an action form.

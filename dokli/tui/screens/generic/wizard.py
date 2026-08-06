@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Label
 
@@ -41,8 +41,7 @@ class WizardScreen(Screen):
         self.model = build_form_model(action.request_schema, name=f"{action.route}Wizard")
         self.fields = list(self.model.model_fields.items())
         self.controls = {
-            name: FormControl.from_field(name, field, value=self.record.get(name))
-            for name, field in self.fields
+            name: FormControl.from_field(name, field, value=self.record.get(name)) for name, field in self.fields
         }
         self.index = 0
 
@@ -52,9 +51,12 @@ class WizardScreen(Screen):
         yield Footer()
         yield Label("", id="prompt", classes="title")
         yield Container(id="control")
-        yield Button("Back", id="back")
-        yield Button("Next", id="next", variant="primary")
-        yield Button("Cancel", id="cancel")
+        yield Horizontal(
+            Button("Back", id="back"),
+            Button("Next", id="next", variant="primary"),
+            Button("Cancel", id="cancel"),
+            classes="actions",
+        )
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -76,9 +78,7 @@ class WizardScreen(Screen):
         container = self.query_one("#control", Container)
         container.remove_children()
         container.mount(control)
-        self.query_one("#prompt", Label).update(
-            f"({self.index + 1}/{len(self.fields)}) {field.title or name}"
-        )
+        self.query_one("#prompt", Label).update(f"({self.index + 1}/{len(self.fields)}) {field.title or name}")
         control.focus()
 
     def action_next(self) -> None:

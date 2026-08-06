@@ -106,9 +106,7 @@ def collect_state(connection: ConnectionConfig, client: APIClient | None = None)
 
     provider_map = _build_provider_map(raw_providers)
 
-    projects = [
-        _collect_project(client, raw_project, provider_map) for raw_project in raw_projects
-    ]
+    projects = [_collect_project(client, raw_project, provider_map) for raw_project in raw_projects]
 
     return State(
         connection=connection.name,
@@ -192,9 +190,8 @@ def _collect_git_provider(raw: dict[str, Any]) -> LiveGitProvider:
         provider=raw.get("providerType") or "",
         url=subprovider.get("url") if isinstance(subprovider, dict) else None,
         app_name=subprovider.get("appName") if isinstance(subprovider, dict) else None,
-        is_configured=bool(raw.get("isConfigured")) or (
-            isinstance(subprovider, dict) and bool(subprovider.get("isConfigured"))
-        ),
+        is_configured=bool(raw.get("isConfigured"))
+        or (isinstance(subprovider, dict) and bool(subprovider.get("isConfigured"))),
         github_id=(raw.get("github") or {}).get("githubId"),
         gitlab_id=(raw.get("gitlab") or {}).get("gitlabId"),
         gitea_id=(raw.get("gitea") or {}).get("giteaId"),

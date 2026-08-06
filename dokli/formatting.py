@@ -12,9 +12,7 @@ from rich.table import Table
 
 app = typer.Typer()
 
-SECRET_KEY_PATTERN = re.compile(
-    r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)"
-)
+SECRET_KEY_PATTERN = re.compile(r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)")
 
 D = TypeVar("D")
 

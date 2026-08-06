@@ -3,18 +3,21 @@
 import asyncio
 
 import httpx
+from textual.command import CommandPalette
 from textual.containers import VerticalScroll
 from textual.widgets import Label
 
 from dokli.config import Config, ConnectionConfig
-from dokli.tui.app import DokliApp
+from dokli.tui.app import DokliApp, DokliCommands
 from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
 from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
+from dokli.tui.screens.connection import ConnectionScreen
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
+from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
@@ -44,6 +47,21 @@ FAKE_SCHEMA = {
             }
         },
         "/project.remove": {"post": {}},
+        "/project.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"name": {"type": "string"}},
+                                "required": ["name"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/environment.one": {"get": {"parameters": [{"name": "environmentId", "in": "query", "required": True}]}},
         "/compose.one": {"get": {"parameters": [{"name": "composeId", "in": "query", "required": True}]}},
         "/compose.update": {
@@ -140,8 +158,9 @@ def _fake_requests():
         "compose.one": {
             "composeId": "c1",
             "name": "torrents",
-            "sourceType": "raw",
+            "appName": "media-torrents-abc123",
             "composeType": "docker-compose",
+            "sourceType": "raw",
             "composeFile": "version: '3'",
         },
         "docker.getContainersByAppNameMatch": [
@@ -214,6 +233,49 @@ def test_form_prefills_from_data():
     model = build_form_model({"properties": {"name": {"type": "string"}}})
     form = Form.from_model(model, data={"name": "prefilled"})
     assert form.fields["name"].value == "prefilled"
+
+
+def test_form_surfaces_model_level_errors():
+    """We expect a cross-field model error (empty loc) not to crash and to be shown."""
+    form = Form.from_model(ConnectionConfig)
+    form._set_errors(
+        [
+            {
+                "loc": (),
+                "msg": "Must provide api_key or api_key_cmd.",
+                "type": "value_error",
+                "input": {"name": "hot-test", "api_key": None, "api_key_cmd": None},
+            }
+        ]
+    )
+    assert form.error == "Must provide api_key or api_key_cmd."
+
+
+def test_connection_form_model_error_no_crash(mocker):
+    """We expect typing in a new connection form not to crash on the model validator."""
+    mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen.action_add_connection()
+            for _ in range(10):
+                await pilot.pause()
+            assert isinstance(app.screen, ConnectionScreen)
+            form = app.screen.query_one(Form)
+            form.fields["name"].value = "hot-test"
+            form.fields["url"].value = "https://storm.example.dev"
+            form.fields["notes"].value = "H"
+            form.validate()
+            assert form.error == "Must provide api_key or api_key_cmd."
+            # typing in notes triggers validation without crashing
+            form.fields["notes"].value = "HELLO"
+            form.validate()
+            assert form.error == "Must provide api_key or api_key_cmd."
+
+    _run(main())
 
 
 def test_form_rich_controls():
@@ -618,6 +680,117 @@ def test_query_action_shows_result(mocker):
     _run(main())
 
 
+def test_result_search_highlights_and_navigates(mocker):
+    """We expect / to open a search that counts matches and navigates with n/N."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("homeStats")
+    logs = "\n".join(f"2026-08-05 line {i} GET /api/projects" for i in range(5))
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, logs)
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            # no matches query
+            await pilot.press("/")
+            await pilot.pause()
+            await pilot.press(*"zzz")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "No matches"
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("/")
+            await pilot.pause()
+            await pilot.press(*"api")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "1/5 matches"
+            # commit search (blur) then navigate
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("n")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "2/5 matches"
+            await pilot.press("N")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "1/5 matches"
+
+    _run(main())
+
+
+def test_result_search_escape_clears(mocker):
+    """We expect escape to clear the search and restore the plain result."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("homeStats")
+    logs = "\n".join(f"2026-08-05 line {i} GET /api/projects" for i in range(3))
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, logs)
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.press("/")
+            await pilot.pause()
+            await pilot.press(*"api")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == "1/3 matches"
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.pause()
+            assert str(screen.query_one("#match-status", Label).renderable) == ""
+            assert isinstance(app.screen, ResultScreen)
+
+    _run(main())
+
+
+def test_result_refresh_refetches(mocker):
+    """We expect r to re-run the action with the original params and update the result."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("homeStats")
+    params = {"projectId": "p1"}
+
+    def fake_request(method, path, params_):
+        return FakeResponse({"projects": 99, "status": {"running": 1, "idle": 0}})
+
+    client = mocker.Mock()
+    client.request.side_effect = fake_request
+    mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, {"projects": 0}, params=params)
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.press("f5")
+            await pilot.pause()
+            await pilot.pause()
+            client.request.assert_called_once_with("GET", action.route, params)
+            text = "\n".join(
+                str(label.renderable)
+                for label in screen.query_one("#result-scroll").children
+                if isinstance(label, Label)
+            )
+            assert "99" in text
+
+    _run(main())
+
+
 def test_read_logs_params_only_backfill_entity_id(mocker):
     """We expect GET params to backfill only the entity's own id, never other params."""
     _patch_api(mocker)
@@ -642,6 +815,8 @@ def test_read_logs_params_only_backfill_entity_id(mocker):
             assert isinstance(app.screen, ResultScreen)
             _, _, params = screen.client.request.call_args.args
             assert params == {"applicationId": "a1"}
+            # the result screen must keep the params so its refresh re-uses them
+            assert app.screen.params == {"applicationId": "a1"}
 
     _run(main())
 
@@ -748,6 +923,39 @@ def test_detail_shows_related_containers(mocker):
             ]
             assert any("Containers (2)" in label for label in detail)
             assert any("frigate" in label for label in detail)
+
+    _run(main())
+
+
+def test_related_containers_enrich_via_one(mocker):
+    """We expect the browser to enrich a compose record via one to get the docker
+    project name (appName) and appType before fetching its containers."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            related = screen._related_records(screen.selected)
+            docker_call = next(
+                call
+                for call in screen.client.request.call_args_list
+                if call[0][1] == "docker.getContainersByAppNameMatch"
+            )
+            _, _, params = docker_call.args
+            assert params["appName"] == "media-torrents-abc123"
+            assert params["appType"] == "docker-compose"
+            assert [r["name"] for r in related] == ["frigate", "frigate-notify"]
 
     _run(main())
 
@@ -871,5 +1079,290 @@ def test_connection_argument_unreachable_falls_back(mocker):
                 if isinstance(app.screen, ConnectionsScreen):
                     break
             assert isinstance(app.screen, ConnectionsScreen)
+
+    _run(main())
+
+
+# -- connections persistence ------------------------------------------------
+
+
+def test_add_connection_persists(mocker):
+    """We expect a new connection to be added to the config and saved."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    new_connection = ConnectionConfig(name="stage", url="https://stage.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_add_connection(ConnectionsScreen.AddConnection(connection=new_connection))
+            assert any(c.name == "stage" for c in app.config.connections)
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_update_connection_persists(mocker):
+    """We expect an edited connection to replace the existing one and be saved."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    updated = ConnectionConfig(name="test-env", url="https://other.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_update_connection(ConnectionsScreen.UpdateConnection(connection=updated))
+            assert app.config.connections[0].url.host == "other.example.com"
+            assert len(app.config.connections) == 1
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_delete_connection_persists(mocker):
+    """We expect a deleted connection to be removed from the config and saved."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_delete_connection(ConnectionsScreen.DeleteConnection(connection=_connection()))
+            assert app.config.connections == []
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_rename_connection_replaces_not_duplicates(mocker):
+    """We expect renaming a connection to replace it, not duplicate it."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    renamed = ConnectionConfig(name="renamed", url="https://other.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_update_connection(
+                ConnectionsScreen.UpdateConnection(connection=renamed, original=_connection())
+            )
+            assert [c.name for c in app.config.connections] == ["renamed"]
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_connection_edit_syncs_screen(mocker):
+    """We expect the connections screen list to refresh after an edit."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    updated = ConnectionConfig(name="test-env", url="https://other.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, ConnectionsScreen)
+            app.on_connections_screen_update_connection(
+                ConnectionsScreen.UpdateConnection(connection=updated, original=_connection())
+            )
+            await pilot.pause()
+            assert app.screen.connections[0].url.host == "other.example.com"
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_switch_connection_reuses_browser(mocker):
+    """We expect switching connections to reload the browser, not re-install it."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, BrowserScreen):
+                    break
+            first = app.screen
+            # go back to the connections screen and pick another connection
+            app.action_connections()
+            for _ in range(10):
+                await pilot.pause()
+                if isinstance(app.screen, ConnectionsScreen):
+                    break
+            assert isinstance(app.screen, ConnectionsScreen)
+            second = ConnectionConfig(name="stage", url="https://stage.example.com", api_key_cmd="echo key")
+            app.set_connection(second)
+            for _ in range(20):
+                await pilot.pause()
+            assert isinstance(app.screen, BrowserScreen)
+            assert app.screen is first
+            assert app.screen.connection.name == "stage"
+
+    _run(main())
+
+
+# -- help + command palette -------------------------------------------------
+
+
+def test_help_screen_shows_bindings(mocker):
+    """We expect ? to open the help screen listing the keybindings."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, BrowserScreen):
+                    break
+            # select 'project' so its contextual actions are available
+            screen = app.screen
+            vis = screen._visible_items(screen.current)
+            screen.current.index = next(i for i, item in enumerate(vis) if item.get("name") == "project")
+            await pilot.pause()
+            await pilot.press("?")
+            for _ in range(10):
+                await pilot.pause()
+                if isinstance(app.screen, HelpScreen):
+                    break
+            assert isinstance(app.screen, HelpScreen)
+            text = "\n".join(
+                str(label.renderable)
+                for label in app.screen.query_one("#help-scroll").children
+                if isinstance(label, Label)
+            )
+            assert "Quit" in text
+            assert "Connections" in text
+            # contextual action of the selected entity is listed
+            assert "create project" in text
+
+    _run(main())
+
+
+def test_help_default_bindings_win_over_contextual():
+    """We expect default keybindings to win over contextual ones on collision."""
+    from dokli.tui.screens.generic.help import _merge_entries
+
+    default = [("c", "Copy"), ("r", "Refresh")]
+    contextual = [("r", "Run redeploy on app"), ("x", "Deploy")]
+    merged = _merge_entries(default, contextual)
+    assert merged == [("c", "Copy"), ("r", "Refresh"), ("x", "Deploy")]
+
+
+def test_command_palette_opens(mocker):
+    """We expect the command palette to open on ctrl+p."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("ctrl+p")
+            await pilot.pause()
+            assert isinstance(app.screen, CommandPalette)
+
+    _run(main())
+
+
+def test_command_provider_lists_connections(mocker):
+    """We expect the command palette provider to offer connections and core commands."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            provider = DokliCommands(app.screen)
+            hits = [hit async for hit in provider.discover()]
+            names = [hit.text for hit in hits]
+            assert "Open test-env" in names
+            assert "Help" in names
+            assert "Quit" in names
+            by_name = {hit.text: hit.help for hit in hits}
+            assert by_name["Toggle dark mode"] == "[D] Switch between light and dark themes"
+            assert by_name["Help"] == "[?] Show the keybindings"
+
+    _run(main())
+
+
+def test_command_provider_lists_browser_actions(mocker):
+    """We expect the palette to expose the selected entity's available actions in the browser."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            provider = DokliCommands(app.screen)
+            hits = [hit async for hit in provider.discover()]
+            names = [hit.text for hit in hits]
+            assert "Run create on project" in names
+            assert "Run homeStats on project" in names
+            assert not any(name == "Run remove on project" for name in names)
+            create_help = next(hit.help for hit in hits if hit.text == "Run create on project")
+            assert create_help == "[c] create · project (POST)"
+
+    _run(main())
+
+
+def test_command_provider_lists_form_commands(mocker):
+    """We expect the palette to expose form actions when a form is focused."""
+    mocker.patch("dokli.tui.app.APIClient")
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            provider = DokliCommands(app.screen)
+            hits = [hit async for hit in provider.discover()]
+            names = [hit.text for hit in hits]
+            assert "Submit form" in names
+            assert "Wizard mode" in names
+
+    _run(main())
+
+
+def test_palette_runs_update_action(mocker):
+    """We expect an action chosen from the palette to run after the palette closes."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            await pilot.press("ctrl+p")
+            for _ in range(10):
+                await pilot.pause()
+            await pilot.press(*"run update")
+            for _ in range(15):
+                await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(5):
+                await pilot.pause()
+            await pilot.press("enter")
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, ActionFormScreen):
+                    break
+            assert isinstance(app.screen, ActionFormScreen)
 
     _run(main())

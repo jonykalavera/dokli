@@ -273,6 +273,7 @@ class Form(Generic[M], Container):
 
     data: reactive[dict[str, Any]] = reactive(dict)
     model: reactive[type[M] | None] = reactive(None)
+    error: reactive[str | None] = reactive(None)
     cleaned_data: dict[str, Any] | None = None
     instance: M | None = None
 
@@ -293,6 +294,19 @@ class Form(Generic[M], Container):
         self.model = model if not instance else type(instance)
         self.cleaned_data = None
         self.validate_on_input = validate_on_input
+
+    async def on_mount(self) -> None:
+        """On mount, add the form-level error label."""
+        self._error_label = Label("", classes="form-error")
+        await self.mount(self._error_label)
+
+    def watch_error(self, old_value: str | None, new_value: str | None) -> None:
+        """Show or hide the form-level error message."""
+        label = getattr(self, "_error_label", None)
+        if label is None:
+            return
+        label.update(new_value or "")
+        label.set_class(bool(new_value), "visible")
 
     @classmethod
     def from_model(
@@ -343,6 +357,7 @@ class Form(Generic[M], Container):
         """Validate form data against model, if any."""
         data = self._get_form_data()
         self.reset(reset_value=False)
+        self.error = None
         if not self.model:
             self.cleaned_data = data
             return True
@@ -380,15 +395,16 @@ class Form(Generic[M], Container):
 
     def _set_errors(self, errors: list[ErrorDetails]) -> None:
         for error in errors:
-            loc = str(error["loc"][-1])
-            field = self.fields.get(loc)
+            loc = error["loc"]
+            if not loc:
+                # Model-level validation error (e.g. a cross-field validator
+                # like "provide api_key or api_key_cmd"); no field to attach to.
+                self.error = error["msg"].removeprefix("Value error, ")
+                continue
+            field = self.fields.get(str(loc[-1]))
             assert field, f"Unknown field: {loc}"
             field.error = error
 
     def _get_form_data(self) -> dict[str, Any]:
-        data = {
-            child.id: child.get_data()
-            for child in self.children
-            if child.id and isinstance(child, FormControl)
-        }
+        data = {child.id: child.get_data() for child in self.children if child.id and isinstance(child, FormControl)}
         return data

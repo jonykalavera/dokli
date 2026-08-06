@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header
 
@@ -47,9 +48,12 @@ class ActionFormScreen(Screen):
         yield Header()
         yield Footer()
         yield self.form
-        yield Button("Submit", id="submit", variant="primary")
-        yield Button("Wizard mode", id="wizard")
-        yield Button("Cancel", id="cancel")
+        yield Horizontal(
+            Button("Submit", id="submit", variant="primary"),
+            Button("Wizard mode", id="wizard"),
+            Button("Cancel", id="cancel"),
+            classes="actions",
+        )
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -86,9 +90,7 @@ class ActionFormScreen(Screen):
 
     def action_wizard(self) -> None:
         """Open the step-by-step wizard for the same action."""
-        self.app.push_screen(
-            WizardScreen(self.connection, self.action, record=self.record, classes="Entities")
-        )
+        self.app.push_screen(WizardScreen(self.connection, self.action, record=self.record, classes="Entities"))
 
     def action_cancel(self) -> None:
         """Cancel the form."""

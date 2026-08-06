@@ -53,10 +53,7 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
     # Create a list of parameters for the signature
     original_name = {_safe_param_name(x["name"]): x["name"] for x in params}
     param_hints = {_safe_param_name(p["name"]): _infer_param_type(p) for p in params}
-    parameters = [
-        Parameter(name, Parameter.KEYWORD_ONLY, annotation=typ)
-        for name, typ in param_hints.items()
-    ]
+    parameters = [Parameter(name, Parameter.KEYWORD_ONLY, annotation=typ) for name, typ in param_hints.items()]
     if request_body and request_body.get("required", False):
         parameters.append(
             Parameter("body", Parameter.KEYWORD_ONLY, annotation=Annotated[str, typer.Option(help="JSON body")])
