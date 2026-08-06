@@ -771,6 +771,8 @@ def test_read_logs_params_only_backfill_entity_id(mocker):
             assert isinstance(app.screen, ResultScreen)
             _, _, params = screen.client.request.call_args.args
             assert params == {"applicationId": "a1"}
+            # the result screen must keep the params so its refresh re-uses them
+            assert app.screen.params == {"applicationId": "a1"}
 
     _run(main())
 
@@ -1086,6 +1088,46 @@ def test_delete_connection_persists(mocker):
             await pilot.pause()
             app.on_connections_screen_delete_connection(ConnectionsScreen.DeleteConnection(connection=_connection()))
             assert app.config.connections == []
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_rename_connection_replaces_not_duplicates(mocker):
+    """We expect renaming a connection to replace it, not duplicate it."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    renamed = ConnectionConfig(name="renamed", url="https://other.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_update_connection(
+                ConnectionsScreen.UpdateConnection(connection=renamed, original=_connection())
+            )
+            assert [c.name for c in app.config.connections] == ["renamed"]
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_connection_edit_syncs_screen(mocker):
+    """We expect the connections screen list to refresh after an edit."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    updated = ConnectionConfig(name="test-env", url="https://other.example.com", api_key_cmd="echo key")
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, ConnectionsScreen)
+            app.on_connections_screen_update_connection(
+                ConnectionsScreen.UpdateConnection(connection=updated, original=_connection())
+            )
+            await pilot.pause()
+            assert app.screen.connections[0].url.host == "other.example.com"
             save.assert_called_once()
 
     _run(main())

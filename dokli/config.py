@@ -91,16 +91,31 @@ class Config(BaseSettings):
         """Get connection config."""
         return next(filter(lambda x: x.name == name, self.connections))
 
+    def _config_path(self) -> Path:
+        """The config file to save to, mirroring the load order.
+
+        ``dokli.yaml`` in the cwd wins over ``DOKLI_CONFIG``/the default, just
+        like ``yaml_file`` loading.
+        """
+        candidates = [
+            "dokli.yaml",
+            os.getenv("DOKLI_CONFIG", "~/.config/dokli/dokli.yaml"),
+        ]
+        for candidate in candidates:
+            path = Path(candidate).expanduser()
+            if path.exists():
+                return path
+        return Path(candidates[-1]).expanduser()
+
     def save(self, path: str | Path | None = None) -> None:
         """Persist connections to the YAML config file.
 
         Args:
-            path: Where to write. Defaults to the ``DOKLI_CONFIG`` env var or
-                ``~/.config/dokli/dokli.yaml``.
+            path: Where to write. Defaults to the config file that would be
+                loaded (``dokli.yaml`` if present, else ``DOKLI_CONFIG`` or
+                ``~/.config/dokli/dokli.yaml``).
         """
-        target = (
-            Path(os.getenv("DOKLI_CONFIG", "~/.config/dokli/dokli.yaml")) if path is None else Path(path)
-        ).expanduser()
+        target = Path(path).expanduser() if path is not None else self._config_path()
         target.parent.mkdir(parents=True, exist_ok=True)
         connections = [
             {key: value for key, value in connection.model_dump(mode="json").items() if value is not None}

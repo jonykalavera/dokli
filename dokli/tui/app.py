@@ -236,11 +236,13 @@ class DokliApp(App):
     def on_connections_screen_add_connection(self, event: ConnectionsScreen.AddConnection) -> None:
         """Persist a newly added connection."""
         self._save_connection(event.connection)
+        self._sync_connections_list()
         self.notify(f"Added connection '{event.connection.name}'.")
 
     def on_connections_screen_update_connection(self, event: ConnectionsScreen.UpdateConnection) -> None:
         """Persist an edited connection."""
-        self._save_connection(event.connection)
+        self._save_connection(event.connection, original=event.original)
+        self._sync_connections_list()
         self.notify(f"Updated connection '{event.connection.name}'.")
 
     def on_connections_screen_delete_connection(self, event: ConnectionsScreen.DeleteConnection) -> None:
@@ -249,18 +251,33 @@ class DokliApp(App):
             connection for connection in self.config.connections if connection.name != event.connection.name
         ]
         self.config.save()
+        self._sync_connections_list()
         self.notify(f"Deleted connection '{event.connection.name}'.")
 
-    def _save_connection(self, connection: ConnectionConfig) -> None:
-        """Add or update a connection in the config and persist it."""
+    def _save_connection(self, connection: ConnectionConfig, original: ConnectionConfig | None = None) -> None:
+        """Add or update a connection in the config and persist it.
+
+        When ``original`` is given (edit with a possible rename), the entry is
+        replaced by the original's identity so a rename does not duplicate it.
+        """
         names = [existing.name for existing in self.config.connections]
-        if connection.name in names:
-            self.config.connections = [
-                connection if existing.name == connection.name else existing for existing in self.config.connections
-            ]
+        if original is not None and original.name in names:
+            target = original.name
+        elif connection.name in names:
+            target = connection.name
         else:
             self.config.connections = [*self.config.connections, connection]
+            self.config.save()
+            return
+        self.config.connections = [
+            connection if existing.name == target else existing for existing in self.config.connections
+        ]
         self.config.save()
+
+    def _sync_connections_list(self) -> None:
+        """Refresh the connections screen list from the persisted config."""
+        if self.screen_stack and isinstance(self.screen_stack[-1], ConnectionsScreen):
+            self.screen_stack[-1].connections = list(self.config.connections)
 
     def action_connections(self) -> None:
         """Action connections."""

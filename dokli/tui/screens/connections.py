@@ -53,6 +53,7 @@ class ConnectionsScreen(Screen):
         """Update connection message."""
 
         connection: ConnectionConfig
+        original: ConnectionConfig | None = None
 
     @dataclass
     class DeleteConnection(Message):
@@ -97,6 +98,7 @@ class ConnectionsScreen(Screen):
             self._show_connection_screen(event.button.parent.connection)
 
     def _show_connection_screen(self, connection: ConnectionConfig | None = None) -> None:
+        self._editing_connection = connection
         detail = ConnectionScreen(connection)
         self.app.push_screen(detail, self._edit_connection_callback)
 
@@ -120,7 +122,9 @@ class ConnectionsScreen(Screen):
         if not result or not result.connection:
             return
         message = (
-            self.UpdateConnection(result.connection) if not result.delete else self.DeleteConnection(result.connection)
+            self.UpdateConnection(result.connection, self._editing_connection)
+            if not result.delete
+            else self.DeleteConnection(result.connection)
         )
         log("message", message)
         self.post_message(message)

@@ -55,6 +55,22 @@ class TestConfig:
         assert [c.name for c in reloaded] == ["meche", "stage"]
         assert reloaded[1].api_key.get_secret_value() == "*" * 64
 
+    def test_config_path_prefers_local(self, tmp_path, monkeypatch):
+        """We expect a local dokli.yaml in the cwd to be the save target."""
+        (tmp_path / "dokli.yaml").write_text("connections: []\n")
+        monkeypatch.chdir(tmp_path)
+        config = ConfigFactory.build()
+        assert config._config_path().resolve() == (tmp_path / "dokli.yaml").resolve()
+
+    def test_save_uses_local_file(self, tmp_path, monkeypatch):
+        """We expect save() without a path to write to the local dokli.yaml."""
+        (tmp_path / "dokli.yaml").write_text("connections: []\n")
+        monkeypatch.chdir(tmp_path)
+        config = ConfigFactory.build(connections=[ConnectionConfigFactory.build(name="meche")])
+        config.save()
+        data = yaml.safe_load((tmp_path / "dokli.yaml").read_text())
+        assert data["connections"][0]["name"] == "meche"
+
 
 class TestConnectionConfig:
     """Connection config model tests."""
