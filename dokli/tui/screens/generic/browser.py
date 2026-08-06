@@ -108,6 +108,19 @@ class BrowserScreen(Screen):
         """On mount, probe which entities are usable with this API key."""
         await self._run_reprobe()
 
+    def reload(self, connection: ConnectionConfig, registry: EntityRegistry) -> None:
+        """Point this browser at a new connection/registry and re-probe."""
+        self.connection = connection
+        self.registry = registry
+        self.client = APIClient(connection)
+        entities = [{"_kind": name, "name": name} for name in registry.listable()]
+        self.path = [Level(kind="entities", items=entities)]
+        self._filter = ""
+        self._usable = None
+        self._related_cache = {}
+        clear_probe_cache(connection.name)
+        self.run_worker(self._run_reprobe())  # type: ignore[arg-type]
+
     async def _run_reprobe(self) -> None:
         """Probe entity usability in a worker thread, then refresh the list."""
         results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)

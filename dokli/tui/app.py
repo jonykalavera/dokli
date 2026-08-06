@@ -218,11 +218,17 @@ class DokliApp(App):
             self._connection_failed(connection, err)
             return
         registry = parse_spec(schema)
-        self.install_screen(
-            BrowserScreen(name="Browser", connection=self.connection, registry=registry),
-            name="Browser",
-        )
-        self.push_screen("Browser")
+        browser = self._installed_screens.get("Browser")
+        if isinstance(browser, BrowserScreen):
+            browser.reload(connection, registry)
+        else:
+            browser = BrowserScreen(name="Browser", connection=connection, registry=registry)
+            self.install_screen(browser, name="Browser")
+        if browser in self.screen_stack:
+            while self.screen_stack and self.screen_stack[-1] is not browser:
+                self.pop_screen()
+        else:
+            self.push_screen("Browser")
 
     def _connection_failed(self, connection: ConnectionConfig, err: Exception) -> None:
         """Fall back to the connections screen when a connection is unreachable."""

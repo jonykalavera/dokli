@@ -1177,6 +1177,36 @@ def test_connection_edit_syncs_screen(mocker):
     _run(main())
 
 
+def test_switch_connection_reuses_browser(mocker):
+    """We expect switching connections to reload the browser, not re-install it."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            for _ in range(30):
+                await pilot.pause()
+                if isinstance(app.screen, BrowserScreen):
+                    break
+            first = app.screen
+            # go back to the connections screen and pick another connection
+            app.action_connections()
+            for _ in range(10):
+                await pilot.pause()
+                if isinstance(app.screen, ConnectionsScreen):
+                    break
+            assert isinstance(app.screen, ConnectionsScreen)
+            second = ConnectionConfig(name="stage", url="https://stage.example.com", api_key_cmd="echo key")
+            app.set_connection(second)
+            for _ in range(20):
+                await pilot.pause()
+            assert isinstance(app.screen, BrowserScreen)
+            assert app.screen is first
+            assert app.screen.connection.name == "stage"
+
+    _run(main())
+
+
 # -- help + command palette -------------------------------------------------
 
 
