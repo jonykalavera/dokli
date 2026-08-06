@@ -10,6 +10,7 @@ from rich.table import Table
 from dokli.api_client import APIClient
 from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
+from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
 from dokli.export import export_manifest
 from dokli.formatting import redact_secrets
@@ -30,6 +31,7 @@ state: dict[str, Any] = {
     "config": Config(),
 }
 register_connections(app, state["config"])
+app.add_typer(build_connections_command(state["config"]))
 
 
 def tui_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:

@@ -82,7 +82,7 @@ You can use `api_key_cmd` to load the API key from a command such as [secret-too
 
 Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) which means it can also be set via [environment variables](https://docs.pydantic.dev/latest/concepts/pydantic_settings/#parsing-environment-variable-values) using the `DOKLI_` prefix.
 
-You can also use the TUI to manage connections.
+You can also manage connections with `dokli connections ls|add|update|remove|get|test`, or from the TUI.
 
 ## CLI
 
@@ -124,6 +124,7 @@ $ dokli
 │ apply    Apply the manifest to a Dokploy instance (idempotent, additive).           │
 │ export   Export the live state of an instance into a manifest.                      │
 │ api      API commands                                                               │
+│ connections  Manage connections.                                                    │
 ╰─────────────────────────────────────────────────────────────────────────────────────╯
 
 $ dokli api test-env project all

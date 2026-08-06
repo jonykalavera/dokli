@@ -1,0 +1,160 @@
+"""CLI commands to manage connections (issue #47)."""
+
+import getpass
+
+import typer
+import yaml
+from pydantic import ValidationError
+from rich import print as rprint
+from rich.table import Table
+
+from dokli.api_client import APIClient
+from dokli.config import Config, ConnectionConfig
+from dokli.formatting import redact_secrets
+
+
+def build_command(config: Config) -> typer.Typer:
+    """Build the ``dokli connections`` command group bound to ``config``."""
+    group = typer.Typer(name="connections", help="Manage connections.", no_args_is_help=True)
+
+    @group.command("ls")
+    def list_connections() -> None:
+        """List connections."""
+        _list_connections(config)
+
+    @group.command("add")
+    def add_connection(
+        name: str = typer.Argument(..., help="Connection name (lowercase, hyphen-separated)."),
+        url: str = typer.Option(..., "--url", help="Dokploy instance URL."),
+        api_key: str | None = typer.Option(None, "--api-key", help="API key (64 chars)."),
+        api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="Command that outputs the API key."),
+        notes: str = typer.Option("", "--notes", help="Notes about the connection."),
+    ) -> None:
+        """Add a connection."""
+        _add_connection(config, name, url, api_key, api_key_cmd, notes)
+
+    @group.command("update")
+    def update_connection(
+        name: str = typer.Argument(..., help="Connection name."),
+        url: str | None = typer.Option(None, "--url", help="New URL."),
+        api_key: str | None = typer.Option(None, "--api-key", help="New API key (64 chars)."),
+        api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="New command that outputs the API key."),
+        notes: str | None = typer.Option(None, "--notes", help="New notes."),
+    ) -> None:
+        """Update a connection."""
+        _update_connection(config, name, url, api_key, api_key_cmd, notes)
+
+    @group.command("remove")
+    def remove_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
+        """Remove a connection."""
+        _remove_connection(config, name)
+
+    @group.command("get")
+    def get_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
+        """Show a connection (key masked)."""
+        _get_connection(config, name)
+
+    @group.command("test")
+    def test_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
+        """Validate a connection against the live instance."""
+        _test_connection(config, name)
+
+    return group
+
+
+def _find(config: Config, name: str) -> ConnectionConfig:
+    for connection in config.connections:
+        if connection.name == name:
+            return connection
+    raise typer.BadParameter(f"Unknown connection '{name}'.")
+
+
+def _mask(connection: ConnectionConfig) -> str:
+    if connection.api_key is not None:
+        key = connection.api_key.get_secret_value()
+        return f"{key[:4]}…{key[-4:]}"
+    if connection.api_key_cmd:
+        return f"cmd: {connection.api_key_cmd}"
+    return ""
+
+
+def _list_connections(config: Config) -> None:
+    table = Table(title="Connections")
+    table.add_column("Name")
+    table.add_column("URL")
+    table.add_column("Key")
+    table.add_column("Notes")
+    for connection in config.connections:
+        table.add_row(connection.name, str(connection.url), _mask(connection), connection.notes)
+    rprint(table)
+
+
+def _add_connection(
+    config: Config, name: str, url: str, api_key: str | None, api_key_cmd: str | None, notes: str
+) -> None:
+    if any(connection.name == name for connection in config.connections):
+        raise typer.BadParameter(f"Connection '{name}' already exists.")
+    if not api_key and not api_key_cmd:
+        api_key = getpass.getpass("API key (hidden): ")
+    try:
+        connection = ConnectionConfig.model_validate(
+            {"name": name, "url": url, "api_key": api_key, "api_key_cmd": api_key_cmd, "notes": notes}
+        )
+    except ValidationError as err:
+        raise typer.BadParameter(err.errors()[0]["msg"]) from None
+    config.connections = [*config.connections, connection]
+    config.save()
+    rprint(f"[green]Added connection '{name}'.[/green]")
+
+
+def _update_connection(
+    config: Config,
+    name: str,
+    url: str | None,
+    api_key: str | None,
+    api_key_cmd: str | None,
+    notes: str | None,
+) -> None:
+    current = _find(config, name)
+    data = current.model_dump_clear()
+    if url is not None:
+        data["url"] = url
+    if api_key is not None:
+        data["api_key"] = api_key
+        data["api_key_cmd"] = None
+    elif api_key_cmd is not None:
+        data["api_key_cmd"] = api_key_cmd
+        data["api_key"] = None
+    if notes is not None:
+        data["notes"] = notes
+    try:
+        updated = ConnectionConfig(**data)
+    except ValidationError as err:
+        raise typer.BadParameter(err.errors()[0]["msg"]) from None
+    config.connections = [updated if c.name == name else c for c in config.connections]
+    config.save()
+    rprint(f"[green]Updated connection '{name}'.[/green]")
+
+
+def _remove_connection(config: Config, name: str) -> None:
+    _find(config, name)
+    config.connections = [connection for connection in config.connections if connection.name != name]
+    config.save()
+    rprint(f"[green]Removed connection '{name}'.[/green]")
+
+
+def _get_connection(config: Config, name: str) -> None:
+    connection = _find(config, name)
+    data = redact_secrets(connection.model_dump_clear())
+    rprint(yaml.dump(data, sort_keys=False))
+
+
+def _test_connection(config: Config, name: str) -> None:
+    connection = _find(config, name)
+    try:
+        schema = APIClient(connection).schema
+    except Exception as err:
+        rprint(f"[red]Connection '{name}' is unreachable: {err}[/red]")
+        raise typer.Exit(code=1) from None
+    version = (schema.get("info") or {}).get("version", "unknown")
+    rprint(f"[green]Connection '{name}' OK — Dokploy API {version}.[/green]")
