@@ -46,6 +46,12 @@ A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokp
 pip install dokli
 # with TUI support
 pip install "dokli[tui]"
+
+# with uv tool
+uv tool install dokli
+# with TUI support from UV
+uv tool install "dokli[tui]"
+
 # latest from git
 pip install git+https://github.com/jonykalavera/dokli.git
 # with TUI support from git
@@ -54,8 +60,7 @@ pip install git+https://github.com/jonykalavera/dokli.git#egg=dokli[tui]
 
 Tested with Dokploy versions:
 
-- 0.6.1
-- 0.18.1
+- 0.29.13
 
 ## Configuration
 
@@ -77,6 +82,8 @@ You can use `api_key_cmd` to load the API key from a command such as [secret-too
 
 Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) which means it can also be set via [environment variables](https://docs.pydantic.dev/latest/concepts/pydantic_settings/#parsing-environment-variable-values) using the `DOKLI_` prefix.
 
+You can also use the TUI to manage connections.
+
 ## CLI
 
 ### Features
@@ -95,26 +102,31 @@ Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts
 ## Usage
 
 ```bash
-$ dokly
-
+$ dokli
 
  Usage: dokli [OPTIONS] COMMAND [ARGS]...
 
  Magical Dokploy CLI/TUI.
 
-╭─ Options ────────────────────────────────────────────────────────────────────╮
-│ --install-completion          Install completion for the current shell.      │
-│ --show-completion             Show completion for the current shell, to copy │
-│                               it or customize the installation.              │
-│ --help                        Show this message and exit.                    │
-╰──────────────────────────────────────────────────────────────────────────────╯
-╭─ Commands ───────────────────────────────────────────────────────────────────╮
-│ api        API commands.                                                     │
-│ tui        Text User Interface.                                              │
-╰──────────────────────────────────────────────────────────────────────────────╯
 
+╭─ Options ───────────────────────────────────────────────────────────────────────────╮
+│ --install-completion          Install completion for the current shell.             │
+│ --show-completion             Show completion for the current shell, to copy it or  │
+│                               customize the installation.                           │
+│ --help                        Show this message and exit.                           │
+╰─────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ──────────────────────────────────────────────────────────────────────────╮
+│ tui      Text User Interface.                                                       │
+│ init     Scaffold a new dokli manifest.                                             │
+│ refresh  Refetch and refresh the cached OpenAPI schema for a connection.            │
+│ state    Show the current state of a Dokploy instance.                              │
+│ plan     Show what would change between the manifest and the live instance.         │
+│ apply    Apply the manifest to a Dokploy instance (idempotent, additive).           │
+│ export   Export the live state of an instance into a manifest.                      │
+│ api      API commands                                                               │
+╰─────────────────────────────────────────────────────────────────────────────────────╯
 
-$ dokly api test-env project all
+$ dokli api test-env project all
 - organizationId: ysHDHlhX4a3zOG2fLsske
   applications: []
   compose: []
@@ -156,6 +168,7 @@ Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokpl
 | Command | Description |
 |---------|-------------|
 | `dokli init` | Scaffold a new manifest. |
+| `dokli refresh [connection]` | Refetch and refresh the cached OpenAPI schema for a connection. |
 | `dokli state [connection]` | Show the current state of an instance. |
 | `dokli plan [-f dokploy.yaml]` | Preview what would change. |
 | `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
@@ -229,22 +242,22 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 | | |
 |---|---|
 | Connections | Yazi-style browser |
-| ![Connections](assets/tui-connections.png) | ![Browser](assets/tui-browser.png) |
+| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png) |
 | Command palette | Result view (logs + search) |
-| ![Command palette](assets/tui-palette.png) | ![Result view](assets/tui-result.png) |
+| ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) | ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) |
 
 ## Motivation
 
 The CLI is designed to keep up with any changes in the API. Commands are dynamically inferred from the OpenAPI spec.
 I did this because I want to do some test automation and the official CLI seems incomplete at the moment. The TUI is because I am into tools like [yazi](https://yazi-rs.github.io/), [lazygit](https://github.com/jesseduffield/lazygit), [k9s](https://k9scli.io/), [dry](https://github.com/moncho/dry), etc. I like to keep my terminal open at all times `$`.
-Also, it seemed to me like something cool to do this weekend. I learned a bunch about [texual](https://textual.textualize.io/), [typer](https://github.com/tiangolo/typer) and [Dokploy](https://github.com/Dokploy/dokploy).
+Also, it seemed to me like something cool to do this weekend. I learned a bunch about [textual](https://textual.textualize.io/), [typer](https://github.com/tiangolo/typer) and [Dokploy](https://github.com/Dokploy/dokploy).
 
 ## Release
 
 Releases are automated via GitHub Actions (`.github/workflows/release.yml`): pushing a `v*` tag builds the package with `uv build`, publishes it to PyPI via **trusted publishing** (OIDC), and creates a GitHub Release.
 
 ```bash
-make release VERSION=0.1.0
+make release VERSION=0.2.0
 ```
 
 This requires the repo to be configured as a trusted publisher on PyPI (no API token needed). The version in `pyproject.toml` must match the tag.
