@@ -13,6 +13,7 @@ from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, pr
 from dokli.tui.engine.spec import Entity, EntityAction
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
+from dokli.tui.screens.connection import ConnectionScreen
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
 from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -232,6 +233,49 @@ def test_form_prefills_from_data():
     model = build_form_model({"properties": {"name": {"type": "string"}}})
     form = Form.from_model(model, data={"name": "prefilled"})
     assert form.fields["name"].value == "prefilled"
+
+
+def test_form_surfaces_model_level_errors():
+    """We expect a cross-field model error (empty loc) not to crash and to be shown."""
+    form = Form.from_model(ConnectionConfig)
+    form._set_errors(
+        [
+            {
+                "loc": (),
+                "msg": "Must provide api_key or api_key_cmd.",
+                "type": "value_error",
+                "input": {"name": "hot-test", "api_key": None, "api_key_cmd": None},
+            }
+        ]
+    )
+    assert form.error == "Must provide api_key or api_key_cmd."
+
+
+def test_connection_form_model_error_no_crash(mocker):
+    """We expect typing in a new connection form not to crash on the model validator."""
+    mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            screen.action_add_connection()
+            for _ in range(10):
+                await pilot.pause()
+            assert isinstance(app.screen, ConnectionScreen)
+            form = app.screen.query_one(Form)
+            form.fields["name"].value = "hot-test"
+            form.fields["url"].value = "https://storm.example.dev"
+            form.fields["notes"].value = "H"
+            form.validate()
+            assert form.error == "Must provide api_key or api_key_cmd."
+            # typing in notes triggers validation without crashing
+            form.fields["notes"].value = "HELLO"
+            form.validate()
+            assert form.error == "Must provide api_key or api_key_cmd."
+
+    _run(main())
 
 
 def test_form_rich_controls():
@@ -1150,9 +1194,7 @@ def test_help_screen_shows_bindings(mocker):
             # select 'project' so its contextual actions are available
             screen = app.screen
             vis = screen._visible_items(screen.current)
-            screen.current.index = next(
-                i for i, item in enumerate(vis) if item.get("name") == "project"
-            )
+            screen.current.index = next(i for i, item in enumerate(vis) if item.get("name") == "project")
             await pilot.pause()
             await pilot.press("?")
             for _ in range(10):

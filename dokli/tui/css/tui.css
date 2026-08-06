@@ -93,6 +93,17 @@ FormControl.error Input {
 FormControl.error Label.error-msg {
   text-style: bold;
   color: $error-color;
+  display: block;
+}
+
+Label.form-error {
+  color: $error-color;
+  margin: 0 2;
+  display: none;
+}
+
+Label.form-error.visible {
+  display: block;
 }
 
 Static#logo {
