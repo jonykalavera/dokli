@@ -10,6 +10,8 @@ import yaml
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, field_serializer, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
 
+from dokli.secrets import conn_account, get_secret
+
 
 class ConnectionConfig(BaseModel):
     """Connection config."""
@@ -59,8 +61,6 @@ class ConnectionConfig(BaseModel):
         if self.api_key is not None:
             return self.api_key.get_secret_value()
         if self.api_key_keyring:
-            from dokli.secrets import conn_account, get_secret
-
             value = get_secret(conn_account(self.name))
             if value:
                 return value

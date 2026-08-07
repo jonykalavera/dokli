@@ -15,6 +15,7 @@ from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
+from dokli.secrets import db_account, get_secret
 from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
 
 
@@ -326,8 +327,6 @@ class Applier:
         if service_def.password:
             return service_def.password
         if service_def.password_keyring:
-            from dokli.secrets import db_account, get_secret
-
             value = get_secret(db_account(service_def.name))
             if value:
                 return value
