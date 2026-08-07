@@ -34,8 +34,12 @@ class HTTPMethod(str, Enum):
     GET = "GET"
     HEAD = "HEAD"
     POST = "POST"
+    PUT = "PUT"
     PATCH = "PATCH"
     DELETE = "DELETE"
+    OPTIONS = "OPTIONS"
+    TRACE = "TRACE"
+    CONNECT = "CONNECT"
 
 
 @dataclass
@@ -43,7 +47,7 @@ class APIRequest:
     """API Request data object."""
 
     route: str
-    method: str = HTTPMethod.GET.value
+    method: HTTPMethod = HTTPMethod.GET
     params: list[dict[str, Any]] | None = None
     body: dict[str, Any] | None = None
 
@@ -150,8 +154,8 @@ def _register_api_methods(connection: ConnectionConfig) -> typer.Typer:
             description = details.get("description", "")
             summary = details.get("summary", "")
 
-            api_request = APIRequest(route, method.upper(), params, request_body)
-            func = _api_command_factory(connection, api_request, client=client)
+            request = APIRequest(route, HTTPMethod(method.upper()), params, request_body)
+            func = _api_command_factory(connection, request, client=client)
             entity_app.command(name=action, help=" ".join(x for x in [summary, description] if x))(func)
 
     # register entity apps as sub commands of the connection app
