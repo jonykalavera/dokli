@@ -266,6 +266,11 @@ class DokliApp(App):
         When ``original`` is given (edit with a possible rename), the entry is
         replaced by the original's identity so a rename does not duplicate it.
         """
+        if connection.api_key_keyring and connection.api_key is not None:
+            from dokli.secrets import conn_account, set_secret
+
+            set_secret(conn_account(connection.name), connection.api_key.get_secret_value())
+            connection = connection.model_copy(update={"api_key": None})
         names = [existing.name for existing in self.config.connections]
         if original is not None and original.name in names:
             target = original.name

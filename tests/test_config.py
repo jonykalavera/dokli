@@ -93,6 +93,14 @@ class TestConnectionConfig:
         assert config.get_api_key() == "my api key from cmd"
         check_output.assert_called_once_with(config.api_key_cmd, shell=True)
 
+    def test_get_api_key_prefers_keyring(self, fake_keyring):
+        """We expect the keychain to be used before api_key_cmd."""
+        fake_keyring.store[("dokli", "conn.meche")] = "*" * 64
+        config = ConnectionConfigFactory.build(
+            name="meche", api_key=None, api_key_keyring=True, api_key_cmd="echo key"
+        )
+        assert config.get_api_key() == "*" * 64
+
     def test_api_key_cmd_supports_pipes(self, mocker):
         """We expect the API key command to run through a shell (pipes work)."""
         config = ConnectionConfigFactory.build(api_key_cmd="printf secret | tr a-z A-Z")

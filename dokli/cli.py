@@ -17,6 +17,7 @@ from dokli.formatting import redact_secrets
 from dokli.init import init_manifest
 from dokli.manifest import Manifest
 from dokli.openapi_cli import build_command as build_api_command
+from dokli.secrets_cli import build_command as build_secrets_command
 from dokli.state import collect_state
 
 try:
@@ -32,6 +33,7 @@ state: dict[str, Any] = {
 }
 app.add_typer(build_api_command(state["config"]))
 app.add_typer(build_connections_command(state["config"]))
+app.add_typer(build_secrets_command())
 
 
 def tui_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:
