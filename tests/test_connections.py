@@ -145,13 +145,24 @@ def test_rename_invalid_name_rejected(tmp_path, monkeypatch):
     assert result.exit_code == 2
 
 
-def test_rename_same_name_warns(tmp_path, monkeypatch):
-    """We expect renaming to the same name to warn and not change anything."""
+def test_rename_same_name_noop(tmp_path, monkeypatch):
+    """We expect renaming to the same name with no fields to warn and change nothing."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     result = runner.invoke(_app(config), ["connections", "update", "meche", "meche"])
     assert result.exit_code == 0
-    assert "already named" in result.output
+    assert "No fields provided" in result.output
     assert [c.name for c in config.connections] == ["meche"]
+
+
+def test_rename_same_name_applies_fields(tmp_path, monkeypatch):
+    """We expect same-name rename to still apply the other field updates."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(_app(config), ["connections", "update", "meche", "meche", "--notes", "prod"])
+    assert result.exit_code == 0
+    assert "rename skipped" in result.output
+    updated = config.connections[0]
+    assert updated.name == "meche"
+    assert updated.notes == "prod"
 
 
 def test_rename_with_fields(tmp_path, monkeypatch):
@@ -188,14 +199,15 @@ def test_ls_lists_connections(tmp_path, monkeypatch):
 
 
 def test_test_connection_ok(tmp_path, monkeypatch, mocker):
-    """We expect test to report the Dokploy version on success."""
+    """We expect test to hit the live instance (force_refresh) and report the version."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     client = mocker.Mock()
     client.schema = {"info": {"version": "v0.29.13"}}
-    mocker.patch("dokli.connections.APIClient", return_value=client)
+    api_client = mocker.patch("dokli.connections.APIClient", return_value=client)
     result = runner.invoke(_app(config), ["connections", "test", "meche"])
     assert result.exit_code == 0
     assert "v0.29.13" in result.output
+    api_client.assert_called_once_with(config.connections[0], force_refresh=True)
 
 
 def test_test_connection_unreachable(tmp_path, monkeypatch, mocker):

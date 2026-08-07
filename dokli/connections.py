@@ -125,17 +125,17 @@ def _update_connection(
     notes: str | None,
 ) -> None:
     current = _find(config, name)
-    if new_name is None and url is None and api_key is None and api_key_cmd is None and notes is None:
+    renaming = new_name is not None and new_name != name
+    has_fields = url is not None or api_key is not None or api_key_cmd is not None or notes is not None
+    if new_name is not None and not renaming and has_fields:
+        rprint(f"[yellow]'{name}' is already named '{new_name}' (rename skipped).[/yellow]")
+    if not renaming and not has_fields:
         rprint(f"[yellow]No fields provided to update for '{name}'.[/yellow]")
         return
-    if new_name is not None:
-        if new_name == name:
-            rprint(f"[yellow]'{name}' is already named '{new_name}'.[/yellow]")
-            return
-        if any(connection.name == new_name for connection in config.connections):
-            raise typer.BadParameter(f"Connection '{new_name}' already exists.")
+    if renaming and any(connection.name == new_name for connection in config.connections):
+        raise typer.BadParameter(f"Connection '{new_name}' already exists.")
     data = current.model_dump_clear()
-    if new_name is not None:
+    if renaming:
         data["name"] = new_name
     if url is not None:
         data["url"] = url
@@ -153,7 +153,7 @@ def _update_connection(
         raise typer.BadParameter(err.errors()[0]["msg"]) from None
     config.connections = [updated if c.name == name else c for c in config.connections]
     config.save()
-    label = f"'{name}' → '{new_name}'" if new_name is not None else f"'{name}'"
+    label = f"'{name}' → '{new_name}'" if renaming else f"'{name}'"
     rprint(f"[green]Updated connection {label}.[/green]")
 
 
@@ -173,7 +173,7 @@ def _get_connection(config: Config, name: str) -> None:
 def _test_connection(config: Config, name: str) -> None:
     connection = _find(config, name)
     try:
-        schema = APIClient(connection).schema
+        schema = APIClient(connection, force_refresh=True).schema
     except Exception as err:
         rprint(f"[red]Connection '{name}' is unreachable: {err}[/red]")
         raise typer.Exit(code=1) from None
