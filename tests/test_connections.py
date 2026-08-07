@@ -121,6 +121,51 @@ def test_remove_connection(tmp_path, monkeypatch):
     assert config.connections == []
 
 
+def test_rename_connection(tmp_path, monkeypatch):
+    """We expect update with a second positional to rename the connection."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(_app(config), ["connections", "update", "meche", "media-main"])
+    assert result.exit_code == 0
+    assert [c.name for c in config.connections] == ["media-main"]
+    assert "meche" not in [c.name for c in config.connections]
+
+
+def test_rename_duplicate_rejected(tmp_path, monkeypatch):
+    """We expect renaming to an existing connection name to fail."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn(), _conn(name="hot-test", url="https://b.example.com")])
+    result = runner.invoke(_app(config), ["connections", "update", "meche", "hot-test"])
+    assert result.exit_code == 2
+    assert "already exists" in result.output
+
+
+def test_rename_invalid_name_rejected(tmp_path, monkeypatch):
+    """We expect renaming to an invalid name to fail validation."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(_app(config), ["connections", "update", "meche", "BAD NAME"])
+    assert result.exit_code == 2
+
+
+def test_rename_same_name_warns(tmp_path, monkeypatch):
+    """We expect renaming to the same name to warn and not change anything."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(_app(config), ["connections", "update", "meche", "meche"])
+    assert result.exit_code == 0
+    assert "already named" in result.output
+    assert [c.name for c in config.connections] == ["meche"]
+
+
+def test_rename_with_fields(tmp_path, monkeypatch):
+    """We expect rename to combine with other field updates."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(
+        _app(config), ["connections", "update", "meche", "media-main", "--notes", "prod"]
+    )
+    assert result.exit_code == 0
+    updated = config.connections[0]
+    assert updated.name == "media-main"
+    assert updated.notes == "prod"
+
+
 def test_get_masks_key(tmp_path, monkeypatch):
     """We expect get to show the connection with the key masked."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])

@@ -34,13 +34,14 @@ def build_command(config: Config) -> typer.Typer:
     @group.command("update")
     def update_connection(
         name: str = typer.Argument(..., help="Connection name."),
+        new_name: str | None = typer.Argument(None, help="New name (renames the connection)."),
         url: str | None = typer.Option(None, "--url", help="New URL."),
         api_key: str | None = typer.Option(None, "--api-key", help="New API key (64 chars)."),
         api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="New command that outputs the API key."),
         notes: str | None = typer.Option(None, "--notes", help="New notes."),
     ) -> None:
-        """Update a connection."""
-        _update_connection(config, name, url, api_key, api_key_cmd, notes)
+        """Update a connection (optionally renaming it)."""
+        _update_connection(config, name, new_name, url, api_key, api_key_cmd, notes)
 
     @group.command("remove")
     def remove_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
@@ -117,16 +118,25 @@ def _add_connection(
 def _update_connection(
     config: Config,
     name: str,
+    new_name: str | None,
     url: str | None,
     api_key: str | None,
     api_key_cmd: str | None,
     notes: str | None,
 ) -> None:
     current = _find(config, name)
-    if url is None and api_key is None and api_key_cmd is None and notes is None:
+    if new_name is None and url is None and api_key is None and api_key_cmd is None and notes is None:
         rprint(f"[yellow]No fields provided to update for '{name}'.[/yellow]")
         return
+    if new_name is not None:
+        if new_name == name:
+            rprint(f"[yellow]'{name}' is already named '{new_name}'.[/yellow]")
+            return
+        if any(connection.name == new_name for connection in config.connections):
+            raise typer.BadParameter(f"Connection '{new_name}' already exists.")
     data = current.model_dump_clear()
+    if new_name is not None:
+        data["name"] = new_name
     if url is not None:
         data["url"] = url
     if api_key is not None:
@@ -143,7 +153,8 @@ def _update_connection(
         raise typer.BadParameter(err.errors()[0]["msg"]) from None
     config.connections = [updated if c.name == name else c for c in config.connections]
     config.save()
-    rprint(f"[green]Updated connection '{name}'.[/green]")
+    label = f"'{name}' → '{new_name}'" if new_name is not None else f"'{name}'"
+    rprint(f"[green]Updated connection {label}.[/green]")
 
 
 def _remove_connection(config: Config, name: str) -> None:
