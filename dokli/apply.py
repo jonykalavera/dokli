@@ -47,6 +47,9 @@ class Applier:
             else:
                 self._apply_to_project(project_def, live_project, dry_run)
 
+        # Re-capture the state so generic resources can attach to services that
+        # were just created by the typed apply above.
+        self._state = collect_state(self.connection, client=self.client)
         ResourceManager(self).run(dry_run)
 
         return self.report

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from dokli.manifest import Resource
 from dokli.report import ApplyAction
+from dokli.tui.engine import parse_spec
 from dokli.tui.engine.spec import NESTED_CHILD_KEYS
 
 if TYPE_CHECKING:
@@ -108,6 +109,8 @@ class ResourceManager:
         self.client = applier.client
         self.report = applier.report
         self.state: State = applier._state
+        schema = getattr(self.client, "schema", None)
+        self.registry = parse_spec(schema) if isinstance(schema, dict) else {}
 
     def run(self, dry_run: bool = False) -> None:
         """Apply all generic resources."""
@@ -128,6 +131,11 @@ class ResourceManager:
     def _apply_service_child(self, resource: Resource, parent_kind: str, parent_name: str, dry_run: bool) -> None:
         service = self._find_live_service(parent_kind, parent_name)
         if service is None:
+            if dry_run:
+                # The parent service does not exist yet (it will be created by
+                # the typed apply); record the planned create.
+                self.report.actions.append(ApplyAction(action="create", kind=resource.kind, name=resource.name))
+                return
             raise ValueError(
                 f"Parent service '{parent_kind}:{parent_name}' not found in the instance "
                 "(declare it in 'projects:' so it is created first)."
@@ -139,14 +147,19 @@ class ResourceManager:
         child = next((c for c in children if str(c.get(key)) == value), None)
 
         parent_field = "serviceId" if resource.kind == "mount" else f"{parent_kind}Id"
-        body = {**resolve_data(resource.data), parent_field: service.service_id, key: value}
+        body = {**resolve_data(resource.data), parent_field: service.service_id}
+        # The match key only falls back to the resource name when the data omits
+        # it; matching itself is string-based, but the payload keeps the data types.
+        if key not in body:
+            body[key] = resource.name
         if resource.kind == "mount":
             body["serviceType"] = parent_kind
 
         if child is None:
             action = "create"
             if not dry_run:
-                self.client.request("POST", f"{resource.kind}.create", {"body": body})
+                create_body = self._create_body(resource.kind, body)
+                self.client.request("POST", f"{resource.kind}.create", {"body": create_body})
         elif self._changed(child, body):
             action = "update"
             if not dry_run:
@@ -177,6 +190,24 @@ class ResourceManager:
         """Whether the live child differs from the desired body.
 
         Only fields present on the live record are compared (parent ids and
-        read-only fields are excluded).
+        read-only fields are excluded), using string comparison so int/string
+        representation differences do not cause spurious updates.
         """
-        return any(live.get(field) != value for field, value in body.items() if field in live)
+        return any(
+            str(live.get(field)) != str(value) for field, value in body.items() if field in live
+        )
+
+    def _create_body(self, kind: str, body: dict) -> dict:
+        """Fill required create fields that have a schema default but are absent."""
+        entity = self.registry.get(kind)
+        create = entity.get("create") if entity else None
+        if create is None:
+            return body
+        props = create.request_schema.get("properties", {})
+        filled = dict(body)
+        for field in create.request_schema.get("required", []):
+            if field not in filled:
+                prop = props.get(field, {})
+                if "default" in prop:
+                    filled[field] = prop["default"]
+        return filled
