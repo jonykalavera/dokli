@@ -86,7 +86,7 @@ class FormControl(Static):
         extra = getattr(field, "json_schema_extra", None) or {}
         value = kwargs.get("value", "")
         if annotation is bool:
-            return SwitchControl(id=name, **base)
+            return SwitchControl(id=name, **base)  # ty: ignore[invalid-argument-type]
         if get_origin(annotation) is Literal:
             return SelectControl(id=name, options=list(get_args(annotation)), **base)
         if annotation in (list, dict):
@@ -271,7 +271,7 @@ class Form(Generic[M], Container):
     class FormInvalid(Message):
         """Form is invalid."""
 
-    data: reactive[dict[str, Any]] = reactive(dict)
+    data: reactive[dict[str, Any]] = reactive(dict)  # ty: ignore[invalid-assignment]
     model: reactive[type[M] | None] = reactive(None)
     error: reactive[str | None] = reactive(None)
     cleaned_data: dict[str, Any] | None = None

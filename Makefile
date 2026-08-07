@@ -7,7 +7,7 @@ format:
 
 lint:
 	uv run ruff check dokli/
-	uv run mypy dokli
+	uv run ty check dokli
 
 dev-tui:
 	uv run textual run --dev dokli.tui.app:DokliApp

@@ -12,21 +12,23 @@ from pydantic import BaseModel, Field
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 
+ServiceType = Literal[
+    "compose",
+    "application",
+    "postgres",
+    "mysql",
+    "mariadb",
+    "mongo",
+    "redis",
+]
+
 
 class LiveService(BaseModel):
     """A service as it exists in the instance."""
 
     service_id: str
     app_name: str
-    type: Literal[
-        "compose",
-        "application",
-        "postgres",
-        "mysql",
-        "mariadb",
-        "mongo",
-        "redis",
-    ]
+    type: ServiceType
     name: str
     description: str | None = None
     source_type: str | None = None
@@ -144,7 +146,7 @@ def _collect_project(client: APIClient, raw_project: dict[str, Any], provider_ma
 
 
 def _collect_services(
-    service_type: str,
+    service_type: ServiceType,
     raw_services: list[dict[str, Any]],
     provider_map: dict[str, str],
 ) -> list[LiveService]:
@@ -157,7 +159,7 @@ def _collect_services(
             LiveService(
                 service_id=service_id,
                 app_name=raw.get("appName") or "",
-                type=service_type,  # type: ignore[arg-type]
+                type=service_type,
                 name=raw.get("name") or "",
                 description=raw.get("description"),
                 source_type=raw.get("sourceType"),

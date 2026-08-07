@@ -1,6 +1,15 @@
 """OpenAPI CLI tests."""
 
-from dokli.openapi_cli import _safe_param_name
+from dokli.openapi_cli import HTTPMethod, _safe_param_name
+
+
+class TestHTTPMethod:
+    """HTTP method enumeration tests."""
+
+    def test_parses_all_standard_methods(self):
+        """We expect every standard HTTP method to be representable."""
+        for method in ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"):
+            assert HTTPMethod(method).value == method
 
 
 class TestSafeParamName:

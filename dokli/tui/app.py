@@ -66,7 +66,7 @@ class DokliCommands(Provider):
 
     def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
         app = cast(DokliApp, self.app)
-        commands = [
+        commands: list[tuple[str, str, Callable[[], Any]]] = [
             ("Toggle dark mode", "Switch between light and dark themes", app.action_toggle_dark),
             ("Connections", "Open the connections screen", app.action_connections),
             ("Settings", "Open the settings screen", app.action_settings),

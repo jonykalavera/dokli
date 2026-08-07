@@ -2,6 +2,10 @@
 
 import keyword
 import re
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 from inspect import Parameter, Signature
 from typing import Annotated, Any
 
@@ -11,9 +15,10 @@ from rich import print as rprint
 
 from dokli.api_client import APIClient
 from dokli.commands import run_command
+from dokli.config import Config, ConnectionConfig
 from dokli.formatting import Format, format_response
 
-OPENAPI_TO_PYTHON = {
+OPENAPI_TO_PYTHON: dict[str, type] = {
     "string": str,
     "integer": int,
     "number": float,
@@ -23,14 +28,38 @@ OPENAPI_TO_PYTHON = {
 }
 
 
-def _infer_param_type(param: dict[str, Any]):
+class HTTPMethod(str, Enum):
+    """HTTP Method enumeration."""
+
+    GET = "GET"
+    HEAD = "HEAD"
+    POST = "POST"
+    PUT = "PUT"
+    PATCH = "PATCH"
+    DELETE = "DELETE"
+    OPTIONS = "OPTIONS"
+    TRACE = "TRACE"
+    CONNECT = "CONNECT"
+
+
+@dataclass
+class APIRequest:
+    """API Request data object."""
+
+    route: str
+    method: HTTPMethod = HTTPMethod.GET
+    params: list[dict[str, Any]] | None = None
+    body: dict[str, Any] | None = None
+
+
+def _infer_param_type(param: dict[str, Any]) -> type:
     """Infer the type of a parameter from OpenAPI."""
     schema = param.get("schema", {})
     param_type = schema.get("type", "string")  # Por defecto, string
     return OPENAPI_TO_PYTHON.get(param_type, str)
 
 
-def _camel_case_to_snake_case(camel_case_str):
+def _camel_case_to_snake_case(camel_case_str: str) -> str:
     """Convert camelCase to snake_case."""
     return re.sub(r"(?<!^)(?=[A-Z])", "_", camel_case_str).lower()
 
@@ -48,13 +77,18 @@ def _safe_param_name(name: str) -> str:
     return name
 
 
-def _api_command_factory(connection, route, method="GET", params=None, request_body=None, client=None):
+def _api_command_factory(
+    connection: ConnectionConfig,
+    request: APIRequest,
+    client: APIClient | None = None,
+) -> Callable[..., None]:
     """Create a command from an OpenAPI endpoint."""
+    params = request.params or []
     # Create a list of parameters for the signature
     original_name = {_safe_param_name(x["name"]): x["name"] for x in params}
     param_hints = {_safe_param_name(p["name"]): _infer_param_type(p) for p in params}
     parameters = [Parameter(name, Parameter.KEYWORD_ONLY, annotation=typ) for name, typ in param_hints.items()]
-    if request_body and request_body.get("required", False):
+    if request.body and request.body.get("required", False):
         parameters.append(
             Parameter("body", Parameter.KEYWORD_ONLY, annotation=Annotated[str, typer.Option(help="JSON body")])
         )
@@ -72,12 +106,12 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
     # Create a Signature object
     sig = Signature(parameters)
 
-    def api_command(format=Format.json, show_secrets=False, **kwargs):
+    def api_command(format: Format = Format.json, show_secrets: bool = False, **kwargs: Any) -> None:
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
-            method=method,
-            route=route,
+            method=request.method,
+            route=request.route,
             params=params,
             client=client,
         )
@@ -90,11 +124,11 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
             case _:
                 raise ValueError(f"Unknown response type {type(response)}")
 
-    api_command.__signature__ = sig
+    api_command.__signature__ = sig  # ty: ignore[unresolved-attribute]
     return api_command
 
 
-def _register_api_methods(connection):
+def _register_api_methods(connection: ConnectionConfig) -> typer.Typer:
     """Create a Typer app for each entity in the API schema.
 
     Given that Dokploy uses a entity.Action convention for API endpoints,
@@ -104,7 +138,7 @@ def _register_api_methods(connection):
     client = APIClient(connection)
     paths = client.schema.get("paths", {})
 
-    entity_apps = {}
+    entity_apps: dict[str, typer.Typer] = {}
 
     # iterate over the paths to register commands
     for route, methods in paths.items():
@@ -120,7 +154,8 @@ def _register_api_methods(connection):
             description = details.get("description", "")
             summary = details.get("summary", "")
 
-            func = _api_command_factory(connection, route, method.upper(), params, request_body, client=client)
+            request = APIRequest(route, HTTPMethod(method.upper()), params, request_body)
+            func = _api_command_factory(connection, request, client=client)
             entity_app.command(name=action, help=" ".join(x for x in [summary, description] if x))(func)
 
     # register entity apps as sub commands of the connection app
@@ -132,15 +167,18 @@ def _register_api_methods(connection):
     return _app
 
 
-def register_connections(app, config):
-    """Register the API methods for each connection in config."""
-    api_app = typer.Typer(name="api", help="API commands")
-    api_app.callback(no_args_is_help=True)(lambda: None)
+def build_command(config: Config) -> typer.Typer:
+    """Register the API methods for each connection in config.
+
+    A connection whose API key cannot be resolved (e.g. a failing
+    ``api_key_cmd``) is skipped with a warning instead of breaking the CLI.
+    """
+    app = typer.Typer(name="api", help="API commands")
+    app.callback(no_args_is_help=True)(lambda: None)
     for connection in config.connections:
         try:
             connection_app = _register_api_methods(connection)
-            api_app.add_typer(connection_app, name=connection.name)
+            app.add_typer(connection_app, name=connection.name)
         except Exception as e:
-            rprint(f"[red]Error registering API methods: {e}[/red]")
-            raise
-    app.add_typer(api_app)
+            rprint(f"[yellow]Skipping connection '{connection.name}': {e}[/yellow]", file=sys.stderr)
+    return app
