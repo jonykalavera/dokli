@@ -7,44 +7,16 @@ desired state (the API splits ``create`` and ``update`` inputs).
 
 import secrets
 import subprocess
-from typing import Any, Literal
-
-from pydantic import BaseModel, Field
+from typing import Any
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
+from dokli.report import ApplyAction, ApplyReport
+from dokli.resources import ResourceManager
 from dokli.secrets import db_account, get_secret
 from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
-
-
-class ApplyAction(BaseModel):
-    """A single apply action."""
-
-    action: Literal["create", "update", "validate", "skip"]
-    kind: Literal[
-        "project",
-        "environment",
-        "compose",
-        "application",
-        "postgres",
-        "mysql",
-        "mariadb",
-        "mongo",
-        "redis",
-        "git_provider",
-    ]
-    project: str = ""
-    name: str
-    details: str = ""
-
-
-class ApplyReport(BaseModel):
-    """Report of what apply did or would do."""
-
-    actions: list[ApplyAction] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
 
 
 class Applier:
@@ -74,6 +46,8 @@ class Applier:
                 self._create_project(project_def, dry_run)
             else:
                 self._apply_to_project(project_def, live_project, dry_run)
+
+        ResourceManager(self).run(dry_run)
 
         return self.report
 

@@ -3,11 +3,46 @@
 import pytest
 import yaml
 
-from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest
+from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Resource
 
 
 def _load_manifest(raw_yaml: str) -> Manifest:
     return Manifest.model_validate(yaml.safe_load(raw_yaml))
+
+
+class TestResource:
+    """Generic resource model tests (issue #50)."""
+
+    def test_in_alias(self):
+        """We expect the in field to be populated from the YAML `in` key."""
+        resource = Resource.model_validate({"kind": "domain", "name": "x.example.com", "in": "compose:web", "data": {"host": "x.example.com"}})
+        assert resource.in_ == "compose:web"
+
+    def test_manifest_resources_and_version(self):
+        """We expect the manifest to carry resources, apiVersion and dokployVersion."""
+        manifest = _load_manifest(
+            """
+            apiVersion: v1
+            dokployVersion: "0.29.13"
+            connection: prod
+            resources:
+              - kind: domain
+                name: x.example.com
+                in: compose:web
+                data: { host: x.example.com }
+            """
+        )
+        assert manifest.api_version == "v1"
+        assert manifest.dokploy_version == "0.29.13"
+        assert len(manifest.resources) == 1
+        assert manifest.resources[0].kind == "domain"
+
+    def test_load_rejects_unknown_api_version(self, tmp_path):
+        """We expect an unsupported apiVersion to fail on load."""
+        target = tmp_path / "dokploy.yaml"
+        target.write_text("apiVersion: v2\nconnection: prod\n")
+        with pytest.raises(ValueError):
+            Manifest.load(str(target))
 
 
 class TestManifest:
