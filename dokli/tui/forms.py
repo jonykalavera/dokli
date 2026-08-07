@@ -15,6 +15,7 @@ from textual.widgets import Input, Label, Select, Static, Switch, TextArea
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
+    from textual.timer import Timer
 
 
 M = TypeVar("M", bound=BaseModel)
@@ -28,6 +29,28 @@ def _core_annotation(annotation: Any) -> Any:
         if len(non_none) == 1:
             return non_none[0]
     return annotation
+
+
+def _is_optional(annotation: Any) -> bool:
+    """Whether an annotation allows ``None``."""
+    origin = get_origin(annotation)
+    return (origin is Union or origin is UnionType) and NoneType in get_args(annotation)
+
+
+def _apply_field_defaults(model: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:
+    """Replace ``None`` with the field default for non-optional fields.
+
+    Empty inputs yield ``None`` from ``get_data``; a non-optional field (e.g.
+    ``notes: str = ""``) must fall back to its default instead of failing
+    validation.
+    """
+    resolved = dict(data)
+    for name, field in model.model_fields.items():
+        if name in resolved and resolved[name] is None and not _is_optional(field.annotation):
+            default = field.get_default(call_default_factory=True)
+            if default is not None:
+                resolved[name] = default
+    return resolved
 
 
 class FormControl(Static):
@@ -294,6 +317,7 @@ class Form(Generic[M], Container):
         self.model = model if not instance else type(instance)
         self.cleaned_data = None
         self.validate_on_input = validate_on_input
+        self._validate_timer: Timer | None = None
 
     async def on_mount(self) -> None:
         """On mount, add the form-level error label."""
@@ -334,8 +358,17 @@ class Form(Generic[M], Container):
         return {} if instance is None else json.loads(instance.model_dump_json())
 
     def _validate_on_input(self) -> None:
-        if self.validate_on_input:
-            self.validate()
+        """Debounce live validation so rapid typing/backspace does not stall."""
+        if not self.validate_on_input:
+            return
+        if self._validate_timer is not None:
+            self._validate_timer.stop()
+        self._validate_timer = self.set_timer(0.15, self._validate_now)
+
+    def _validate_now(self) -> None:
+        """Run a deferred validation (from the debounce timer)."""
+        self._validate_timer = None
+        self.validate()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """On input changed."""
@@ -362,7 +395,7 @@ class Form(Generic[M], Container):
             self.cleaned_data = data
             return True
         try:
-            self.instance = self.model.model_validate(data)
+            self.instance = self.model.model_validate(_apply_field_defaults(self.model, data))
             self.cleaned_data = self.instance.model_dump()
             self.post_message(self.FormValid(data=self.cleaned_data or {}, instance=self.instance))
             return True

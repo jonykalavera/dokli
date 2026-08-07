@@ -9,6 +9,7 @@ from rich.table import Table
 from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
 from dokli.formatting import redact_secrets
+from dokli.secrets import conn_account, set_secret
 
 
 def build_command(config: Config) -> typer.Typer:
@@ -26,10 +27,13 @@ def build_command(config: Config) -> typer.Typer:
         url: str | None = typer.Option(None, "--url", help="Dokploy instance URL."),
         api_key: str | None = typer.Option(None, "--api-key", help="API key (64 chars)."),
         api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="Command that outputs the API key."),
+        keyring: bool = typer.Option(
+            False, "--keyring", help="Store the API key in the system keychain instead of the config file."
+        ),
         notes: str | None = typer.Option(None, "--notes", help="Notes about the connection."),
     ) -> None:
         """Add a connection (missing values are prompted)."""
-        _add_connection(config, name, url, api_key, api_key_cmd, notes)
+        _add_connection(config, name, url, api_key, api_key_cmd, keyring, notes)
 
     @group.command("update")
     def update_connection(
@@ -38,10 +42,13 @@ def build_command(config: Config) -> typer.Typer:
         url: str | None = typer.Option(None, "--url", help="New URL."),
         api_key: str | None = typer.Option(None, "--api-key", help="New API key (64 chars)."),
         api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="New command that outputs the API key."),
+        keyring: bool = typer.Option(
+            False, "--keyring", help="Move the API key to the system keychain."
+        ),
         notes: str | None = typer.Option(None, "--notes", help="New notes."),
     ) -> None:
         """Update a connection (optionally renaming it)."""
-        _update_connection(config, name, new_name, url, api_key, api_key_cmd, notes)
+        _update_connection(config, name, new_name, url, api_key, api_key_cmd, keyring, notes)
 
     @group.command("remove")
     def remove_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
@@ -94,6 +101,7 @@ def _add_connection(
     url: str | None,
     api_key: str | None,
     api_key_cmd: str | None,
+    keyring: bool,
     notes: str | None,
 ) -> None:
     if not name:
@@ -102,12 +110,24 @@ def _add_connection(
         raise typer.BadParameter(f"Connection '{name}' already exists.")
     if not url:
         url = typer.prompt("URL")
-    if not api_key and not api_key_cmd:
-        api_key = typer.prompt("API key", hide_input=True)
+    if keyring:
+        if not api_key:
+            api_key = typer.prompt("API key", hide_input=True)
+        set_secret(conn_account(name), api_key)
+        data = {
+            "name": name,
+            "url": url,
+            "api_key": None,
+            "api_key_cmd": None,
+            "api_key_keyring": True,
+            "notes": notes or "",
+        }
+    else:
+        if not api_key and not api_key_cmd:
+            api_key = typer.prompt("API key", hide_input=True)
+        data = {"name": name, "url": url, "api_key": api_key, "api_key_cmd": api_key_cmd, "notes": notes or ""}
     try:
-        connection = ConnectionConfig.model_validate(
-            {"name": name, "url": url, "api_key": api_key, "api_key_cmd": api_key_cmd, "notes": notes or ""}
-        )
+        connection = ConnectionConfig.model_validate(data)
     except ValidationError as err:
         raise typer.BadParameter(err.errors()[0]["msg"]) from None
     config.connections = [*config.connections, connection]
@@ -122,11 +142,18 @@ def _update_connection(
     url: str | None,
     api_key: str | None,
     api_key_cmd: str | None,
+    keyring: bool,
     notes: str | None,
 ) -> None:
     current = _find(config, name)
     renaming = new_name is not None and new_name != name
-    has_fields = url is not None or api_key is not None or api_key_cmd is not None or notes is not None
+    has_fields = (
+        url is not None
+        or api_key is not None
+        or api_key_cmd is not None
+        or keyring
+        or notes is not None
+    )
     if new_name is not None and not renaming and has_fields:
         rprint(f"[yellow]'{name}' is already named '{new_name}' (rename skipped).[/yellow]")
     if not renaming and not has_fields:
@@ -139,12 +166,19 @@ def _update_connection(
         data["name"] = new_name
     if url is not None:
         data["url"] = url
-    if api_key is not None:
+    if keyring:
+        set_secret(conn_account(name), current.get_api_key())
+        data["api_key"] = None
+        data["api_key_cmd"] = None
+        data["api_key_keyring"] = True
+    elif api_key is not None:
         data["api_key"] = api_key
         data["api_key_cmd"] = None
+        data["api_key_keyring"] = False
     elif api_key_cmd is not None:
         data["api_key_cmd"] = api_key_cmd
         data["api_key"] = None
+        data["api_key_keyring"] = False
     if notes is not None:
         data["notes"] = notes
     try:

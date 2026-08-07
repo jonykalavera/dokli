@@ -10,6 +10,8 @@ import yaml
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, field_serializer, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
 
+from dokli.secrets import conn_account, get_secret
+
 
 class ConnectionConfig(BaseModel):
     """Connection config."""
@@ -29,6 +31,9 @@ class ConnectionConfig(BaseModel):
         description="An API key for the dokploy instance.",
     )
     api_key_cmd: str | None = Field(None, description="A command to get the API key.")
+    api_key_keyring: bool = Field(
+        False, description="Store the API key in the system keychain instead of the config file."
+    )
     notes: str = Field(default="", description="Notes about the connection.")
 
     @field_serializer("api_key", when_used="json")
@@ -42,16 +47,24 @@ class ConnectionConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_api_key_or_cmd(self) -> "ConnectionConfig":
-        """Validate api_key or api_key_cmd is provided."""
-        if not self.api_key and not self.api_key_cmd:
-            raise ValueError("Must provide api_key or api_key_cmd.")
+        """Validate api_key, api_key_keyring or api_key_cmd is provided."""
+        if not self.api_key and not self.api_key_keyring and not self.api_key_cmd:
+            raise ValueError("Must provide api_key, api_key_keyring or api_key_cmd.")
         return self
 
     def get_api_key(self) -> str:
-        """Returns the API key for the connection."""
+        """Returns the API key for the connection.
+
+        Resolution order: literal ``api_key``, then the system keychain
+        (``api_key_keyring``), then ``api_key_cmd``.
+        """
         if self.api_key is not None:
             return self.api_key.get_secret_value()
-        assert self.api_key_cmd, "Must provide api_key or api_key_cmd."
+        if self.api_key_keyring:
+            value = get_secret(conn_account(self.name))
+            if value:
+                return value
+        assert self.api_key_cmd, "Must provide api_key, api_key_keyring or api_key_cmd."
         raw_output = subprocess.check_output(self.api_key_cmd, shell=True)
         output = raw_output.decode("utf-8").strip().strip("\n")
         return output

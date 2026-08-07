@@ -14,6 +14,7 @@ from textual.widgets import Footer, Header, Static
 
 from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
+from dokli.secrets import conn_account, set_secret
 from dokli.tui.engine import parse_spec, record_title
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen
@@ -266,6 +267,9 @@ class DokliApp(App):
         When ``original`` is given (edit with a possible rename), the entry is
         replaced by the original's identity so a rename does not duplicate it.
         """
+        if connection.api_key_keyring and connection.api_key is not None:
+            set_secret(conn_account(connection.name), connection.api_key.get_secret_value())
+            connection = connection.model_copy(update={"api_key": None})
         names = [existing.name for existing in self.config.connections]
         if original is not None and original.name in names:
             target = original.name

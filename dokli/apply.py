@@ -15,6 +15,7 @@ from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
+from dokli.secrets import db_account, get_secret
 from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
 
 
@@ -325,6 +326,10 @@ class Applier:
         """Resolve a database password from the manifest (or generate one)."""
         if service_def.password:
             return service_def.password
+        if service_def.password_keyring:
+            value = get_secret(db_account(service_def.name))
+            if value:
+                return value
         if service_def.password_cmd:
             output = subprocess.check_output(service_def.password_cmd, shell=True)
             return output.decode("utf-8").strip()
@@ -434,7 +439,7 @@ class Applier:
             database_user = service_def.database_user or service_def.name
             if live is None or live.database_user != database_user:
                 payload["databaseUser"] = database_user
-        if service_def.password or service_def.password_cmd:
+        if service_def.password or service_def.password_keyring or service_def.password_cmd:
             password = self._resolve_database_password(service_def)
             if live is None or live.database_password != password:
                 payload["databasePassword"] = password

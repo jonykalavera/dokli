@@ -30,6 +30,10 @@ class GitProvider(BaseModel):
         default=None,
         description="Command that outputs the credential. Never store the value here.",
     )
+    token_keyring: bool = Field(
+        default=False,
+        description="Store the credential in the system keychain (provider.<name>).",
+    )
 
 
 class GitSource(BaseModel):
@@ -95,6 +99,10 @@ class DatabaseService(BaseModel):
     password_cmd: str | None = Field(
         default=None,
         description="Command that outputs the database password. Resolved at apply time.",
+    )
+    password_keyring: bool = Field(
+        default=False,
+        description="Store the database password in the system keychain (db.<name>).",
     )
     env: str | None = Field(default=None, description="Environment variables as KEY=VALUE lines.")
 

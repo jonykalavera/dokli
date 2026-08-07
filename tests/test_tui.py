@@ -5,7 +5,7 @@ import asyncio
 import httpx
 from textual.command import CommandPalette
 from textual.containers import VerticalScroll
-from textual.widgets import Label
+from textual.widgets import Input, Label, Switch
 
 from dokli.config import Config, ConnectionConfig
 from dokli.tui.app import DokliApp, DokliCommands
@@ -242,13 +242,13 @@ def test_form_surfaces_model_level_errors():
         [
             {
                 "loc": (),
-                "msg": "Must provide api_key or api_key_cmd.",
+                "msg": "Must provide api_key, api_key_keyring or api_key_cmd.",
                 "type": "value_error",
                 "input": {"name": "hot-test", "api_key": None, "api_key_cmd": None},
             }
         ]
     )
-    assert form.error == "Must provide api_key or api_key_cmd."
+    assert form.error == "Must provide api_key, api_key_keyring or api_key_cmd."
 
 
 def test_connection_form_model_error_no_crash(mocker):
@@ -268,12 +268,103 @@ def test_connection_form_model_error_no_crash(mocker):
             form.fields["name"].value = "hot-test"
             form.fields["url"].value = "https://storm.example.dev"
             form.fields["notes"].value = "H"
+            # keychain is on by default for new connections; turn it off so the
+            # form has no credential and the model-level error is exercised.
+            form.fields["api_key_keyring"].value = False
             form.validate()
-            assert form.error == "Must provide api_key or api_key_cmd."
+            assert form.error == "Must provide api_key, api_key_keyring or api_key_cmd."
             # typing in notes triggers validation without crashing
             form.fields["notes"].value = "HELLO"
             form.validate()
-            assert form.error == "Must provide api_key or api_key_cmd."
+            assert form.error == "Must provide api_key, api_key_keyring or api_key_cmd."
+
+    _run(main())
+
+
+def test_connection_form_notes_optional(mocker):
+    """We expect an empty notes field not to make the connection form invalid."""
+    mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_add_connection()
+            for _ in range(10):
+                await pilot.pause()
+            form = app.screen.query_one(Form)
+            form.fields["name"].value = "hot-test"
+            form.fields["url"].value = "https://storm.example.dev"
+            form.fields["api_key"].value = "*" * 64
+            assert form.validate() is True
+            assert form.cleaned_data["notes"] == ""
+
+    _run(main())
+
+
+def test_connection_form_keyring_default_on_for_new(mocker):
+    """We expect new connection forms to default to the keychain (secure by default)."""
+    mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_add_connection()
+            for _ in range(10):
+                await pilot.pause()
+            form = app.screen.query_one(Form)
+            assert form.fields["api_key_keyring"].value is True
+            assert form.fields["api_key_cmd"].display is False
+
+    _run(main())
+
+
+def test_connection_form_keyring_toggle_shows_api_key_cmd(mocker):
+    """We expect toggling the keychain to hide/show the api_key_cmd field."""
+    mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_add_connection()
+            for _ in range(10):
+                await pilot.pause()
+            form = app.screen.query_one(Form)
+            api_key_cmd = form.fields["api_key_cmd"]
+            assert api_key_cmd.display is False  # keyring default on for new
+            keyring_switch = form.fields["api_key_keyring"].query_one(Switch)
+            keyring_switch.value = False
+            await pilot.pause()
+            assert api_key_cmd.display is True
+            keyring_switch.value = True
+            await pilot.pause()
+            assert api_key_cmd.display is False
+            assert api_key_cmd.value is None
+
+    _run(main())
+
+
+def test_form_validation_is_debounced(mocker):
+    """We expect live validation to be debounced so rapid typing does not stall."""
+    mocker.patch("dokli.config.Config.save")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.screen.action_add_connection()
+            for _ in range(10):
+                await pilot.pause()
+            form = app.screen.query_one(Form)
+            form.fields["name"].query_one(Input).focus()
+            await pilot.pause()
+            await pilot.press("x")
+            await pilot.pause(0.05)
+            assert form._validate_timer is not None
+            await pilot.pause(0.25)
+            assert form._validate_timer is None
 
     _run(main())
 
@@ -1098,6 +1189,26 @@ def test_add_connection_persists(mocker):
             await pilot.pause()
             app.on_connections_screen_add_connection(ConnectionsScreen.AddConnection(connection=new_connection))
             assert any(c.name == "stage" for c in app.config.connections)
+            save.assert_called_once()
+
+    _run(main())
+
+
+def test_save_connection_with_keyring_stores_key(mocker, fake_keyring):
+    """We expect saving a connection with the keychain toggle to store the key there."""
+    config = _config()
+    save = mocker.patch("dokli.config.Config.save")
+    connection = ConnectionConfig(name="stage", url="https://stage.example.com", api_key="*" * 64, api_key_keyring=True)
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.on_connections_screen_add_connection(ConnectionsScreen.AddConnection(connection=connection))
+            assert fake_keyring.store[("dokli", "conn.stage")] == "*" * 64
+            saved = next(c for c in app.config.connections if c.name == "stage")
+            assert saved.api_key is None
+            assert saved.api_key_keyring is True
             save.assert_called_once()
 
     _run(main())

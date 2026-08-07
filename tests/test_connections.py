@@ -49,6 +49,32 @@ def test_add_connection_persists(tmp_path, monkeypatch):
     assert saved["connections"][0]["name"] == "stage"
 
 
+def test_add_connection_with_keyring(tmp_path, monkeypatch, fake_keyring):
+    """We expect --keyring to store the key in the keychain, not the config."""
+    config = _config(tmp_path, monkeypatch)
+    result = runner.invoke(
+        _app(config),
+        ["connections", "add", "stage", "--url", "https://stage.example.com", "--api-key", "*" * 64, "--keyring"],
+    )
+    assert result.exit_code == 0
+    connection = config.connections[0]
+    assert connection.api_key is None
+    assert connection.api_key_keyring is True
+    assert fake_keyring.store[("dokli", "conn.stage")] == "*" * 64
+    assert "*" * 64 not in (tmp_path / "dokli.yaml").read_text()
+
+
+def test_update_connection_with_keyring(tmp_path, monkeypatch, fake_keyring):
+    """We expect --keyring on update to move the key to the keychain."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(_app(config), ["connections", "update", "meche", "--keyring"])
+    assert result.exit_code == 0
+    updated = config.connections[0]
+    assert updated.api_key is None
+    assert updated.api_key_keyring is True
+    assert fake_keyring.store[("dokli", "conn.meche")] == "*" * 64
+
+
 def test_add_prompts_for_missing_name_and_url(tmp_path, monkeypatch):
     """We expect add to prompt for name and url when not provided."""
     config = _config(tmp_path, monkeypatch)

@@ -84,6 +84,17 @@ Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts
 
 You can also manage connections with `dokli connections ls|add|update|remove|get|test`, or from the TUI.
 
+### Secrets in the system keychain
+
+API keys, git provider credentials and database passwords can be stored in your OS keychain instead of the YAML files:
+
+- `dokli secrets set|get|rm <account>` — manage keychain entries (accounts like `conn.meche`, `provider.github-main`, `db.backend`); `get` masks by default, `--show` prints in plain text.
+- `dokli connections add <name> --keyring` / `dokli connections update <name> --keyring` — store the API key in the keychain (`api_key_keyring: true`) so it never touches the config file.
+- In manifests, `token_keyring: true` (git providers) and `password_keyring: true` (databases) resolve those secrets from the keychain at apply time.
+- Resolution order is: literal value → keychain → `*_cmd`.
+
+Uses the cross-platform [`keyring`](https://pypi.org/project/keyring/) package (SecretService / macOS Keychain / Windows Credential Locker).
+
 ## CLI
 
 ### Features
