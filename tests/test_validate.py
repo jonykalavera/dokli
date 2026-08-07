@@ -38,6 +38,64 @@ SCHEMA = {
                 }
             }
         },
+        "/mounts.create": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"filePath": {"type": "string"}, "mountPath": {"type": "string"}},
+                                "required": ["filePath", "mountPath"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/mounts.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"mountId": {"type": "string"}, "filePath": {"type": "string"}},
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/port.create": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"publishedPort": {"type": "number"}},
+                                "required": ["publishedPort"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/port.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"portId": {"type": "string"}, "publishedPort": {"type": "number"}},
+                            }
+                        }
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -86,3 +144,18 @@ def test_unsupported_parent(mocker):
     manifest = _manifest(Resource(kind="domain", name="x", in_="project:media", data={"host": "x"}))
     issues = validate_manifest(_connection(mocker), manifest)
     assert any("not supported yet" in issue for issue in issues)
+
+
+def test_wrong_service_parent(mocker):
+    """We expect a port under a compose to be flagged (application-only)."""
+    manifest = _manifest(Resource(kind="port", name="8080", in_="compose:web", data={"publishedPort": 8080}))
+    issues = validate_manifest(_connection(mocker), manifest)
+    assert any("cannot hang off 'compose'" in issue for issue in issues)
+
+
+def test_mount_kind_valid(mocker):
+    """We expect the mount kind to resolve to the mounts entity."""
+    manifest = _manifest(
+        Resource(kind="mount", name="rclone.conf", in_="compose:web", data={"filePath": "rclone.conf", "mountPath": "/"})
+    )
+    assert validate_manifest(_connection(mocker), manifest) == []

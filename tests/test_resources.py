@@ -158,17 +158,6 @@ class TestResourceManager:
         assert manager.report.actions[0].action == "skip"
         assert not any(c[1] in ("domain.create", "domain.update") for c in client.calls)
 
-    def test_parent_not_found(self):
-        """We expect an error when the parent service is not in the instance."""
-        client = FakeClient({})
-        manager = _manager(
-            _manifest(Resource(kind="domain", name="x.example.com", in_="compose:nope", data={"host": "x.example.com"})),
-            client,
-            [],
-        )
-        with pytest.raises(ValueError):
-            manager.run()
-
     def test_ambiguous_parent(self):
         """We expect an error when the parent service name is ambiguous."""
         client = FakeClient({})
@@ -181,7 +170,8 @@ class TestResourceManager:
             manager.run()
 
     def test_mount_uses_service_id(self):
-        """We expect mounts to address their parent via serviceId + serviceType."""
+        """We expect mounts to address their parent via serviceId + serviceType
+        and to route to the mounts entity."""
         client = FakeClient({"compose.one": {"composeId": "c1", "mounts": []}})
         manager = _manager(
             _manifest(
@@ -191,10 +181,90 @@ class TestResourceManager:
             [_service("compose", "web", "c1")],
         )
         manager.run()
-        create = next(c for c in client.calls if c[1] == "mount.create")
+        create = next(c for c in client.calls if c[1] == "mounts.create")
         body = create[2]["body"]
         assert body["serviceId"] == "c1"
         assert body["serviceType"] == "compose"
+
+    def test_port_parent_uses_application_id(self):
+        """We expect ports to address their parent with applicationId."""
+        client = FakeClient({"application.one": {"applicationId": "a1", "ports": []}})
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="port",
+                    name="8080",
+                    in_="application:api",
+                    data={"publishedPort": 8080, "targetPort": 80, "protocol": "tcp"},
+                )
+            ),
+            client,
+            [_service("application", "api", "a1")],
+        )
+        manager.run()
+        create = next(c for c in client.calls if c[1] == "port.create")
+        assert create[2]["body"]["applicationId"] == "a1"
+
+    def test_port_wrong_parent_rejected(self):
+        """We expect ports under a non-application parent to fail."""
+        client = FakeClient({})
+        manager = _manager(
+            _manifest(Resource(kind="port", name="8080", in_="compose:web", data={"publishedPort": 8080})),
+            client,
+            [_service("compose", "web", "c1")],
+        )
+        with pytest.raises(ValueError):
+            manager.run()
+
+    def test_ancestor_path_disambiguates(self):
+        """We expect ancestor segments to scope the parent lookup."""
+        client = FakeClient({"compose.one": {"composeId": "c1", "domains": []}})
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="domain",
+                    name="x.example.com",
+                    in_="project:media / environment:production / compose:web",
+                    data={"host": "x.example.com"},
+                )
+            ),
+            client,
+            [_service("compose", "web", "c1")],
+        )
+        manager.run()
+        assert manager.report.actions[0].action == "create"
+
+    def test_missing_field_triggers_update(self):
+        """We expect a desired field absent from the live record to be set."""
+        client = FakeClient(
+            {"compose.one": {"composeId": "c1", "domains": [{"domainId": "d1", "host": "x.example.com"}]}}
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="domain",
+                    name="x.example.com",
+                    in_="compose:web",
+                    data={"host": "x.example.com", "https": True},
+                )
+            ),
+            client,
+            [_service("compose", "web", "c1")],
+        )
+        manager.run()
+        assert manager.report.actions[0].action == "update"
+
+    def test_missing_parent_records_skip(self):
+        """We expect a missing parent to record a skip action, not abort."""
+        client = FakeClient({})
+        manager = _manager(
+            _manifest(Resource(kind="domain", name="x.example.com", in_="compose:nope", data={"host": "x.example.com"})),
+            client,
+            [],
+        )
+        manager.run()
+        assert manager.report.actions[0].action == "skip"
+        assert "not found" in manager.report.actions[0].details
 
     def test_dry_run_plans_create(self):
         """We expect dry-run to record the action without calling the API."""

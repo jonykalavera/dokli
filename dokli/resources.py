@@ -4,7 +4,8 @@ A generic manifest resource (``kind`` + ``name`` + ``in`` + ``data``) is
 resolved against the entity registry and the live instance. The schema
 conventions are followed by default; the curated maps below cover the known
 historical exceptions (kinds without a stable ``name``, parents addressed via
-``serviceId`` instead of ``<parent>Id``).
+``serviceId`` instead of ``<parent>Id``, entities whose API name differs from
+the manifest ``kind``).
 """
 
 import subprocess
@@ -28,6 +29,30 @@ MATCH_KEYS: dict[str, str] = {
     "backup": "schedule",
 }
 
+# Manifest kind -> API entity name when they differ.
+ENTITY_NAMES: dict[str, str] = {
+    "mount": "mounts",
+}
+
+# Kinds that address their parent with a specific id field (default <parent>Id).
+PARENT_ID_FIELDS: dict[str, str] = {
+    "mount": "serviceId",
+    "port": "applicationId",
+    "security": "applicationId",
+    "redirects": "applicationId",
+}
+
+# Kinds that only hang off specific service parents (None = any service).
+PARENT_KINDS: dict[str, set[str] | None] = {
+    "domain": {"application", "compose", "previewDeployment"},
+    "port": {"application"},
+    "security": {"application"},
+    "redirects": {"application"},
+    "schedule": {"application", "compose"},
+    "backup": {"postgres", "mysql", "mariadb", "mongo", "redis", "libsql", "compose"},
+    "mount": None,
+}
+
 # Child kind -> the nested array key on the parent service record.
 CHILD_ARRAY: dict[str, str] = {child: key for key, child in NESTED_CHILD_KEYS.items()}
 
@@ -48,6 +73,11 @@ def child_array_key(kind: str) -> str:
         return CHILD_ARRAY[kind]
     except KeyError:
         raise ValueError(f"Kind '{kind}' is not a known child resource.") from None
+
+
+def entity_name(kind: str) -> str:
+    """The API entity name for a manifest kind."""
+    return ENTITY_NAMES.get(kind, kind)
 
 
 def parse_in(path: str | None) -> list[tuple[str, str]]:
@@ -99,7 +129,8 @@ class ResourceManager:
 
     Slice 1 covers leaf resources (domain, port, ...) hanging off a service
     declared in the manifest's typed ``projects``. Ancestors (project,
-    environment, service) are resolved from the live state.
+    environment, service) are resolved from the live state, honoring the
+    ``in`` path.
     """
 
     def __init__(self, applier) -> None:
@@ -126,56 +157,80 @@ class ResourceManager:
             raise ValueError(
                 f"Resource '{resource.kind}:{resource.name}' parent '{parent_kind}' is not supported yet."
             )
-        self._apply_service_child(resource, parent_kind, parent_name, dry_run)
-
-    def _apply_service_child(self, resource: Resource, parent_kind: str, parent_name: str, dry_run: bool) -> None:
-        service = self._find_live_service(parent_kind, parent_name)
-        if service is None:
-            if dry_run:
-                # The parent service does not exist yet (it will be created by
-                # the typed apply); record the planned create.
-                self.report.actions.append(ApplyAction(action="create", kind=resource.kind, name=resource.name))
-                return
+        allowed = PARENT_KINDS.get(resource.kind)
+        if allowed is not None and parent_kind not in allowed:
             raise ValueError(
-                f"Parent service '{parent_kind}:{parent_name}' not found in the instance "
-                "(declare it in 'projects:' so it is created first)."
+                f"Resource '{resource.kind}:{resource.name}' cannot hang off '{parent_kind}' "
+                f"(allowed: {', '.join(sorted(allowed))})."
             )
+        self._apply_service_child(resource, parent_kind, parent_name, segments[:-1], dry_run)
+
+    def _apply_service_child(
+        self,
+        resource: Resource,
+        parent_kind: str,
+        parent_name: str,
+        ancestors: list[tuple[str, str]],
+        dry_run: bool,
+    ) -> None:
+        service = self._find_live_service(parent_kind, parent_name, ancestors)
+        if service is None:
+            # Record a validation action instead of aborting after a partial apply.
+            self.report.actions.append(
+                ApplyAction(
+                    action="skip",
+                    kind=resource.kind,
+                    name=resource.name,
+                    details=f"Parent service '{parent_kind}:{parent_name}' not found.",
+                )
+            )
+            return
         record = self.client.request("GET", f"{parent_kind}.one", {f"{parent_kind}Id": service.service_id}).json()
         key = match_key(resource.kind)
         value = match_value(resource, key)
         children = record.get(child_array_key(resource.kind)) or []
         child = next((c for c in children if str(c.get(key)) == value), None)
 
-        parent_field = "serviceId" if resource.kind == "mount" else f"{parent_kind}Id"
+        parent_field = PARENT_ID_FIELDS.get(resource.kind, f"{parent_kind}Id")
         body = {**resolve_data(resource.data), parent_field: service.service_id}
         # The match key only falls back to the resource name when the data omits
         # it; matching itself is string-based, but the payload keeps the data types.
         if key not in body:
-            body[key] = resource.name
+            body[key] = self._coerce(resource.kind, key, resource.name)
         if resource.kind == "mount":
             body["serviceType"] = parent_kind
 
+        entity = entity_name(resource.kind)
         if child is None:
             action = "create"
             if not dry_run:
                 create_body = self._create_body(resource.kind, body)
-                self.client.request("POST", f"{resource.kind}.create", {"body": create_body})
+                self.client.request("POST", f"{entity}.create", {"body": create_body})
         elif self._changed(child, body):
             action = "update"
             if not dry_run:
-                entity_id = child[f"{resource.kind}Id"]
-                update_body = {**body, f"{resource.kind}Id": entity_id}
-                self.client.request("POST", f"{resource.kind}.update", {"body": update_body})
+                entity_id = child[f"{entity}Id"]
+                update_body = {**body, f"{entity}Id": entity_id}
+                self.client.request("POST", f"{entity}.update", {"body": update_body})
         else:
             action = "skip"
         self.report.actions.append(
             ApplyAction(action=action, kind=resource.kind, name=resource.name)
         )
 
-    def _find_live_service(self, kind: str, name: str):
-        """Find a live service by kind + name, or None (error on ambiguity)."""
+    def _find_live_service(self, kind: str, name: str, ancestors: list[tuple[str, str]]):
+        """Find a live service by kind + name, honoring the ancestor path.
+
+        Returns None when not found; raises on ambiguity.
+        """
+        projects = self.state.projects
+        for seg_kind, seg_name in ancestors:
+            if seg_kind == "project":
+                projects = [p for p in projects if p.name == seg_name]
+            elif seg_kind == "environment":
+                projects = [p for p in projects if seg_name in {e.name for e in p.environments}]
         matches = []
-        for project in self.state.projects:
+        for project in projects:
             for environment in project.environments:
                 for service in environment.services:
                     if service.type == kind and service.name == name:
@@ -189,17 +244,19 @@ class ResourceManager:
     def _changed(self, live: dict, body: dict) -> bool:
         """Whether the live child differs from the desired body.
 
-        Only fields present on the live record are compared (parent ids and
-        read-only fields are excluded), using string comparison so int/string
-        representation differences do not cause spurious updates.
+        Id fields (parents/entity) are excluded. Any desired field missing from
+        the live record counts as a change so it gets set, not silently skipped.
         """
-        return any(
-            str(live.get(field)) != str(value) for field, value in body.items() if field in live
-        )
+        for field, value in body.items():
+            if field.endswith("Id"):
+                continue
+            if field not in live or str(live.get(field)) != str(value):
+                return True
+        return False
 
     def _create_body(self, kind: str, body: dict) -> dict:
         """Fill required create fields that have a schema default but are absent."""
-        entity = self.registry.get(kind)
+        entity = self.registry.get(entity_name(kind))
         create = entity.get("create") if entity else None
         if create is None:
             return body
@@ -211,3 +268,19 @@ class ResourceManager:
                 if "default" in prop:
                     filled[field] = prop["default"]
         return filled
+
+    def _coerce(self, kind: str, field: str, value: str) -> Any:
+        """Coerce a fallback match value to the schema type when numeric."""
+        entity = self.registry.get(entity_name(kind))
+        create = entity.get("create") if entity is not None else None
+        schema = create.request_schema if create is not None else None
+        if schema is None:
+            update = entity.get("update") if entity is not None else None
+            schema = update.request_schema if update is not None else None
+        prop = (schema or {}).get("properties", {}).get(field, {})
+        if prop.get("type") in ("number", "integer"):
+            try:
+                return int(value) if prop.get("type") == "integer" else float(value)
+            except ValueError:
+                return value
+        return value

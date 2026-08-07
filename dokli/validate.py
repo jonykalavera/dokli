@@ -3,7 +3,13 @@
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.manifest import Manifest
-from dokli.resources import MATCH_KEYS, SERVICE_KINDS, parse_in
+from dokli.resources import (
+    MATCH_KEYS,
+    PARENT_KINDS,
+    SERVICE_KINDS,
+    entity_name,
+    parse_in,
+)
 from dokli.tui.engine import parse_spec
 
 
@@ -16,7 +22,7 @@ def validate_manifest(connection: ConnectionConfig, manifest: Manifest) -> list[
     registry = parse_spec(APIClient(connection).schema)
     for resource in manifest.resources:
         label = f"{resource.kind}:{resource.name}"
-        entity = registry.get(resource.kind)
+        entity = registry.get(entity_name(resource.kind))
         if entity is None:
             issues.append(f"resource {label}: unknown kind '{resource.kind}'.")
             continue
@@ -41,4 +47,11 @@ def validate_manifest(connection: ConnectionConfig, manifest: Manifest) -> list[
         parent_kind, _ = segments[-1]
         if parent_kind not in SERVICE_KINDS:
             issues.append(f"resource {label}: parent '{parent_kind}' is not supported yet.")
+            continue
+        allowed = PARENT_KINDS.get(resource.kind)
+        if allowed is not None and parent_kind not in allowed:
+            issues.append(
+                f"resource {label}: cannot hang off '{parent_kind}' "
+                f"(allowed: {', '.join(sorted(allowed))})."
+            )
     return issues
