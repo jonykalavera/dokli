@@ -5,6 +5,7 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from inspect import Parameter, Signature
 from typing import Annotated, Any
 
@@ -25,6 +26,26 @@ OPENAPI_TO_PYTHON: dict[str, type] = {
     "array": list,
     "object": str,
 }
+
+
+class HTTPMethod(str, Enum):
+    """HTTP Method enumeration."""
+
+    GET = "GET"
+    HEAD = "HEAD"
+    POST = "POST"
+    PATCH = "PATCH"
+    DELETE = "DELETE"
+
+
+@dataclass
+class APIRequest:
+    """API Request data object."""
+
+    route: str
+    method: str = HTTPMethod.GET.value
+    params: list[dict[str, Any]] | None = None
+    body: dict[str, Any] | None = None
 
 
 def _infer_param_type(param: dict[str, Any]) -> type:
@@ -52,28 +73,18 @@ def _safe_param_name(name: str) -> str:
     return name
 
 
-@dataclass
-class ApiRequest:
-    method: str = "GET"
-    params: list[dict[str, Any]] | None = None
-    request_body: dict[str, Any] | None = None
-
-
 def _api_command_factory(
     connection: ConnectionConfig,
-    route: str,
-    method: str = "GET",
-    params: list[dict[str, Any]] | None = None,
-    request_body: dict[str, Any] | None = None,
+    request: APIRequest,
     client: APIClient | None = None,
 ) -> Callable[..., None]:
     """Create a command from an OpenAPI endpoint."""
-    params = params or []
+    params = request.params or []
     # Create a list of parameters for the signature
     original_name = {_safe_param_name(x["name"]): x["name"] for x in params}
     param_hints = {_safe_param_name(p["name"]): _infer_param_type(p) for p in params}
     parameters = [Parameter(name, Parameter.KEYWORD_ONLY, annotation=typ) for name, typ in param_hints.items()]
-    if request_body and request_body.get("required", False):
+    if request.body and request.body.get("required", False):
         parameters.append(
             Parameter("body", Parameter.KEYWORD_ONLY, annotation=Annotated[str, typer.Option(help="JSON body")])
         )
@@ -95,8 +106,8 @@ def _api_command_factory(
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
-            method=method,
-            route=route,
+            method=request.method,
+            route=request.route,
             params=params,
             client=client,
         )
@@ -109,7 +120,7 @@ def _api_command_factory(
             case _:
                 raise ValueError(f"Unknown response type {type(response)}")
 
-    api_command.__signature__ = sig
+    api_command.__signature__ = sig  # ty: ignore[unresolved-attribute]
     return api_command
 
 
@@ -139,7 +150,8 @@ def _register_api_methods(connection: ConnectionConfig) -> typer.Typer:
             description = details.get("description", "")
             summary = details.get("summary", "")
 
-            func = _api_command_factory(connection, route, method.upper(), params, request_body, client=client)
+            api_request = APIRequest(route, method.upper(), params, request_body)
+            func = _api_command_factory(connection, api_request, client=client)
             entity_app.command(name=action, help=" ".join(x for x in [summary, description] if x))(func)
 
     # register entity apps as sub commands of the connection app

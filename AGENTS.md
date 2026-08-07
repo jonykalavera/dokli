@@ -6,7 +6,7 @@ Python CLI/TUI for [Dokploy](https://github.com/Dokploy/dokploy), generated from
 
 Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
 
-- `make lint` — `ruff check dokli/` then `mypy dokli`. Run both; CI runs `make lint test`.
+- `make lint` — `ruff check dokli/` then `ty check dokli` (Astral's type checker; strict by default, native pydantic support). Run both; CI runs `make lint test`.
 - `make test` — `uv run pytest -vv --cov dokli --blockage`.
 - Single test: `uv run pytest tests/test_tui.py::test_name -q`.
 - `make format` — `ruff format` + `ruff check --fix`.

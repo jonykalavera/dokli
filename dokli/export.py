@@ -160,13 +160,20 @@ def _export_application(live: LiveService, include_secrets: bool, warnings: list
 
 
 def _export_database(live: LiveService, include_secrets: bool, warnings: list[str]) -> DatabaseService:
+    assert live.type in (
+        "postgres",
+        "mysql",
+        "mariadb",
+        "mongo",
+        "redis",
+    ), f"Not a database service: {live.type!r}"
     if live.database_password:
         warnings.append(
             f"Database password of '{live.name}' was not exported. "
             "Set password or password_cmd in the manifest for apply."
         )
     return DatabaseService(
-        type=live.type,  # type: ignore[arg-type]
+        type=live.type,
         name=live.name,
         description=live.description or None,
         image=live.docker_image,
