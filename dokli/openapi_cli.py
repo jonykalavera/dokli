@@ -3,6 +3,8 @@
 import keyword
 import re
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from inspect import Parameter, Signature
 from typing import Annotated, Any
 
@@ -12,9 +14,10 @@ from rich import print as rprint
 
 from dokli.api_client import APIClient
 from dokli.commands import run_command
+from dokli.config import Config, ConnectionConfig
 from dokli.formatting import Format, format_response
 
-OPENAPI_TO_PYTHON = {
+OPENAPI_TO_PYTHON: dict[str, type] = {
     "string": str,
     "integer": int,
     "number": float,
@@ -24,14 +27,14 @@ OPENAPI_TO_PYTHON = {
 }
 
 
-def _infer_param_type(param: dict[str, Any]):
+def _infer_param_type(param: dict[str, Any]) -> type:
     """Infer the type of a parameter from OpenAPI."""
     schema = param.get("schema", {})
     param_type = schema.get("type", "string")  # Por defecto, string
     return OPENAPI_TO_PYTHON.get(param_type, str)
 
 
-def _camel_case_to_snake_case(camel_case_str):
+def _camel_case_to_snake_case(camel_case_str: str) -> str:
     """Convert camelCase to snake_case."""
     return re.sub(r"(?<!^)(?=[A-Z])", "_", camel_case_str).lower()
 
@@ -49,8 +52,23 @@ def _safe_param_name(name: str) -> str:
     return name
 
 
-def _api_command_factory(connection, route, method="GET", params=None, request_body=None, client=None):
+@dataclass
+class ApiRequest:
+    method: str = "GET"
+    params: list[dict[str, Any]] | None = None
+    request_body: dict[str, Any] | None = None
+
+
+def _api_command_factory(
+    connection: ConnectionConfig,
+    route: str,
+    method: str = "GET",
+    params: list[dict[str, Any]] | None = None,
+    request_body: dict[str, Any] | None = None,
+    client: APIClient | None = None,
+) -> Callable[..., None]:
     """Create a command from an OpenAPI endpoint."""
+    params = params or []
     # Create a list of parameters for the signature
     original_name = {_safe_param_name(x["name"]): x["name"] for x in params}
     param_hints = {_safe_param_name(p["name"]): _infer_param_type(p) for p in params}
@@ -73,7 +91,7 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
     # Create a Signature object
     sig = Signature(parameters)
 
-    def api_command(format=Format.json, show_secrets=False, **kwargs):
+    def api_command(format: Format = Format.json, show_secrets: bool = False, **kwargs: Any) -> None:
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
@@ -95,7 +113,7 @@ def _api_command_factory(connection, route, method="GET", params=None, request_b
     return api_command
 
 
-def _register_api_methods(connection):
+def _register_api_methods(connection: ConnectionConfig) -> typer.Typer:
     """Create a Typer app for each entity in the API schema.
 
     Given that Dokploy uses a entity.Action convention for API endpoints,
@@ -105,7 +123,7 @@ def _register_api_methods(connection):
     client = APIClient(connection)
     paths = client.schema.get("paths", {})
 
-    entity_apps = {}
+    entity_apps: dict[str, typer.Typer] = {}
 
     # iterate over the paths to register commands
     for route, methods in paths.items():
@@ -133,18 +151,18 @@ def _register_api_methods(connection):
     return _app
 
 
-def register_connections(app, config):
+def build_command(config: Config) -> typer.Typer:
     """Register the API methods for each connection in config.
 
     A connection whose API key cannot be resolved (e.g. a failing
     ``api_key_cmd``) is skipped with a warning instead of breaking the CLI.
     """
-    api_app = typer.Typer(name="api", help="API commands")
-    api_app.callback(no_args_is_help=True)(lambda: None)
+    app = typer.Typer(name="api", help="API commands")
+    app.callback(no_args_is_help=True)(lambda: None)
     for connection in config.connections:
         try:
             connection_app = _register_api_methods(connection)
-            api_app.add_typer(connection_app, name=connection.name)
+            app.add_typer(connection_app, name=connection.name)
         except Exception as e:
             rprint(f"[yellow]Skipping connection '{connection.name}': {e}[/yellow]", file=sys.stderr)
-    app.add_typer(api_app)
+    return app

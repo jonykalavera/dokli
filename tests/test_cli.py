@@ -5,10 +5,11 @@ import typer
 
 import dokli.cli
 from dokli.cli import app, main, refresh_command, tui_command
-from dokli.config import ConnectionConfig
+from dokli.config import Config, ConnectionConfig
+from dokli.openapi_cli import build_command
 
 
-def test_loads_api_commands(mocker):
+def test_loads_api_commands():
     """We expect the CLI to load API commands."""
     assert app.registered_groups[0].typer_instance.info.name == "api"
 
@@ -74,11 +75,8 @@ def test_tui_command_unknown_name_raises(mocker):
         tui_command("nope")
 
 
-def test_register_connections_skips_broken_connection(mocker):
+def test_build_command_skips_broken_connection(mocker):
     """We expect a connection with an unresolvable key not to break the CLI."""
-    from dokli.config import Config
-    from dokli.openapi_cli import register_connections
-
     good = ConnectionConfig(name="good", url="https://a.example.com", api_key="*" * 64)
     bad = ConnectionConfig(name="bad", url="https://b.example.com", api_key_cmd="secret-tool lookup dokli nope")
 
@@ -89,7 +87,8 @@ def test_register_connections_skips_broken_connection(mocker):
 
     mocker.patch("dokli.openapi_cli._register_api_methods", side_effect=fake_register)
     app = typer.Typer()
-    register_connections(app, Config(connections=[good, bad]))
+    api_group = build_command(Config(connections=[good, bad]))
+    app.add_typer(api_group)
 
     api_group = app.registered_groups[0].typer_instance
     names = [group.name for group in api_group.registered_groups]

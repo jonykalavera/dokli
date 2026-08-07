@@ -546,9 +546,7 @@ class BrowserScreen(Screen):
             return
         data = await self._api_get(action, params)
         if data is not None:
-            self.app.push_screen(
-                ResultScreen(self.connection, action, data, params=params, classes="Entities")
-            )
+            self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
 
     async def _resolve_missing(self, action, params: dict, missing: list[str]) -> None:
         """Satisfy missing required params (e.g. containerId) via a picker."""

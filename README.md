@@ -1,6 +1,6 @@
 # Dokli
 
-[![Python package](https://github.com/jonykalavera/dokli/actions/workflows/python-package.yml/badge.svg)](https://github.com/jonykalavera/dokli/actions/workflows/python-package.yml)
+[![Python package](https://github.com/jonykalavera/dokli/actions/workflows/python-package.yml/badge.svg)](https://github.com/jonykalavera/dokli/actions/workflows/python-package.yml) ![PyPI Version](https://img.shields.io/pypi/v/dokli)
 
 A magical CLI/TUI for interacting with [Dokploy](https://github.com/Dokploy/dokploy).
 

@@ -8,7 +8,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from dokli.api_client import APIClient
-from dokli.apply import Applier
+from dokli.apply import Applier, ApplyReport
 from dokli.config import Config, ConnectionConfig
 from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
@@ -16,7 +16,7 @@ from dokli.export import export_manifest
 from dokli.formatting import redact_secrets
 from dokli.init import init_manifest
 from dokli.manifest import Manifest
-from dokli.openapi_cli import register_connections
+from dokli.openapi_cli import build_command as build_api_command
 from dokli.state import collect_state
 
 try:
@@ -30,7 +30,7 @@ app = typer.Typer()
 state: dict[str, Any] = {
     "config": Config(),
 }
-register_connections(app, state["config"])
+app.add_typer(build_api_command(state["config"]))
 app.add_typer(build_connections_command(state["config"]))
 
 
@@ -119,7 +119,7 @@ def plan_command(
     rprint(table)
 
 
-def _print_apply_report(report) -> None:
+def _print_apply_report(report: ApplyReport) -> None:
     if not report.actions:
         rprint("[green]No changes.[/green]")
     else:
