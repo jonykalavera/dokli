@@ -2,6 +2,7 @@
 
 import keyword
 import re
+import sys
 from inspect import Parameter, Signature
 from typing import Annotated, Any
 
@@ -133,7 +134,11 @@ def _register_api_methods(connection):
 
 
 def register_connections(app, config):
-    """Register the API methods for each connection in config."""
+    """Register the API methods for each connection in config.
+
+    A connection whose API key cannot be resolved (e.g. a failing
+    ``api_key_cmd``) is skipped with a warning instead of breaking the CLI.
+    """
     api_app = typer.Typer(name="api", help="API commands")
     api_app.callback(no_args_is_help=True)(lambda: None)
     for connection in config.connections:
@@ -141,6 +146,5 @@ def register_connections(app, config):
             connection_app = _register_api_methods(connection)
             api_app.add_typer(connection_app, name=connection.name)
         except Exception as e:
-            rprint(f"[red]Error registering API methods: {e}[/red]")
-            raise
+            rprint(f"[yellow]Skipping connection '{connection.name}': {e}[/yellow]", file=sys.stderr)
     app.add_typer(api_app)

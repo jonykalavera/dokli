@@ -49,6 +49,19 @@ def test_add_connection_persists(tmp_path, monkeypatch):
     assert saved["connections"][0]["name"] == "stage"
 
 
+def test_add_prompts_for_missing_name_and_url(tmp_path, monkeypatch):
+    """We expect add to prompt for name and url when not provided."""
+    config = _config(tmp_path, monkeypatch)
+    result = runner.invoke(
+        _app(config),
+        ["connections", "add", "--api-key", "*" * 64],
+        input="newconn\nhttps://new.example.com\n",
+    )
+    assert result.exit_code == 0
+    assert config.connections[0].name == "newconn"
+    assert config.connections[0].url.host == "new.example.com"
+
+
 def test_add_duplicate_rejected(tmp_path, monkeypatch):
     """We expect adding an existing connection to fail."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
@@ -66,6 +79,15 @@ def test_add_invalid_name_rejected(tmp_path, monkeypatch):
         _app(config), ["connections", "add", "BAD NAME", "--url", "https://a.example.com", "--api-key", "*" * 64]
     )
     assert result.exit_code == 2
+
+
+def test_update_no_fields_warns(tmp_path, monkeypatch):
+    """We expect update without any field to warn instead of claiming success."""
+    config = _config(tmp_path, monkeypatch, connections=[_conn()])
+    result = runner.invoke(_app(config), ["connections", "update", "meche"])
+    assert result.exit_code == 0
+    assert "No fields provided" in result.output
+    assert "Updated" not in result.output
 
 
 def test_update_connection(tmp_path, monkeypatch):

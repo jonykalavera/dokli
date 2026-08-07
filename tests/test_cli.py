@@ -72,3 +72,26 @@ def test_tui_command_unknown_name_raises(mocker):
 
     with pytest.raises(typer.BadParameter):
         tui_command("nope")
+
+
+def test_register_connections_skips_broken_connection(mocker):
+    """We expect a connection with an unresolvable key not to break the CLI."""
+    from dokli.config import Config
+    from dokli.openapi_cli import register_connections
+
+    good = ConnectionConfig(name="good", url="https://a.example.com", api_key="*" * 64)
+    bad = ConnectionConfig(name="bad", url="https://b.example.com", api_key_cmd="secret-tool lookup dokli nope")
+
+    def fake_register(connection):
+        if connection.name == "bad":
+            raise RuntimeError("api_key_cmd failed")
+        return typer.Typer(name=connection.name)
+
+    mocker.patch("dokli.openapi_cli._register_api_methods", side_effect=fake_register)
+    app = typer.Typer()
+    register_connections(app, Config(connections=[good, bad]))
+
+    api_group = app.registered_groups[0].typer_instance
+    names = [group.name for group in api_group.registered_groups]
+    assert "good" in names
+    assert "bad" not in names

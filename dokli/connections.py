@@ -1,7 +1,5 @@
 """CLI commands to manage connections (issue #47)."""
 
-import getpass
-
 import typer
 import yaml
 from pydantic import ValidationError
@@ -24,13 +22,13 @@ def build_command(config: Config) -> typer.Typer:
 
     @group.command("add")
     def add_connection(
-        name: str = typer.Argument(..., help="Connection name (lowercase, hyphen-separated)."),
-        url: str = typer.Option(..., "--url", help="Dokploy instance URL."),
+        name: str | None = typer.Argument(None, help="Connection name (lowercase, hyphen-separated)."),
+        url: str | None = typer.Option(None, "--url", help="Dokploy instance URL."),
         api_key: str | None = typer.Option(None, "--api-key", help="API key (64 chars)."),
         api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="Command that outputs the API key."),
-        notes: str = typer.Option("", "--notes", help="Notes about the connection."),
+        notes: str | None = typer.Option(None, "--notes", help="Notes about the connection."),
     ) -> None:
-        """Add a connection."""
+        """Add a connection (missing values are prompted)."""
         _add_connection(config, name, url, api_key, api_key_cmd, notes)
 
     @group.command("update")
@@ -90,15 +88,24 @@ def _list_connections(config: Config) -> None:
 
 
 def _add_connection(
-    config: Config, name: str, url: str, api_key: str | None, api_key_cmd: str | None, notes: str
+    config: Config,
+    name: str | None,
+    url: str | None,
+    api_key: str | None,
+    api_key_cmd: str | None,
+    notes: str | None,
 ) -> None:
+    if not name:
+        name = typer.prompt("Connection name")
     if any(connection.name == name for connection in config.connections):
         raise typer.BadParameter(f"Connection '{name}' already exists.")
+    if not url:
+        url = typer.prompt("URL")
     if not api_key and not api_key_cmd:
-        api_key = getpass.getpass("API key (hidden): ")
+        api_key = typer.prompt("API key", hide_input=True)
     try:
         connection = ConnectionConfig.model_validate(
-            {"name": name, "url": url, "api_key": api_key, "api_key_cmd": api_key_cmd, "notes": notes}
+            {"name": name, "url": url, "api_key": api_key, "api_key_cmd": api_key_cmd, "notes": notes or ""}
         )
     except ValidationError as err:
         raise typer.BadParameter(err.errors()[0]["msg"]) from None
@@ -116,6 +123,9 @@ def _update_connection(
     notes: str | None,
 ) -> None:
     current = _find(config, name)
+    if url is None and api_key is None and api_key_cmd is None and notes is None:
+        rprint(f"[yellow]No fields provided to update for '{name}'.[/yellow]")
+        return
     data = current.model_dump_clear()
     if url is not None:
         data["url"] = url
