@@ -8,12 +8,16 @@ TEMPLATE = """\
 # Dokli as Code manifest.
 #
 # Describes the desired state of a Dokploy instance. Apply it with:
-#   dokli apply            # configure the instance to match this file
-#   dokli plan             # preview changes first
+#   dokli validate          # offline validation against the connection's schema
+#   dokli apply             # configure the instance to match this file
+#   dokli plan              # preview changes first
 #
 # connection: name of a connection defined in your dokli config.
 
 connection: {connection}
+
+# Dokli manifest format version (only "v1" today).
+apiVersion: v1
 
 # Git providers are referenced by services. Credentials are write-only in
 # Dokploy's API, so configure providers in the instance and resolve the
@@ -27,6 +31,26 @@ connection: {connection}
 #     token_cmd: "secret-tool lookup dokli github-main"
 
 projects: []
+
+# Generic schema-driven resources: leaf records (domains, ports, ...) that hang
+# off a service declared in "projects" above. "in" is the parent path; "data"
+# holds the create/update fields. Secrets in "data" can be resolved with
+# {{"cmd": "..."}} or {{"keyring": "account"}}.
+#
+# resources:
+#   - kind: domain
+#     name: www.example.com
+#     in: compose:backend
+#     data:
+#       host: www.example.com
+#       https: true
+#   - kind: port
+#     name: 8080
+#     in: application:web
+#     data:
+#       publishedPort: 8080
+#       targetPort: 80
+#       protocol: tcp
 """
 
 

@@ -90,7 +90,7 @@ API keys, git provider credentials and database passwords can be stored in your 
 
 - `dokli secrets set|get|rm <account>` — manage keychain entries (accounts like `conn.meche`, `provider.github-main`, `db.backend`); `get` masks by default, `--show` prints in plain text.
 - `dokli connections add <name> --keyring` / `dokli connections update <name> --keyring` — store the API key in the keychain (`api_key_keyring: true`) so it never touches the config file.
-- In manifests, `token_keyring: true` (git providers) and `password_keyring: true` (databases) resolve those secrets from the keychain at apply time.
+- In manifests, `token_keyring: true` (git providers) and `password_keyring: true` (databases) resolve those secrets from the keychain at apply time. Generic `resources:` fields resolve secrets with `{"keyring": "account"}` or `{"cmd": "..."}` in `data`.
 - Resolution order is: literal value → keychain → `*_cmd`.
 
 Uses the cross-platform [`keyring`](https://pypi.org/project/keyring/) package (SecretService / macOS Keychain / Windows Credential Locker).
@@ -133,6 +133,7 @@ $ dokli
 │ state    Show the current state of a Dokploy instance.                              │
 │ plan     Show what would change between the manifest and the live instance.         │
 │ apply    Apply the manifest to a Dokploy instance (idempotent, additive).           │
+│ validate Validate the manifest offline against the connection's schema.             │
 │ export   Export the live state of an instance into a manifest.                      │
 │ api      API commands                                                               │
 │ connections  Manage connections.                                                    │
@@ -184,12 +185,14 @@ Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokpl
 | `dokli state [connection]` | Show the current state of an instance. |
 | `dokli plan [-f dokploy.yaml]` | Preview what would change. |
 | `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
+| `dokli validate [-f dokploy.yaml]` | Validate the manifest offline against the connection's schema. |
 | `dokli export [connection] [-o file] [--include-secrets]` | Reverse-engineer a live instance into a manifest. |
 
 ### Manifest
 
 ```yaml
 # dokploy.yaml
+apiVersion: v1
 connection: prod
 
 git_providers:
@@ -212,8 +215,24 @@ projects:
         image: nginx:latest
         env: |
           NODE_ENV=production
+
+resources:
+  - kind: domain
+    name: www.example.com
+    in: compose:backend
+    data:
+      host: www.example.com
+      https: true
+  - kind: port
+    name: 8080
+    in: application:web
+    data:
+      publishedPort: 8080
+      targetPort: 80
+      protocol: tcp
 ```
 
+- `apiVersion` is the Dokli manifest format version (only `v1` today); `dokployVersion` (the Dokploy API version the manifest was written against) is stamped by `init`/`export`.
 - Services live in the project's **default environment** (Dokploy creates one per project).
 - `compose_file` accepts raw compose YAML or a path to a local file (mutually exclusive with `source`).
 - **Secrets are never stored in the manifest.** Git provider credentials are write-only in Dokploy's API; reference them with `token_cmd` (same pattern as `api_key_cmd`). `export` redacts service environment variables by default (`--include-secrets` to include them) and reports which providers need credentials.
@@ -229,6 +248,39 @@ projects:
         name: db
         password_cmd: "ansible-vault view --vault-password-file ~/.vault-pass secrets/vault.yml | yq -r '.db_password'"
 ```
+
+### Generic resources
+
+`projects:` describes the services themselves (the typed backbone: state, plan/apply, deploy). `resources:` describes the **leaf records** that hang off those services — domains, ports, redirects, security, schedules, backups, mounts. They are resolved against the connection's OpenAPI document, so any field (or future entity) is supported without a code change.
+
+A resource has `kind`, `name`, `in` (the parent path) and `data` (the create/update fields; parent ids are derived from `in`, never repeated in `data`):
+
+```yaml
+resources:
+  - kind: domain
+    name: www.example.com
+    in: project:myapp / environment:production / compose:backend
+    data:
+      host: www.example.com
+      https: true
+```
+
+- **`in`** is a `<kind>:<name>` path to the parent service. Ancestor segments (`project:`, `environment:`) scope the lookup and disambiguate same-named services across projects. `in: compose:backend` alone matches globally.
+- **Matching** is string-based on a per-kind match key, falling back to `name`: `domain → host`, `port → publishedPort`, `redirects → regex`, `security → username`, `mount → filePath`, `backup → schedule`.
+- **Parent restrictions**: `port`/`security`/`redirects` hang off `application` services only; `domain` off `application`/`compose`; `mount` off any service. `dokli validate` flags violations.
+- **Secrets in `data`** use the same dict references as elsewhere: `{"cmd": "..."}` (run through a shell) or `{"keyring": "account"}` (from your OS keychain):
+
+```yaml
+resources:
+  - kind: security
+    name: admin
+    in: application:web
+    data:
+      username: admin
+      password: {keyring: app-web-admin}
+```
+
+`apply` is additive here too: an existing resource is updated, a missing one is created, and nothing is ever deleted because it is absent from the manifest.
 
 ### Workflow
 

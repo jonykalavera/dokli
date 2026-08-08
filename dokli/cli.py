@@ -8,7 +8,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from dokli.api_client import APIClient
-from dokli.apply import Applier, ApplyReport
+from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig
 from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
@@ -17,8 +17,10 @@ from dokli.formatting import redact_secrets
 from dokli.init import init_manifest
 from dokli.manifest import Manifest
 from dokli.openapi_cli import build_command as build_api_command
+from dokli.report import ApplyReport
 from dokli.secrets_cli import build_command as build_secrets_command
 from dokli.state import collect_state
+from dokli.validate import validate_manifest
 
 try:
     from dokli.tui.app import app as tui
@@ -150,6 +152,21 @@ def apply_command(
     applier = Applier(manifest, connection, deploy=deploy)
     report = applier.run(dry_run=dry_run)
     _print_apply_report(report)
+
+
+@app.command(name="validate")
+def validate_command(
+    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+) -> None:
+    """Validate a manifest offline against the connection's schema."""
+    manifest = Manifest.load(manifest_file)
+    connection = _get_connection(manifest.connection)
+    issues = validate_manifest(connection, manifest)
+    if issues:
+        for issue in issues:
+            rprint(f"[yellow]{issue}[/yellow]")
+        raise typer.Exit(code=1)
+    rprint("[green]Manifest is valid.[/green]")
 
 
 @app.command(name="export")
