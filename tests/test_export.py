@@ -1,9 +1,170 @@
 """Export tests."""
 
+import pytest
+
 from dokli.config import ConnectionConfig
 from dokli.export import export_manifest
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService
 from dokli.state import LiveEnvironment, LiveGitProvider, LiveProject, LiveService, State
+
+
+class _NullClient:
+    """APIClient stand-in returning empty payloads (no resources exported)."""
+
+    def request(self, method, path, params):
+        class _Response:
+            def json(self):
+                return {}
+
+        return _Response()
+
+
+@pytest.fixture(autouse=True)
+def _no_network(mocker):
+    mocker.patch("dokli.export.APIClient", return_value=_NullClient())
+
+
+class _FakeClient:
+    """APIClient stand-in returning configured records."""
+
+    def __init__(self, records):
+        self.records = records
+
+    def request(self, method, path, params):
+        records = self.records
+
+        class _Response:
+            def json(self):
+                return records.get(path, {})
+
+        return _Response()
+
+
+class TestExportResources:
+    """Generic resource export tests (issue #55)."""
+
+    def test_exports_application_children(self, mocker):
+        """We expect nested child records to be exported as resources."""
+        mocker.patch(
+            "dokli.export.APIClient",
+            return_value=_FakeClient(
+                {
+                    "application.one": {
+                        "applicationId": "a1",
+                        "domains": [
+                            {"domainId": "d1", "host": "www.example.com", "https": True, "path": "/", "domainType": "application"}
+                        ],
+                        "ports": [{"portId": "p1", "publishedPort": 8080, "targetPort": 80, "protocol": "tcp", "publishMode": "ingress"}],
+                        "mounts": [{"mountId": "m1", "type": "bind", "mountPath": "/etc", "filePath": "rclone.conf"}],
+                        "security": [{"securityId": "s1", "username": "admin", "password": "secret"}],
+                        "redirects": [{"redirectId": "r1", "regex": "/old", "replacement": "/new", "permanent": False}],
+                    },
+                    "schedule.list": [
+                        {"scheduleId": "sc1", "name": "nightly", "cronExpression": "0 3 * * *", "command": "echo x", "enabled": True}
+                    ],
+                    "destination.all": [],
+                }
+            ),
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[_project_live("app", [_live_service("application", "web")])],
+            ),
+        )
+
+        manifest, warnings = export_manifest(_connection())
+
+        kinds = {r.kind: r for r in manifest.resources}
+        assert kinds["domain"].name == "www.example.com"
+        assert kinds["domain"].data["https"] is True
+        assert kinds["domain"].in_ == "project:app / application:web"
+        assert kinds["port"].data["publishedPort"] == 8080
+        assert kinds["mount"].data["type"] == "bind"
+        assert kinds["redirects"].data["replacement"] == "/new"
+        assert "password" not in kinds["security"].data
+        assert kinds["security"].data["username"] == "admin"
+        assert kinds["schedule"].data["cronExpression"] == "0 3 * * *"
+        assert any("Secret fields" in w for w in warnings)
+
+    def test_exports_backup_with_destination_name(self, mocker):
+        """We expect backup destinations to be exported by name."""
+        mocker.patch(
+            "dokli.export.APIClient",
+            return_value=_FakeClient(
+                {
+                    "postgres.one": {
+                        "postgresId": "pg1",
+                        "backups": [
+                            {
+                                "backupId": "b1",
+                                "schedule": "0 4 * * *",
+                                "prefix": "db",
+                                "database": "db",
+                                "databaseType": "postgres",
+                                "enabled": True,
+                                "destinationId": "dst1",
+                                "keepLatestCount": 7,
+                            }
+                        ],
+                    },
+                    "destination.all": [{"destinationId": "dst1", "name": "local-bucket"}],
+                }
+            ),
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[_project_live("app", [_live_service("postgres", "db")])],
+            ),
+        )
+
+        manifest, _ = export_manifest(_connection())
+
+        backup = manifest.resources[0]
+        assert backup.kind == "backup"
+        assert backup.data["destination"] == "local-bucket"
+        assert "destinationId" not in backup.data
+
+    def test_non_default_environment_in_path(self, mocker):
+        """We expect named environments to appear in the in path."""
+        mocker.patch("dokli.export.APIClient", return_value=_NullClient())
+        project = LiveProject(
+            project_id="p1",
+            name="app",
+            environments=[
+                LiveEnvironment(
+                    environment_id="e1",
+                    name="staging",
+                    is_default=False,
+                    services=[_live_service("application", "web")],
+                )
+            ],
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(connection="test-env", projects=[project]),
+        )
+
+        manifest, _ = export_manifest(_connection())
+
+        assert manifest.resources == []
+
+    def test_round_trip_loads(self, mocker):
+        """We expect an exported manifest to load back with its resources."""
+        mocker.patch("dokli.export.APIClient", return_value=_NullClient())
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(connection="test-env", projects=[]),
+        )
+
+        manifest, _ = export_manifest(_connection())
+        reloaded = manifest.__class__.model_validate(manifest.model_dump(by_alias=True))
+
+        assert reloaded.resources == manifest.resources
+        assert reloaded.connection == "test-env"
 
 
 def _connection() -> ConnectionConfig:

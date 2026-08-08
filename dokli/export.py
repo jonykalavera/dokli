@@ -5,6 +5,7 @@ only carry metadata. The export returns warnings listing providers whose
 credentials must be re-provided (via ``token_cmd``) for ``apply`` to succeed.
 """
 
+from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.manifest import (
     ApplicationService,
@@ -15,7 +16,16 @@ from dokli.manifest import (
     GitSource,
     Manifest,
     ProjectDef,
+    Resource,
     Service,
+)
+from dokli.resources import (
+    EXPORT_FIELDS,
+    LIST_LOOKUP,
+    PARENT_KINDS,
+    SECRET_FIELDS,
+    child_array_key,
+    match_key,
 )
 from dokli.state import LiveService, State, collect_state
 
@@ -30,16 +40,95 @@ def export_manifest(connection: ConnectionConfig, include_secrets: bool = False)
     never exported.
     """
     state = collect_state(connection)
+    client = APIClient(connection)
     warnings: list[str] = []
 
     git_providers = _export_git_providers(state, warnings)
     projects = [_export_project(project, include_secrets, warnings) for project in state.projects]
 
+    destination_names = _destination_names(client)
+    resources = [
+        resource
+        for project in state.projects
+        for environment in project.environments
+        for service in environment.services
+        for resource in _export_service_resources(
+            client, project, environment, service, destination_names, warnings
+        )
+    ]
+
     return Manifest(
         connection=connection.name,
         git_providers=git_providers,
         projects=projects,
+        resources=resources,
     ), warnings
+
+
+def _destination_names(client: APIClient) -> dict[str, str]:
+    raw = client.request("GET", "destination.all", {}).json()
+    items = raw if isinstance(raw, list) else raw.get("items", [])
+    return {item["destinationId"]: item.get("name") or "" for item in items if item.get("destinationId")}
+
+
+def _export_service_resources(
+    client: APIClient,
+    project,
+    environment,
+    service: LiveService,
+    destination_names: dict[str, str],
+    warnings: list[str],
+) -> list[Resource]:
+    """Export the child records of a service as generic resources."""
+    resources: list[Resource] = []
+    in_path = _in_path(project, environment, service)
+    for kind, fields in EXPORT_FIELDS.items():
+        allowed = PARENT_KINDS.get(kind)
+        if allowed is not None and service.type not in allowed:
+            continue
+        for child in _fetch_children(client, service, kind):
+            data = {field: child[field] for field in fields if child.get(field) is not None}
+            if set(SECRET_FIELDS.get(kind) or ()) & set(child):
+                warnings.append(
+                    f"Secret fields of '{service.name}' {kind} were not exported. "
+                    "Re-add them to the manifest for apply."
+                )
+            if kind == "backup" and child.get("destinationId"):
+                name = destination_names.get(child["destinationId"])
+                if name:
+                    data["destination"] = name
+                elif child["destinationId"]:
+                    data["destinationId"] = child["destinationId"]
+            key = match_key(kind)
+            if key not in data:
+                continue
+            resources.append(
+                Resource(
+                    kind=kind,
+                    name=str(child.get(key) or ""),
+                    in_=in_path,
+                    data=data,
+                )
+            )
+    return resources
+
+
+def _fetch_children(client: APIClient, service: LiveService, kind: str) -> list[dict]:
+    lookup = LIST_LOOKUP.get(kind)
+    if lookup is not None:
+        route, id_param, type_param = lookup
+        raw = client.request("GET", route, {id_param: service.service_id, type_param: service.type}).json()
+        return raw if isinstance(raw, list) else raw.get("items", [])
+    record = client.request("GET", f"{service.type}.one", {f"{service.type}Id": service.service_id}).json()
+    return record.get(child_array_key(kind)) or []
+
+
+def _in_path(project, environment, service: LiveService) -> str:
+    segments = [f"project:{project.name}"]
+    if not environment.is_default and environment.name:
+        segments.append(f"environment:{environment.name}")
+    segments.append(f"{service.type}:{service.name}")
+    return " / ".join(segments)
 
 
 def _export_git_providers(state: State, warnings: list[str]) -> list[GitProvider]:

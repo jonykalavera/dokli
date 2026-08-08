@@ -178,7 +178,9 @@ def export_command(
     """Export the live state of an instance into a manifest."""
     connection = _get_connection(connection_name)
     manifest, warnings = export_manifest(connection, include_secrets=include_secrets)
-    content = yaml.safe_dump(manifest.model_dump(mode="json", exclude_none=True), sort_keys=False)
+    content = yaml.safe_dump(
+        manifest.model_dump(mode="json", exclude_none=True, by_alias=True), sort_keys=False
+    )
     if output == "-":
         rprint(content)
     else:
