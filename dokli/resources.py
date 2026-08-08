@@ -66,6 +66,24 @@ LIST_LOOKUP: dict[str, tuple[str, str, str]] = {
     "schedule": ("schedule.list", "id", "scheduleType"),
 }
 
+# Child kinds exported as generic resources, and the fields emitted per kind
+# (ids, parent ids and read-only fields are never exported; secrets omitted).
+EXPORT_FIELDS: dict[str, set[str]] = {
+    "domain": {"host", "https", "path", "port", "domainType"},
+    "port": {"publishedPort", "targetPort", "protocol", "publishMode"},
+    "security": {"username"},
+    "redirects": {"regex", "replacement", "permanent"},
+    "mount": {"type", "mountPath", "filePath"},
+    "schedule": {"name", "cronExpression", "command", "enabled"},
+    "backup": {"schedule", "prefix", "database", "databaseType", "enabled", "keepLatestCount", "backupType"},
+}
+
+# Fields that are never exported (secrets), per kind.
+SECRET_FIELDS: dict[str, set[str]] = {
+    "security": {"password"},
+    "backup": {"metadata"},
+}
+
 # Child kind -> the nested array key on the parent service record.
 CHILD_ARRAY: dict[str, str] = {child: key for key, child in NESTED_CHILD_KEYS.items()}
 

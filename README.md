@@ -186,7 +186,7 @@ Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokpl
 | `dokli plan [-f dokploy.yaml]` | Preview what would change. |
 | `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
 | `dokli validate [-f dokploy.yaml]` | Validate the manifest offline against the connection's schema. |
-| `dokli export [connection] [-o file] [--include-secrets]` | Reverse-engineer a live instance into a manifest. |
+| `dokli export [connection] [-o file] [--include-secrets]` | Reverse-engineer a live instance into a manifest, including generic `resources:`. |
 
 ### Manifest
 
@@ -280,7 +280,7 @@ resources:
       password: {keyring: app-web-admin}
 ```
 
-`apply` is additive here too: an existing resource is updated, a missing one is created, and nothing is ever deleted because it is absent from the manifest.
+`apply` is additive here too: an existing resource is updated, a missing one is created, and nothing is ever deleted because it is absent from the manifest. `dokli export` emits the instance's existing child records as `resources:` entries (match key included, ids and secrets omitted; backup destinations by name), so the manifest round-trips: `export` → edit → `apply`.
 
 ### Workflow
 
