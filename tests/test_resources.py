@@ -266,6 +266,52 @@ class TestResourceManager:
         assert manager.report.actions[0].action == "skip"
         assert "not found" in manager.report.actions[0].details
 
+    def test_schedule_lists_via_list_route(self):
+        """We expect schedules to be fetched via schedule.list, not a nested array."""
+        client = FakeClient(
+            {
+                "application.one": {"applicationId": "a1"},
+                "schedule.list": [
+                    {"scheduleId": "s1", "name": "nightly", "cronExpression": "0 3 * * *", "command": "echo x"}
+                ],
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="schedule",
+                    name="nightly",
+                    in_="application:api",
+                    data={"name": "nightly", "cronExpression": "0 3 * * *", "command": "echo x"},
+                )
+            ),
+            client,
+            [_service("application", "api", "a1")],
+        )
+        manager.run()
+        assert manager.report.actions[0].action == "skip"
+        call = next(c for c in client.calls if c[1] == "schedule.list")
+        assert call[2] == {"id": "a1", "scheduleType": "application"}
+
+    def test_schedule_created_when_missing(self):
+        """We expect a missing schedule to be created with its parent id."""
+        client = FakeClient({"application.one": {"applicationId": "a1"}, "schedule.list": []})
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="schedule",
+                    name="nightly",
+                    in_="application:api",
+                    data={"name": "nightly", "cronExpression": "0 3 * * *", "command": "echo x"},
+                )
+            ),
+            client,
+            [_service("application", "api", "a1")],
+        )
+        manager.run()
+        create = next(c for c in client.calls if c[1] == "schedule.create")
+        assert create[2]["body"]["applicationId"] == "a1"
+
     def test_dry_run_plans_create(self):
         """We expect dry-run to record the action without calling the API."""
         client = FakeClient({"compose.one": {"composeId": "c1", "domains": []}})
@@ -277,6 +323,98 @@ class TestResourceManager:
         manager.run(dry_run=True)
         assert manager.report.actions[0].action == "create"
         assert not any(c[1] == "domain.create" for c in client.calls)
+
+    def test_backup_resolves_destination_by_name(self):
+        """We expect a backup destination to be resolved from destination.all."""
+        client = FakeClient(
+            {
+                "postgres.one": {"postgresId": "pg1", "backups": []},
+                "destination.all": [{"destinationId": "dst1", "name": "local-bucket"}],
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="backup",
+                    name="daily",
+                    in_="postgres:db",
+                    data={"destination": "local-bucket", "schedule": "0 3 * * *", "prefix": "db", "database": "db"},
+                )
+            ),
+            client,
+            [_service("postgres", "db", "pg1")],
+        )
+        manager.run()
+        create = next(c for c in client.calls if c[1] == "backup.create")
+        assert create[2]["body"]["destinationId"] == "dst1"
+        assert "destination" not in create[2]["body"]
+        assert create[2]["body"]["postgresId"] == "pg1"
+
+    def test_backup_unknown_destination_raises(self):
+        """We expect an unknown backup destination to abort."""
+        client = FakeClient(
+            {
+                "postgres.one": {"postgresId": "pg1", "backups": []},
+                "destination.all": [],
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="backup",
+                    name="daily",
+                    in_="postgres:db",
+                    data={"destination": "nope", "schedule": "0 3 * * *", "prefix": "db", "database": "db"},
+                )
+            ),
+            client,
+            [_service("postgres", "db", "pg1")],
+        )
+        with pytest.raises(ValueError):
+            manager.run()
+
+    def test_backup_update_merges_live_fields(self):
+        """We expect backup updates to merge live fields the create may not set."""
+        client = FakeClient(
+            {
+                "postgres.one": {
+                    "postgresId": "pg1",
+                    "backups": [
+                        {
+                            "backupId": "b1",
+                            "schedule": "0 3 * * *",
+                            "enabled": True,
+                            "prefix": "db",
+                            "destinationId": "dst1",
+                            "database": "db",
+                            "keepLatestCount": 7,
+                            "serviceName": "db",
+                            "metadata": None,
+                        }
+                    ],
+                },
+                "destination.all": [{"destinationId": "dst1", "name": "local-bucket"}],
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="backup",
+                    name="daily",
+                    in_="postgres:db",
+                    data={"destination": "local-bucket", "schedule": "0 3 * * *", "prefix": "db2", "database": "db"},
+                )
+            ),
+            client,
+            [_service("postgres", "db", "pg1")],
+        )
+        manager.run()
+        update = next(c for c in client.calls if c[1] == "backup.update")
+        body = update[2]["body"]
+        assert body["prefix"] == "db2"
+        assert body["enabled"] is True
+        assert body["keepLatestCount"] == 7
+        assert body["backupId"] == "b1"
 
 
 def test_service_kinds_include_compose_application_and_dbs():

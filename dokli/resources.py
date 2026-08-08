@@ -53,6 +53,19 @@ PARENT_KINDS: dict[str, set[str] | None] = {
     "mount": None,
 }
 
+# Kinds whose update requires fields the create may not set; the live child
+# record is merged into the update payload so those fields are preserved.
+UPDATE_MERGE_KINDS = frozenset({"backup"})
+
+# Data fields that are resolved by name (never sent as-is), and how.
+NAMED_REFERENCES: dict[str, str] = {"backup": "destination"}
+
+# Kinds whose children are fetched via a list route (route, id param, type
+# param) instead of a nested array on the parent record.
+LIST_LOOKUP: dict[str, tuple[str, str, str]] = {
+    "schedule": ("schedule.list", "id", "scheduleType"),
+}
+
 # Child kind -> the nested array key on the parent service record.
 CHILD_ARRAY: dict[str, str] = {child: key for key, child in NESTED_CHILD_KEYS.items()}
 
@@ -188,11 +201,15 @@ class ResourceManager:
         record = self.client.request("GET", f"{parent_kind}.one", {f"{parent_kind}Id": service.service_id}).json()
         key = match_key(resource.kind)
         value = match_value(resource, key)
-        children = record.get(child_array_key(resource.kind)) or []
+        children = self._children(resource, parent_kind, service.service_id, record)
         child = next((c for c in children if str(c.get(key)) == value), None)
 
         parent_field = PARENT_ID_FIELDS.get(resource.kind, f"{parent_kind}Id")
         body = {**resolve_data(resource.data), parent_field: service.service_id}
+        # Named references (e.g. backups -> destination) are resolved to ids.
+        named_field = NAMED_REFERENCES.get(resource.kind)
+        if named_field in body:
+            body[f"{named_field}Id"] = self._resolve_named(named_field, str(body.pop(named_field)))
         # The match key only falls back to the resource name when the data omits
         # it; matching itself is string-based, but the payload keeps the data types.
         if key not in body:
@@ -209,8 +226,7 @@ class ResourceManager:
         elif self._changed(child, body):
             action = "update"
             if not dry_run:
-                entity_id = child[f"{entity}Id"]
-                update_body = {**body, f"{entity}Id": entity_id}
+                update_body = self._update_body(resource, child, body, entity)
                 self.client.request("POST", f"{entity}.update", {"body": update_body})
         else:
             action = "skip"
@@ -268,6 +284,47 @@ class ResourceManager:
                 if "default" in prop:
                     filled[field] = prop["default"]
         return filled
+
+    def _update_body(self, resource: Resource, child: dict, body: dict, entity: str) -> dict:
+        """Build an update payload, merging the live child for full-object kinds.
+
+        Kinds in ``UPDATE_MERGE_KINDS`` have required update fields that the
+        create may not set; the live record supplies them (body wins, ids are
+        re-added from the entity).
+        """
+        entity_id = child[f"{entity}Id"]
+        merged = {**body, f"{entity}Id": entity_id}
+        if resource.kind not in UPDATE_MERGE_KINDS:
+            return merged
+        live = {
+            key: value
+            for key, value in child.items()
+            if not key.endswith(("Id", "At"))
+        }
+        return {**live, **body, f"{entity}Id": entity_id}
+
+    def _children(self, resource: Resource, parent_kind: str, service_id: str, record: dict) -> list[dict]:
+        """Fetch the live children of a resource kind for a parent service."""
+        lookup = LIST_LOOKUP.get(resource.kind)
+        if lookup is not None:
+            route, id_param, type_param = lookup
+            raw = self.client.request("GET", route, {id_param: service_id, type_param: parent_kind}).json()
+            return raw if isinstance(raw, list) else raw.get("items", [])
+        return record.get(child_array_key(resource.kind)) or []
+
+    def _resolve_named(self, entity: str, name: str) -> str:
+        """Resolve a named reference (e.g. ``destination``) to its id."""
+        raw = self.client.request("GET", f"{entity}.all", {}).json()
+        items = raw if isinstance(raw, list) else raw.get("items", [])
+        matches = [item for item in items if str(item.get("name")) == name]
+        if not matches:
+            raise ValueError(f"{entity} '{name}' not found in the instance.")
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous {entity} '{name}'.")
+        entity_id = matches[0].get(f"{entity}Id")
+        if not entity_id:
+            raise ValueError(f"{entity} '{name}' has no id.")
+        return str(entity_id)
 
     def _coerce(self, kind: str, field: str, value: str) -> Any:
         """Coerce a fallback match value to the schema type when numeric."""
