@@ -5,7 +5,7 @@ import typer
 
 import dokli.cli
 from dokli.cli import app, main, refresh_command, tui_command
-from dokli.config import Config, ConnectionConfig
+from dokli.config import Config, ConnectionConfig, complete_connection_names
 from dokli.openapi_cli import build_command
 
 
@@ -94,3 +94,42 @@ def test_build_command_skips_broken_connection(mocker):
     names = [group.name for group in api_group.registered_groups]
     assert "good" in names
     assert "bad" not in names
+
+
+def test_complete_connection_names_filters_by_prefix(mocker):
+    """We expect completion to offer configured connections matching the prefix."""
+    mocker.patch(
+        "dokli.config.Config",
+        return_value=Config(
+            connections=[
+                ConnectionConfig(name="meche", url="https://meche.lan", api_key_cmd="echo key"),
+                ConnectionConfig(name="hot-test", url="https://test.lan", api_key_cmd="echo key"),
+            ]
+        ),
+    )
+
+    assert [item.value for item in complete_connection_names(None, None, "mech")] == ["meche"]
+    assert [item.value for item in complete_connection_names(None, None, "hot")] == ["hot-test"]
+    assert complete_connection_names(None, None, "zzz") == []
+
+
+def test_connection_arguments_expose_shell_complete():
+    """We expect connection-name arguments to carry a shell_complete callback."""
+    from typer.main import get_command
+
+    group = get_command(app)
+    for name in ("refresh", "state", "export", "tui"):
+        command = group.get_command(None, name)
+        param = next(p for p in command.params if p.name == "connection_name")
+        assert param._custom_shell_complete is complete_connection_names
+
+
+def test_connections_group_arguments_expose_shell_complete():
+    """We expect connections subcommands to complete existing names."""
+    from typer.main import get_command
+
+    group = get_command(app).get_command(None, "connections")
+    for name in ("update", "remove", "get", "test"):
+        command = group.get_command(None, name)
+        param = next(p for p in command.params if p.name == "name")
+        assert param._custom_shell_complete is complete_connection_names

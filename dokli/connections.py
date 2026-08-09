@@ -7,7 +7,7 @@ from rich import print as rprint
 from rich.table import Table
 
 from dokli.api_client import APIClient
-from dokli.config import Config, ConnectionConfig
+from dokli.config import Config, ConnectionConfig, complete_connection_names
 from dokli.formatting import redact_secrets
 from dokli.secrets import conn_account, set_secret
 
@@ -37,7 +37,7 @@ def build_command(config: Config) -> typer.Typer:
 
     @group.command("update")
     def update_connection(
-        name: str = typer.Argument(..., help="Connection name."),
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names),
         new_name: str | None = typer.Argument(None, help="New name (renames the connection)."),
         url: str | None = typer.Option(None, "--url", help="New URL."),
         api_key: str | None = typer.Option(None, "--api-key", help="New API key (64 chars)."),
@@ -51,17 +51,23 @@ def build_command(config: Config) -> typer.Typer:
         _update_connection(config, name, new_name, url, api_key, api_key_cmd, keyring, notes)
 
     @group.command("remove")
-    def remove_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
+    def remove_connection(
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names)
+    ) -> None:
         """Remove a connection."""
         _remove_connection(config, name)
 
     @group.command("get")
-    def get_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
+    def get_connection(
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names)
+    ) -> None:
         """Show a connection (key masked)."""
         _get_connection(config, name)
 
     @group.command("test")
-    def test_connection(name: str = typer.Argument(..., help="Connection name.")) -> None:
+    def test_connection(
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names)
+    ) -> None:
         """Validate a connection against the live instance."""
         _test_connection(config, name)
 

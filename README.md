@@ -104,6 +104,7 @@ Uses the cross-platform [`keyring`](https://pypi.org/project/keyring/) package (
   - support for all API entities actions/verbs.
 - magical JSON parameters `%json:{"projectId": "daspdoada798sda"}`
 - magical file parameters `%file:/path/to/data/foo.redis.json`
+- shell completion for configured connection names (`dokli state <TAB>`, `dokli connections get <TAB>`, ...)
 - output formats:
   - yaml
   - json
