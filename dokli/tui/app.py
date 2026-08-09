@@ -307,9 +307,14 @@ class DokliApp(App):
         registry = parse_spec(schema)
         browser = self._installed_screens.get("Browser")
         if isinstance(browser, BrowserScreen):
-            browser.reload(connection, registry)
+            browser.reload(connection, registry, entity_order=self.config.tui.entity_order)
         else:
-            browser = BrowserScreen(name="Browser", connection=connection, registry=registry)
+            browser = BrowserScreen(
+                name="Browser",
+                connection=connection,
+                registry=registry,
+                entity_order=self.config.tui.entity_order,
+            )
             self.install_screen(browser, name="Browser")
         if browser in self.screen_stack:
             while self.screen_stack and self.screen_stack[-1] is not browser:

@@ -144,6 +144,9 @@ tui:
     compose: "#a6e3a1"
   state_colors:
     running: "#f9e2af"
+  entity_order:
+    - project
+    - server
   keys:
     app:
       connections: "n"
@@ -161,6 +164,7 @@ tui:
         assert config.tui.colors == {"primary": "#111111"}
         assert config.tui.entity_colors == {"compose": "#a6e3a1"}
         assert config.tui.state_colors == {"running": "#f9e2af"}
+        assert config.tui.entity_order == ["project", "server"]
         assert config.tui.keys.app == {"connections": "n"}
         assert config.tui.keys.verbs == {"deploy": "z"}
         assert config.tui.auto_deploy is True

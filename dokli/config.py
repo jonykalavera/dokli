@@ -58,6 +58,10 @@ class TuiConfig(BaseModel):
         default_factory=dict,
         description="Per-container-state color overrides (running, exited, dead, ...).",
     )
+    entity_order: list[str] = Field(
+        default_factory=list,
+        description="Entities surfaced first in the browser list (empty = default 'project' first).",
+    )
     auto_deploy: bool = Field(
         False, description="Deploy a service after a create/update from a form (best effort)."
     )

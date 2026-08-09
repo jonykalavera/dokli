@@ -10,7 +10,7 @@ from textual.widgets import Input, Label, Switch
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
 from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
-from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb
+from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb, sort_entities
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.connection import ConnectionScreen
@@ -191,7 +191,7 @@ def _run(coro):
 
 async def _mount_browser(app, pilot, connection, registry):
     """Push the browser screen and wait for it to render."""
-    screen = BrowserScreen(connection, registry)
+    screen = BrowserScreen(connection, registry, entity_order=app.config.tui.entity_order)
     app.install_screen(screen, name="browser")
     app.push_screen("browser")
     for _ in range(30):
@@ -698,6 +698,49 @@ def test_key_for_verb_honors_overrides():
     assert key_for_verb("deploy") == "x"
     assert key_for_verb("deploy", verb_keys={"deploy": "z"}) == "z"
     assert key_for_verb("create", system_keys=frozenset("c")) != "c"
+
+
+def test_sort_entities_prioritizes():
+    """We expect sort_entities to surface priority entities first."""
+    names = ["user", "project", "auditLog", "server", "tag"]
+    assert sort_entities(names, ("project",)) == ["project", "auditLog", "server", "tag", "user"]
+    assert sort_entities(names, ("project", "server")) == ["project", "server", "auditLog", "tag", "user"]
+    assert sort_entities(names, ("nope",)) == ["auditLog", "project", "server", "tag", "user"]
+    assert sort_entities(names) == ["project", "auditLog", "server", "tag", "user"]
+
+
+def test_browser_entities_prioritize_project(mocker):
+    """We expect the top-level entity list to start with project by default."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            labels = _current_labels(app)
+            assert "project" in labels[0]
+
+    _run(main())
+
+
+def test_browser_respects_entity_order(mocker):
+    """We expect a configured entity_order to reorder the top-level list."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    config = Config(connections=[_connection()], tui=TuiConfig(entity_order=["server", "project"]))
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            labels = _current_labels(app)
+            assert "server" in labels[0]
+            assert "project" in labels[1]
+
+    _run(main())
 
 
 def test_auto_deploy_callback_gating(mocker):

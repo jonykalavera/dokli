@@ -333,6 +333,7 @@ tui:
   state_colors:          # container-state traffic-light colors
     running: "#a6e3a1"
     exited: "#f38ba8"
+  entity_order: [project]   # entities surfaced first in the browser list (default: project)
   keys:
     app:                 # app-level actions: toggle_dark, connections, help, quit, command_palette, cancel
       connections: n
@@ -353,6 +354,9 @@ tui:
   `redis`, `project`, ...); `state_colors` overrides the container-state
   traffic-light colors (`running`, `paused`, `exited`, `dead`, ...). Any
   entity/state not listed keeps its default.
+- `entity_order` lists the entities surfaced first in the top-level browser
+  list (in order); the rest follow alphabetically. Empty defaults to
+  `project` first.
 - `keys.verbs` overrides the per-action bindings (`deploy` is `x`, `redeploy`
   `X`, `delete` `d`, ...).
 - `auto_deploy` triggers the entity's `deploy` action after a successful

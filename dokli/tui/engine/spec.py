@@ -1,8 +1,26 @@
 """OpenAPI document → entity registry."""
 
 import string
+from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
+
+# Entities surfaced first in the top-level browser list; the rest follow
+# alphabetically. Overridable via the TUI config's ``entity_order``.
+PRIORITY_ENTITIES: tuple[str, ...] = ("project",)
+
+
+def sort_entities(names: Iterable[str], priority: tuple[str, ...] = PRIORITY_ENTITIES) -> list[str]:
+    """Sort entity names, honoring a priority prefix.
+
+    Names in ``priority`` come first (in their given order); the rest follow
+    alphabetically. Priority entries that are not present are ignored.
+    """
+    ordered = tuple(priority)
+    return sorted(
+        names,
+        key=lambda name: (ordered.index(name) if name in ordered else len(ordered), name),
+    )
 
 
 class EntityAction(BaseModel):
@@ -72,9 +90,15 @@ class EntityRegistry(BaseModel):
         """Get an entity by name."""
         return self.entities.get(name)
 
-    def listable(self) -> list[str]:
-        """Entities that can be listed at the top level (have ``all``)."""
-        return sorted(name for name, entity in self.entities.items() if entity.listable)
+    def listable(self, priority: tuple[str, ...] = PRIORITY_ENTITIES) -> list[str]:
+        """Entities that can be listed at the top level (have ``all``).
+
+        ``priority`` names come first (in order); the rest follow alphabetically.
+        """
+        return sort_entities(
+            (name for name, entity in self.entities.items() if entity.listable),
+            priority,
+        )
 
     def navigation_path(self, name: str) -> list[str]:
         """Chain of ancestors from a top-level entity down to ``name``."""
