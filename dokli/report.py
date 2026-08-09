@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 class ApplyAction(BaseModel):
     """A single apply action."""
 
-    action: Literal["create", "update", "validate", "skip"]
+    action: Literal["create", "update", "validate", "delete", "skip"]
     kind: str
     project: str = ""
     name: str

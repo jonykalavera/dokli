@@ -102,11 +102,22 @@ def state_command(
 @app.command(name="plan")
 def plan_command(
     manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to a manifest file or directory."),
+    prune: bool = typer.Option(
+        False, "--prune", help="Also plan deletions of resources/services not in the manifest."
+    ),
 ) -> None:
     """Show what would change between the manifest(s) and the live instances."""
     manifests = load_manifests(manifest_file)
     if not manifests:
         raise typer.BadParameter(f"No manifests found in '{manifest_file}'.")
+    if prune:
+        for manifest in manifests:
+            connection = _get_connection(manifest.connection)
+            if len(manifests) > 1:
+                rprint(f"[bold]{manifest.connection}[/bold]")
+            report = Applier(manifest, connection).run(dry_run=True, prune=True)
+            _print_apply_report(report)
+        return
     changed = False
     for manifest in manifests:
         connection = _get_connection(manifest.connection)
@@ -153,6 +164,11 @@ def apply_command(
     manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to a manifest file or directory."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without applying."),
     deploy: bool = typer.Option(False, "--deploy", help="Deploy services after applying."),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Delete resources/services not in the manifest (within declared projects).",
+    ),
 ) -> None:
     """Apply a manifest (or every manifest in a directory) to Dokploy instances."""
     manifests = load_manifests(manifest_file)
@@ -161,7 +177,7 @@ def apply_command(
     for manifest in manifests:
         connection = _get_connection(manifest.connection)
         applier = Applier(manifest, connection, deploy=deploy)
-        report = applier.run(dry_run=dry_run)
+        report = applier.run(dry_run=dry_run, prune=prune)
         if len(manifests) > 1:
             rprint(f"[bold]{manifest_file} ({manifest.connection})[/bold]")
         _print_apply_report(report)
