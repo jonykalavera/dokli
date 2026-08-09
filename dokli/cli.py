@@ -15,7 +15,7 @@ from dokli.diff import build_plan
 from dokli.export import export_manifest
 from dokli.formatting import redact_secrets
 from dokli.init import init_manifest
-from dokli.manifest import Manifest
+from dokli.manifest import load_manifests
 from dokli.openapi_cli import build_command as build_api_command
 from dokli.report import ApplyReport
 from dokli.secrets_cli import build_command as build_secrets_command
@@ -101,26 +101,34 @@ def state_command(
 
 @app.command(name="plan")
 def plan_command(
-    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to a manifest file or directory."),
 ) -> None:
-    """Show what would change between the manifest and the live instance."""
-    manifest = Manifest.load(manifest_file)
-    connection = _get_connection(manifest.connection)
-    live_state = collect_state(connection)
-    plan = build_plan(manifest, live_state)
-    if not plan.has_changes:
+    """Show what would change between the manifest(s) and the live instances."""
+    manifests = load_manifests(manifest_file)
+    if not manifests:
+        raise typer.BadParameter(f"No manifests found in '{manifest_file}'.")
+    changed = False
+    for manifest in manifests:
+        connection = _get_connection(manifest.connection)
+        live_state = collect_state(connection)
+        plan = build_plan(manifest, live_state)
+        if not plan.has_changes:
+            continue
+        changed = True
+        if len(manifests) > 1:
+            rprint(f"[bold]{manifest.connection}[/bold]")
+        table = Table(title=f"Plan for {manifest.connection}")
+        table.add_column("Action")
+        table.add_column("Kind")
+        table.add_column("Project")
+        table.add_column("Name")
+        table.add_column("Details")
+        for item in plan.items:
+            details = ", ".join(item.changed) if item.changed else item.reason
+            table.add_row(item.action, item.kind, item.project, item.name, details)
+        rprint(table)
+    if not changed:
         rprint("[green]No changes.[/green]")
-        return
-    table = Table(title=f"Plan for {manifest.connection}")
-    table.add_column("Action")
-    table.add_column("Kind")
-    table.add_column("Project")
-    table.add_column("Name")
-    table.add_column("Details")
-    for item in plan.items:
-        details = ", ".join(item.changed) if item.changed else item.reason
-        table.add_row(item.action, item.kind, item.project, item.name, details)
-    rprint(table)
 
 
 def _print_apply_report(report: ApplyReport) -> None:
@@ -142,31 +150,42 @@ def _print_apply_report(report: ApplyReport) -> None:
 
 @app.command(name="apply")
 def apply_command(
-    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to a manifest file or directory."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without applying."),
     deploy: bool = typer.Option(False, "--deploy", help="Deploy services after applying."),
 ) -> None:
-    """Apply the manifest to a Dokploy instance (idempotent, additive)."""
-    manifest = Manifest.load(manifest_file)
-    connection = _get_connection(manifest.connection)
-    applier = Applier(manifest, connection, deploy=deploy)
-    report = applier.run(dry_run=dry_run)
-    _print_apply_report(report)
+    """Apply a manifest (or every manifest in a directory) to Dokploy instances."""
+    manifests = load_manifests(manifest_file)
+    if not manifests:
+        raise typer.BadParameter(f"No manifests found in '{manifest_file}'.")
+    for manifest in manifests:
+        connection = _get_connection(manifest.connection)
+        applier = Applier(manifest, connection, deploy=deploy)
+        report = applier.run(dry_run=dry_run)
+        if len(manifests) > 1:
+            rprint(f"[bold]{manifest_file} ({manifest.connection})[/bold]")
+        _print_apply_report(report)
 
 
 @app.command(name="validate")
 def validate_command(
-    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+    manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to a manifest file or directory."),
 ) -> None:
-    """Validate a manifest offline against the connection's schema."""
-    manifest = Manifest.load(manifest_file)
-    connection = _get_connection(manifest.connection)
-    issues = validate_manifest(connection, manifest)
-    if issues:
-        for issue in issues:
+    """Validate a manifest (or every manifest in a directory) offline."""
+    manifests = load_manifests(manifest_file)
+    if not manifests:
+        raise typer.BadParameter(f"No manifests found in '{manifest_file}'.")
+    all_issues: list[str] = []
+    for manifest in manifests:
+        connection = _get_connection(manifest.connection)
+        issues = validate_manifest(connection, manifest)
+        if issues:
+            all_issues.extend(f"[{manifest.connection}] {issue}" for issue in issues)
+    if all_issues:
+        for issue in all_issues:
             rprint(f"[yellow]{issue}[/yellow]")
         raise typer.Exit(code=1)
-    rprint("[green]Manifest is valid.[/green]")
+    rprint("[green]Manifests are valid.[/green]")
 
 
 @app.command(name="export")

@@ -183,7 +183,7 @@ Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokpl
 | `dokli init` | Scaffold a new manifest. |
 | `dokli refresh [connection]` | Refetch and refresh the cached OpenAPI schema for a connection. |
 | `dokli state [connection]` | Show the current state of an instance. |
-| `dokli plan [-f dokploy.yaml]` | Preview what would change. |
+| `dokli plan [-f dokploy.yaml]` | Preview what would change. `-f` also accepts a directory (every `*.yaml`/`*.yml` in it). |
 | `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
 | `dokli validate [-f dokploy.yaml]` | Validate the manifest offline against the connection's schema. |
 | `dokli export [connection] [-o file] [--include-secrets]` | Reverse-engineer a live instance into a manifest, including generic `resources:`. |
@@ -290,6 +290,9 @@ dokli plan                           # preview changes
 dokli apply --dry-run                # dry run
 dokli apply                          # configure the instance
 ```
+
+`-f` accepts a directory: `apply`/`plan`/`validate` then process every
+`*.yaml`/`*.yml` in it (sorted), one report per manifest.
 
 ## TUI
 
