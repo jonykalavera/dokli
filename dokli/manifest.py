@@ -4,6 +4,7 @@ The manifest (``dokploy.yaml``) describes the desired state of a Dokploy
 instance. See :issue:`20` and :issue:`50`.
 """
 
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
@@ -198,3 +199,12 @@ class Manifest(BaseModel):
         if api_version != "v1":
             raise ValueError(f"Unsupported manifest apiVersion '{api_version}' (expected 'v1').")
         return cls.model_validate(data)
+
+
+def load_manifests(path: str) -> list[Manifest]:
+    """Load one manifest (file) or every ``*.yaml``/``*.yml`` in a directory."""
+    target = Path(path)
+    if not target.is_dir():
+        return [Manifest.load(str(target))]
+    files = sorted({*(target.glob("*.yaml")), *(target.glob("*.yml"))})
+    return [Manifest.load(str(file)) for file in files]

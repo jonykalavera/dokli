@@ -3,7 +3,7 @@
 import pytest
 import yaml
 
-from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Resource
+from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Resource, load_manifests
 
 
 def _load_manifest(raw_yaml: str) -> Manifest:
@@ -43,6 +43,29 @@ class TestResource:
         target.write_text("apiVersion: v2\nconnection: prod\n")
         with pytest.raises(ValueError):
             Manifest.load(str(target))
+
+
+class TestLoadManifests:
+    """Multi-manifest loading (issue #57)."""
+
+    def test_loads_single_file(self, tmp_path):
+        """We expect a file path to load as a single manifest."""
+        target = tmp_path / "dokploy.yaml"
+        target.write_text("connection: prod\nprojects: []\n")
+        manifests = load_manifests(str(target))
+        assert [m.connection for m in manifests] == ["prod"]
+
+    def test_loads_all_yaml_in_directory_sorted(self, tmp_path):
+        """We expect every yaml in a directory to be loaded, sorted."""
+        (tmp_path / "b.yaml").write_text("connection: beta\nprojects: []\n")
+        (tmp_path / "a.yaml").write_text("connection: alpha\nprojects: []\n")
+        (tmp_path / "notes.txt").write_text("not a manifest")
+        manifests = load_manifests(str(tmp_path))
+        assert [m.connection for m in manifests] == ["alpha", "beta"]
+
+    def test_empty_directory(self, tmp_path):
+        """We expect an empty directory to yield no manifests."""
+        assert load_manifests(str(tmp_path)) == []
 
 
 class TestManifest:
