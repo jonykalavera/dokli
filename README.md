@@ -174,7 +174,7 @@ $ dokli api test-env project one --format json zuanf1SWHMFO11y6xqpRR
 
 ## Dokli as Code
 
-Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokploy. A manifest file (`dokploy.yaml`) describes the desired state and `dokli apply` brings the instance to match it — idempotent and additive (it never deletes resources that are not in the manifest).
+Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokploy. A manifest file (`dokploy.yaml`) describes the desired state and `dokli apply` brings the instance to match it — idempotent and additive (it never deletes resources that are not in the manifest, unless you pass `--prune`).
 
 ### Commands
 
@@ -183,10 +183,12 @@ Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokpl
 | `dokli init` | Scaffold a new manifest. |
 | `dokli refresh [connection]` | Refetch and refresh the cached OpenAPI schema for a connection. |
 | `dokli state [connection]` | Show the current state of an instance. |
-| `dokli plan [-f dokploy.yaml]` | Preview what would change. |
-| `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
+| `dokli plan [-f dokploy.yaml] [--prune]` | Preview what would change. `--prune` also plans deletions. |
+| `dokli apply [-f dokploy.yaml] [--dry-run] [--deploy] [--prune]` | Configure the instance to match the manifest. `--dry-run` only previews; `--deploy` also triggers deployments. |
 | `dokli validate [-f dokploy.yaml]` | Validate the manifest offline against the connection's schema. |
 | `dokli export [connection] [-o file] [--include-secrets]` | Reverse-engineer a live instance into a manifest, including generic `resources:`. |
+
+**`--prune`** (destructive): deletes child records and services that exist in the instance but are not described in the manifest — scoped to projects *declared* in the manifest; projects and environments absent from it are never touched. Always preview with `dokli plan --prune` first.
 
 ### Manifest
 

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from dokli.manifest import Resource
 from dokli.report import ApplyAction
 from dokli.tui.engine import parse_spec
-from dokli.tui.engine.spec import NESTED_CHILD_KEYS
+from dokli.tui.engine.spec import NESTED_CHILD_KEYS, EntityRegistry
 
 if TYPE_CHECKING:
     from dokli.state import State
@@ -83,6 +83,53 @@ SECRET_FIELDS: dict[str, set[str]] = {
     "security": {"password"},
     "backup": {"metadata"},
 }
+
+# Extra required fields for delete routes that have no schema default.
+DELETE_DEFAULTS: dict[str, dict[str, Any]] = {"compose": {"deleteVolumes": False}}
+
+
+def build_registry(client) -> EntityRegistry:
+    """Parse the client's schema into an entity registry (empty if unavailable)."""
+    schema = getattr(client, "schema", None)
+    return parse_spec(schema) if isinstance(schema, dict) else EntityRegistry()
+
+
+def fetch_children(client, kind: str, parent_kind: str, service_id: str, parent_record: dict) -> list[dict]:
+    """Fetch the live children of a resource kind for a parent service."""
+    lookup = LIST_LOOKUP.get(kind)
+    if lookup is not None:
+        route, id_param, type_param = lookup
+        raw = client.request("GET", route, {id_param: service_id, type_param: parent_kind}).json()
+        return raw if isinstance(raw, list) else raw.get("items", [])
+    return parent_record.get(child_array_key(kind)) or []
+
+
+def delete_spec(registry, kind: str) -> tuple[str, str, dict] | None:
+    """The delete route, id field and required defaults for a kind.
+
+    Derived from the entity's destructive actions (``delete``/``remove``) plus
+    curated defaults for required fields without a schema default.
+    """
+    entity = entity_name(kind)
+    spec = registry.get(entity)
+    if spec is None:
+        return None
+    for verb in ("delete", "remove"):
+        action = spec.get(verb)
+        if action is None:
+            continue
+        schema = action.request_schema
+        required = schema.get("required", [])
+        id_field = next((field for field in required if field.endswith("Id")), f"{entity}Id")
+        defaults = dict(DELETE_DEFAULTS.get(kind, {}))
+        for field in required:
+            if field.endswith("Id") or field in defaults:
+                continue
+            prop = schema.get("properties", {}).get(field, {})
+            if "default" in prop:
+                defaults[field] = prop["default"]
+        return f"{entity}.{verb}", id_field, defaults
+    return None
 
 # Child kind -> the nested array key on the parent service record.
 CHILD_ARRAY: dict[str, str] = {child: key for key, child in NESTED_CHILD_KEYS.items()}
@@ -171,8 +218,7 @@ class ResourceManager:
         self.client = applier.client
         self.report = applier.report
         self.state: State = applier._state
-        schema = getattr(self.client, "schema", None)
-        self.registry = parse_spec(schema) if isinstance(schema, dict) else {}
+        self.registry = build_registry(self.client)
 
     def run(self, dry_run: bool = False) -> None:
         """Apply all generic resources."""
@@ -219,7 +265,7 @@ class ResourceManager:
         record = self.client.request("GET", f"{parent_kind}.one", {f"{parent_kind}Id": service.service_id}).json()
         key = match_key(resource.kind)
         value = match_value(resource, key)
-        children = self._children(resource, parent_kind, service.service_id, record)
+        children = fetch_children(self.client, resource.kind, parent_kind, service.service_id, record)
         child = next((c for c in children if str(c.get(key)) == value), None)
 
         parent_field = PARENT_ID_FIELDS.get(resource.kind, f"{parent_kind}Id")
@@ -320,15 +366,6 @@ class ResourceManager:
             if not key.endswith(("Id", "At"))
         }
         return {**live, **body, f"{entity}Id": entity_id}
-
-    def _children(self, resource: Resource, parent_kind: str, service_id: str, record: dict) -> list[dict]:
-        """Fetch the live children of a resource kind for a parent service."""
-        lookup = LIST_LOOKUP.get(resource.kind)
-        if lookup is not None:
-            route, id_param, type_param = lookup
-            raw = self.client.request("GET", route, {id_param: service_id, type_param: parent_kind}).json()
-            return raw if isinstance(raw, list) else raw.get("items", [])
-        return record.get(child_array_key(resource.kind)) or []
 
     def _resolve_named(self, entity: str, name: str) -> str:
         """Resolve a named reference (e.g. ``destination``) to its id."""

@@ -102,10 +102,17 @@ def state_command(
 @app.command(name="plan")
 def plan_command(
     manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
+    prune: bool = typer.Option(
+        False, "--prune", help="Also plan deletions of resources/services not in the manifest."
+    ),
 ) -> None:
     """Show what would change between the manifest and the live instance."""
     manifest = Manifest.load(manifest_file)
     connection = _get_connection(manifest.connection)
+    if prune:
+        report = Applier(manifest, connection).run(dry_run=True, prune=True)
+        _print_apply_report(report)
+        return
     live_state = collect_state(connection)
     plan = build_plan(manifest, live_state)
     if not plan.has_changes:
@@ -145,12 +152,17 @@ def apply_command(
     manifest_file: str = typer.Option("dokploy.yaml", "--file", "-f", help="Path to the manifest."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change without applying."),
     deploy: bool = typer.Option(False, "--deploy", help="Deploy services after applying."),
+    prune: bool = typer.Option(
+        False,
+        "--prune",
+        help="Delete resources/services not in the manifest (within declared projects).",
+    ),
 ) -> None:
-    """Apply the manifest to a Dokploy instance (idempotent, additive)."""
+    """Apply the manifest to a Dokploy instance (idempotent, additive; --prune deletes)."""
     manifest = Manifest.load(manifest_file)
     connection = _get_connection(manifest.connection)
     applier = Applier(manifest, connection, deploy=deploy)
-    report = applier.run(dry_run=dry_run)
+    report = applier.run(dry_run=dry_run, prune=prune)
     _print_apply_report(report)
 
 

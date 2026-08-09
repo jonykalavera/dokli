@@ -13,8 +13,9 @@ from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
+from dokli.prune import Pruner
 from dokli.report import ApplyAction, ApplyReport
-from dokli.resources import ResourceManager
+from dokli.resources import ResourceManager, build_registry
 from dokli.secrets import db_account, get_secret
 from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
 
@@ -32,8 +33,8 @@ class Applier:
         self._live_providers: dict[str, LiveGitProvider] = {}
         self._state: State = State(connection="")
 
-    def run(self, dry_run: bool = False) -> ApplyReport:
-        """Apply the manifest, optionally only planning (dry_run)."""
+    def run(self, dry_run: bool = False, prune: bool = False) -> ApplyReport:
+        """Apply the manifest, optionally only planning (dry_run) or pruning."""
         state = collect_state(self.connection, client=self.client)
         self._state = state
         self._live_providers = {provider.name: provider for provider in state.git_providers}
@@ -49,9 +50,12 @@ class Applier:
 
         # Re-capture the state so generic resources can attach to services that
         # were just created by the typed apply above.
-        if self.manifest.resources:
+        if self.manifest.resources or prune:
             self._state = collect_state(self.connection, client=self.client)
-            ResourceManager(self).run(dry_run)
+            if self.manifest.resources:
+                ResourceManager(self).run(dry_run)
+            if prune:
+                Pruner(self, build_registry(self.client)).run(dry_run)
 
         return self.report
 
