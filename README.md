@@ -316,6 +316,52 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 | Command palette | Result view (logs + search) |
 | ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) | ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) |
 
+### TUI customization
+
+A `tui:` section in the config customizes the appearance and behavior (defaults
+are the built-in Catppuccin look, so nothing breaks):
+
+```yaml
+tui:
+  theme: dark            # or "light"
+  colors:                # Textual ColorSystem field overrides (both variants)
+    primary: "#89b4fa"
+    background: "#1e1e2e"
+  entity_colors:         # per-entity icon colors (compose, application, redis, ...)
+    compose: "#a6e3a1"
+    redis: "#fab387"
+  state_colors:          # container-state traffic-light colors
+    running: "#a6e3a1"
+    exited: "#f38ba8"
+  entity_order: [project]   # entities surfaced first in the browser list (default: project)
+  keys:
+    app:                 # app-level actions: toggle_dark, connections, help, quit, command_palette, cancel
+      connections: n
+    verbs:               # action verbs: create, update, delete, deploy, ...
+      deploy: z
+  auto_deploy: false     # deploy a service after a create/update from a form
+```
+
+- `colors` accepts any `ColorSystem` field: `primary`, `secondary`, `warning`,
+  `error`, `success`, `accent`, `background`, `surface`, `panel`, `boost`.
+  Accent fields apply to both theme variants; structural fields
+  (`background`, `surface`, `panel`) only affect the active `theme:` variant,
+  so toggling light/dark (`D`) still switches the background.
+- App keys remap the global shortcuts (`D` dark, `C` connections, `?` help,
+  `q` quit, `ctrl+p` palette, `escape` back); remapped keys are reserved so
+  entity actions never clash with them.
+- `entity_colors` overrides the per-entity icon colors (`compose`, `application`,
+  `redis`, `project`, ...); `state_colors` overrides the container-state
+  traffic-light colors (`running`, `paused`, `exited`, `dead`, ...). Any
+  entity/state not listed keeps its default.
+- `entity_order` lists the entities surfaced first in the top-level browser
+  list (in order); the rest follow alphabetically. Empty defaults to
+  `project` first.
+- `keys.verbs` overrides the per-action bindings (`deploy` is `x`, `redeploy`
+  `X`, `delete` `d`, ...).
+- `auto_deploy` triggers the entity's `deploy` action after a successful
+  create/update form (best effort — skipped when the record id is unknown).
+
 ## Motivation
 
 The CLI is designed to keep up with any changes in the API. Commands are dynamically inferred from the OpenAPI spec.

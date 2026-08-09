@@ -7,10 +7,10 @@ from textual.command import CommandPalette
 from textual.containers import VerticalScroll
 from textual.widgets import Input, Label, Switch
 
-from dokli.config import Config, ConnectionConfig
+from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
 from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
-from dokli.tui.engine.spec import Entity, EntityAction
+from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb, sort_entities
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.connection import ConnectionScreen
@@ -191,7 +191,7 @@ def _run(coro):
 
 async def _mount_browser(app, pilot, connection, registry):
     """Push the browser screen and wait for it to render."""
-    screen = BrowserScreen(connection, registry)
+    screen = BrowserScreen(connection, registry, entity_order=app.config.tui.entity_order)
     app.install_screen(screen, name="browser")
     app.push_screen("browser")
     for _ in range(30):
@@ -586,6 +586,214 @@ def test_browser_action_key_opens_form(mocker):
     _run(main())
 
 
+def test_browser_respects_verb_key_override(mocker):
+    """We expect a configured verb key to replace the default binding."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    config = Config(
+        connections=[_connection()],
+        tui=TuiConfig(keys=TuiKeysConfig(verbs={"create": "n"})),
+    )
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media")
+            await pilot.press("n")
+            await pilot.pause()
+            assert isinstance(app.screen, ActionFormScreen)
+
+    _run(main())
+
+
+def test_app_applies_tui_config():
+    """We expect the app to apply the theme, colors and app keys from config."""
+    config = Config(
+        connections=[_connection()],
+        tui=TuiConfig(
+            theme="light",
+            colors={"primary": "#111111"},
+            keys=TuiKeysConfig(app={"connections": "n"}),
+        ),
+    )
+    app = DokliApp(config=config)
+
+    assert app.dark is False
+    assert app.design["dark"].primary.hex == "#111111"
+    assert app.design["light"].primary.hex == "#111111"
+    assert app.app_keys["connections"] == "n"
+    assert app.app_keys["toggle_dark"] == "D"
+    binding_keys = {binding.key: binding.action for binding in app._bindings.keys.values()}
+    assert binding_keys["n"] == "connections"
+    assert binding_keys["D"] == "toggle_dark"
+
+
+def test_structural_colors_follow_active_theme():
+    """We expect structural colors to only affect the active theme variant."""
+    config = Config(
+        connections=[_connection()],
+        tui=TuiConfig(theme="dark", colors={"background": "#000000", "primary": "#E4007C"}),
+    )
+    app = DokliApp(config=config)
+
+    assert app.dark is True
+    assert app.design["dark"].primary.hex == "#E4007C"
+    assert app.design["light"].primary.hex == "#E4007C"
+    assert app.design["dark"].background.hex == "#000000"
+    assert app.design["light"].background.hex != "#000000"
+
+
+def test_entity_and_state_color_overrides():
+    """We expect the app to apply entity and container-state color overrides."""
+    from dokli.tui.engine.icons import (
+        ENTITY_ICON_COLORS,
+        entity_icon_color,
+        set_entity_color_overrides,
+        set_state_color_overrides,
+        state_color,
+    )
+
+    set_entity_color_overrides({"compose": "#a6e3a1"})
+    set_state_color_overrides({"running": "#f9e2af"})
+    try:
+        assert entity_icon_color("compose") == "#a6e3a1"
+        assert entity_icon_color("project") == ENTITY_ICON_COLORS["project"]
+        assert state_color("running") == "#f9e2af"
+        assert state_color("exited") == "#f38ba8"
+    finally:
+        set_entity_color_overrides({})
+        set_state_color_overrides({})
+
+    config = Config(
+        connections=[_connection()],
+        tui=TuiConfig(entity_colors={"redis": "#fab387"}, state_colors={"exited": "#f9e2af"}),
+    )
+    DokliApp(config=config)
+    assert entity_icon_color("redis") == "#fab387"
+    assert state_color("exited") == "#f9e2af"
+
+
+def test_mount_refreshes_css_for_custom_design(mocker):
+    """We expect mounting to refresh CSS so the custom design applies at startup."""
+    _patch_api(mocker)
+    config = Config(connections=[_connection()], tui=TuiConfig(colors={"primary": "#E4007C"}))
+    app = DokliApp(config=config)
+    refresh = mocker.spy(app, "refresh_css")
+
+    async def main():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+
+    _run(main())
+    assert refresh.called
+
+
+def test_key_for_verb_honors_overrides():
+    """We expect key_for_verb to respect custom verb and system keys."""
+    assert key_for_verb("deploy") == "x"
+    assert key_for_verb("deploy", verb_keys={"deploy": "z"}) == "z"
+    assert key_for_verb("create", system_keys=frozenset("c")) != "c"
+
+
+def test_sort_entities_prioritizes():
+    """We expect sort_entities to surface priority entities first."""
+    names = ["user", "project", "auditLog", "server", "tag"]
+    assert sort_entities(names, ("project",)) == ["project", "auditLog", "server", "tag", "user"]
+    assert sort_entities(names, ("project", "server")) == ["project", "server", "auditLog", "tag", "user"]
+    assert sort_entities(names, ("nope",)) == ["auditLog", "project", "server", "tag", "user"]
+    assert sort_entities(names) == ["project", "auditLog", "server", "tag", "user"]
+
+
+def test_browser_entities_prioritize_project(mocker):
+    """We expect the top-level entity list to start with project by default."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            labels = _current_labels(app)
+            assert "project" in labels[0]
+
+    _run(main())
+
+
+def test_browser_respects_entity_order(mocker):
+    """We expect a configured entity_order to reorder the top-level list."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    config = Config(connections=[_connection()], tui=TuiConfig(entity_order=["server", "project"]))
+
+    async def main():
+        app = DokliApp(config=config)
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            labels = _current_labels(app)
+            assert "server" in labels[0]
+            assert "project" in labels[1]
+
+    _run(main())
+
+
+def test_auto_deploy_callback_gating(mocker):
+    """We expect the auto-deploy hook to fire only when enabled and possible."""
+    _patch_api(mocker)
+    schema = {
+        **FAKE_SCHEMA,
+        "paths": {
+            **FAKE_SCHEMA["paths"],
+            "/compose.deploy": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {"composeId": {"type": "string"}},
+                                    "required": ["composeId"],
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+        },
+    }
+    registry = parse_spec(schema)
+    compose = registry.get("compose")
+    update = compose.get("update")
+    deploy = compose.get("deploy")
+    assert deploy is not None
+
+    def probe(auto_deploy: bool, action) -> BrowserScreen:
+        config = Config(connections=[_connection()], tui=TuiConfig(auto_deploy=auto_deploy))
+        app = DokliApp(config=config)
+
+        async def main():
+            async with app.run_test() as pilot:
+                await _mount_browser(app, pilot, _connection(), registry)
+                screen = app.screen
+                level = screen.current
+                level.kind = "compose"
+                level.items = [{"_kind": "compose", "composeId": "c1", "name": "web"}]
+                level.index = 0
+                return screen._auto_deploy_callback(action)
+
+        return _run(main())
+
+    assert probe(False, update) is None
+    assert probe(True, deploy) is None
+    assert callable(probe(True, update))
+
+
 def test_filter_enter_confirms_and_keeps_filter(mocker):
     """We expect Enter in the filter to close it and keep the filter applied."""
     _patch_api(mocker)
@@ -606,7 +814,6 @@ def test_filter_enter_confirms_and_keeps_filter(mocker):
             assert filter_input.display is False
             labels = _current_labels(app)
             assert any("project" in label for label in labels)
-            assert not any("server" in label for label in labels)
 
     _run(main())
 

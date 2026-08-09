@@ -28,6 +28,7 @@ from dokli.tui.engine import (
     related_spec,
     state_indicator,
 )
+from dokli.tui.engine.spec import PRIORITY_ENTITIES
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.picker import PickerScreen
@@ -79,6 +80,7 @@ class BrowserScreen(Screen):
         self,
         connection: ConnectionConfig,
         registry: EntityRegistry,
+        entity_order: list[str] | None = None,
         *args,
         **kwargs,
     ) -> None:
@@ -87,11 +89,17 @@ class BrowserScreen(Screen):
         self.connection = connection
         self.registry = registry
         self.client = APIClient(connection)
-        entities = [{"_kind": name, "name": name} for name in registry.listable()]
+        self.entity_order = tuple(entity_order or ())
+        entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
         self._usable: set[str] | None = None
         self._related_cache: dict[str, list[dict]] = {}
+
+    def _listable_entities(self) -> list[str]:
+        """The top-level entity list, honoring the configured priority order."""
+        priority = self.entity_order or PRIORITY_ENTITIES
+        return self.registry.listable(priority=priority)
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""
@@ -108,12 +116,19 @@ class BrowserScreen(Screen):
         """On mount, probe which entities are usable with this API key."""
         await self._run_reprobe()
 
-    def reload(self, connection: ConnectionConfig, registry: EntityRegistry) -> None:
+    def reload(
+        self,
+        connection: ConnectionConfig,
+        registry: EntityRegistry,
+        entity_order: list[str] | None = None,
+    ) -> None:
         """Point this browser at a new connection/registry and re-probe."""
         self.connection = connection
         self.registry = registry
         self.client = APIClient(connection)
-        entities = [{"_kind": name, "name": name} for name in registry.listable()]
+        if entity_order is not None:
+            self.entity_order = tuple(entity_order)
+        entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
         self._usable = None
@@ -291,7 +306,8 @@ class BrowserScreen(Screen):
         create/new and read-only GET queries. Once inside a real record, all
         actions (update, remove, ...) are available.
         """
-        bindings = action_bindings(entity)
+        keybindings = getattr(self.app, "tui_keybindings", lambda: {})()
+        bindings = action_bindings(entity, **keybindings)
         if self.current.kind == "entities":
             bindings = [
                 (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
@@ -607,7 +623,44 @@ class BrowserScreen(Screen):
                     enriched = await self._api_get(one_action, params)
                     if enriched:
                         record = enriched
-        self.app.push_screen(ActionFormScreen(self.connection, action, record=record, classes="Entities"))
+        self.app.push_screen(
+            ActionFormScreen(
+                self.connection,
+                action,
+                record=record,
+                on_success=self._auto_deploy_callback(action),
+                classes="Entities",
+            )
+        )
+
+    def _auto_deploy_callback(self, action):
+        """A form success hook that deploys the service when configured."""
+        config = getattr(self.app, "config", None)
+        if config is None or not config.tui.auto_deploy:
+            return None
+        if action.verb not in ("create", "new", "update", "edit", "save"):
+            return None
+        entity = self.registry.get(self._selected_kind() or "")
+        deploy = entity.get("deploy") if entity else None
+        if deploy is None:
+            return None
+        return lambda: self.run_worker(self._deploy_after_save(deploy), group="action")
+
+    async def _deploy_after_save(self, deploy) -> None:
+        """Refresh the list, then trigger a deploy of the (likely) saved record."""
+        await self._refresh_current()
+        entity_name = deploy.route.split(".")[0]
+        entity_id = record_id(self.selected or {}, entity_name)
+        if not entity_id:
+            self.notify("Auto-deploy skipped: record id not available.", severity="warning")
+            return
+        try:
+            self.client.request("POST", deploy.route, {"body": {f"{entity_name}Id": entity_id}})
+        except httpx.HTTPError as err:
+            self.notify(f"Auto-deploy failed: {err}", severity="error", timeout=10)
+            return
+        self.notify(f"{deploy.route} OK")
+        self._refresh_after_action()
 
     async def _api_get(self, action, params: dict):
         """Execute a GET-style action and return the JSON, or None on error."""

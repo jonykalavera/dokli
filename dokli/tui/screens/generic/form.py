@@ -1,5 +1,6 @@
 """Generic action form (built from an OpenAPI request body schema)."""
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
@@ -31,6 +32,7 @@ class ActionFormScreen(Screen):
         connection: ConnectionConfig,
         action: EntityAction,
         record: dict | None = None,
+        on_success: Callable[[], None] | None = None,
         *args,
         **kwargs,
     ) -> None:
@@ -39,6 +41,7 @@ class ActionFormScreen(Screen):
         self.connection = connection
         self.action = action
         self.record = record or {}
+        self.on_success = on_success
         model = build_form_model(action.request_schema, name=f"{action.route}Form")
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
         self.form = Form.from_model(model, data=prefill, classes="action-form")
@@ -85,8 +88,14 @@ class ActionFormScreen(Screen):
             self.connection,
             self.action,
             body,
-            on_success=lambda: self.dismiss(None),
+            on_success=self._success,
         )
+
+    def _success(self) -> None:
+        """Run the optional success hook, then close the form."""
+        if self.on_success is not None:
+            self.on_success()
+        self.dismiss(None)
 
     def action_wizard(self) -> None:
         """Open the step-by-step wizard for the same action."""

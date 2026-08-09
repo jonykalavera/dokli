@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from click.shell_completion import CompletionItem
@@ -18,6 +18,58 @@ def complete_connection_names(ctx: Any, param: Any, incomplete: str) -> list[Com
     """Click shell completion for the configured connection names."""
     names = [connection.name for connection in Config().connections]
     return [CompletionItem(name) for name in names if name.startswith(incomplete)]
+
+
+# Textual ColorSystem fields users may override.
+TUI_COLOR_FIELDS = frozenset(
+    {"primary", "secondary", "warning", "error", "success", "accent", "background", "surface", "panel", "boost"}
+)
+
+
+class TuiKeysConfig(BaseModel):
+    """TUI keybinding remaps (issue #61)."""
+
+    app: dict[str, str] = Field(
+        default_factory=dict,
+        description="App-level action -> key (toggle_dark, connections, help, quit, command_palette, cancel).",
+    )
+    verbs: dict[str, str] = Field(
+        default_factory=dict, description="Action verb -> key (create, update, delete, deploy, ...)."
+    )
+
+
+class TuiConfig(BaseModel):
+    """TUI display & behavior options (issue #61)."""
+
+    theme: Literal["dark", "light"] = Field("dark", description="Initial theme variant.")
+    colors: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "ColorSystem field overrides, applied to both theme variants. "
+            f"Valid fields: {', '.join(sorted(TUI_COLOR_FIELDS))}."
+        ),
+    )
+    keys: TuiKeysConfig = Field(default_factory=TuiKeysConfig)
+    entity_colors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-entity icon color overrides (e.g. compose: '#a6e3a1').",
+    )
+    state_colors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-container-state color overrides (running, exited, dead, ...).",
+    )
+    entity_order: list[str] = Field(
+        default_factory=list,
+        description="Entities surfaced first in the browser list (empty = default 'project' first).",
+    )
+    auto_deploy: bool = Field(
+        False, description="Deploy a service after a create/update from a form (best effort)."
+    )
+
+    @property
+    def dark(self) -> bool:
+        """Whether the app should start in dark mode."""
+        return self.theme == "dark"
 
 
 class ConnectionConfig(BaseModel):
@@ -81,6 +133,7 @@ class Config(BaseSettings):
     """Dokli config."""
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
+    tui: TuiConfig = Field(default_factory=TuiConfig, description="TUI display & behavior options.")
     model_config = SettingsConfigDict(
         env_prefix="DOKLI_",
         yaml_file=[

@@ -8,6 +8,7 @@ from typing import Any, cast
 import httpx
 from textual import events, log
 from textual.app import App, ComposeResult, get_system_commands
+from textual.binding import _Bindings
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.design import ColorSystem
 from textual.widgets import Footer, Header, Static
@@ -16,6 +17,7 @@ from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
 from dokli.secrets import conn_account, set_secret
 from dokli.tui.engine import parse_spec, record_title
+from dokli.tui.engine.icons import set_entity_color_overrides, set_state_color_overrides
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -25,10 +27,33 @@ from dokli.tui.screens.settings import SettingsScreen
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
 
+# App-level action -> (default key, help text). Remappable via tui.keys.app.
+APP_ACTIONS: dict[str, tuple[str, str]] = {
+    "toggle_dark": ("D", "Toggle dark mode"),
+    "connections": ("C", "Connections"),
+    "help": ("?", "Help"),
+    "command_palette": ("ctrl+p", "Command palette"),
+    "cancel": ("escape", "Cancel/Back"),
+    "quit": ("q", "Quit"),
+}
 
-def _catppuccin_design() -> dict[str, ColorSystem]:
-    """A Catppuccin (Mocha/Latte) color system for the app."""
-    return {
+# Color fields that define the theme's structure: they follow the active
+# variant (so toggling light/dark still switches the background).
+TUI_STRUCTURAL = frozenset({"background", "surface", "panel"})
+
+
+def _catppuccin_design(overrides: dict[str, str] | None = None, dark: bool = True) -> dict[str, ColorSystem]:
+    """A Catppuccin (Mocha/Latte) color system for the app.
+
+    ``overrides`` are color fields. Accent fields (primary, secondary, accent,
+    warning, error, success, boost) apply to both variants; structural fields
+    (background, surface, panel) apply only to the active ``dark`` variant so
+    the light/dark toggle stays meaningful.
+    """
+    overrides = overrides or {}
+    accents = {key: value for key, value in overrides.items() if key not in TUI_STRUCTURAL}
+    structural = {key: value for key, value in overrides.items() if key in TUI_STRUCTURAL}
+    variants = {
         "dark": ColorSystem(
             primary="#cba6f7",
             secondary="#f5c2e7",
@@ -52,18 +77,50 @@ def _catppuccin_design() -> dict[str, ColorSystem]:
             dark=False,
         ),
     }
+    return {
+        name: _with_color_overrides(variant, {**accents, **(structural if (name == "dark") == dark else {})})
+        for name, variant in variants.items()
+    }
+
+
+def _with_color_overrides(base: ColorSystem, overrides: dict[str, str]) -> ColorSystem:
+    """Rebuild a ColorSystem with the given field overrides applied."""
+    if not overrides:
+        return base
+    kwargs = {
+        "primary": base.primary,
+        "secondary": base.secondary,
+        "warning": base.warning,
+        "error": base.error,
+        "success": base.success,
+        "accent": base.accent,
+        "background": base.background,
+        "surface": base.surface,
+        "panel": base.panel,
+        "boost": base.boost,
+        "dark": getattr(base, "dark", False),
+    }
+    kwargs.update({key: value for key, value in overrides.items() if key in kwargs and value is not None})
+    return ColorSystem(**kwargs)  # ty: ignore[invalid-argument-type]
 
 
 class DokliCommands(Provider):
     """Commands for the Dokli command palette (context-aware)."""
 
     # Core commands that have an app-level keybinding shown in the help line.
-    _CORE_KEYS = {
-        "Toggle dark mode": "D",
-        "Connections": "C",
-        "Help": "?",
-        "Quit": "q",
+    _CORE_KEY_ACTIONS = {
+        "Toggle dark mode": "toggle_dark",
+        "Connections": "connections",
+        "Help": "help",
+        "Quit": "quit",
     }
+
+    def _core_keys(self) -> dict[str, str | None]:
+        """The effective keys for the core palette commands."""
+        app = cast(DokliApp, self.app)
+        return {
+            name: app.app_keys.get(action) for name, action in self._CORE_KEY_ACTIONS.items()
+        }
 
     def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
         app = cast(DokliApp, self.app)
@@ -75,7 +132,8 @@ class DokliCommands(Provider):
             ("Quit", "Exit the app", app.action_quit),
         ]
         commands = [
-            (name, _with_key(help_text, self._CORE_KEYS.get(name)), callback) for name, help_text, callback in commands
+            (name, _with_key(help_text, self._core_keys().get(name)), callback)
+            for name, help_text, callback in commands
         ]
         commands.extend(_screen_commands(self.screen))
         for connection in app.config.connections:
@@ -176,12 +234,40 @@ class DokliApp(App):
     ) -> None:
         """Construct a new TUI app."""
         super().__init__(**kwargs)
-        self.design = _catppuccin_design()
         self.config = config or Config()
         self.connection: ConnectionConfig | None = connection
+        self.design = _catppuccin_design(self.config.tui.colors or None, self.config.tui.dark)
+        set_entity_color_overrides(self.config.tui.entity_colors)
+        set_state_color_overrides(self.config.tui.state_colors)
+        self.dark = self.config.tui.dark
+        self.app_keys = {
+            action: (self.config.tui.keys.app or {}).get(action, default)
+            for action, (default, _) in APP_ACTIONS.items()
+        }
+        # Replace the class-level bindings with the config-derived ones so the
+        # Footer/help reflect any remapped app keys.
+        self._bindings = _Bindings(
+            [
+                (self.app_keys[action], action, help_text)
+                for action, (_, help_text) in APP_ACTIONS.items()
+            ]
+        )
+
+    def tui_keybindings(self) -> dict:
+        """Keybinding overrides for the entity registry (verb keys, reserved keys)."""
+        return {
+            "verb_keys": self.config.tui.keys.verbs or None,
+            "system_keys": frozenset(
+                key for key in self.app_keys.values() if len(key) == 1 and key.isalnum()
+            ),
+        }
 
     def on_mount(self) -> None:
         """On mount."""
+        # The stylesheet is built in App.__init__ with the default design; when
+        # the configured theme equals the default, no dark-change event fires,
+        # so force a refresh to apply the custom design at startup.
+        self.call_later(self.refresh_css)
         self.install_screen(ConnectionsScreen(self.config.connections), name="Connections")
         self.install_screen(SettingsScreen(name="Settings"), name="Settings")
 
@@ -221,9 +307,14 @@ class DokliApp(App):
         registry = parse_spec(schema)
         browser = self._installed_screens.get("Browser")
         if isinstance(browser, BrowserScreen):
-            browser.reload(connection, registry)
+            browser.reload(connection, registry, entity_order=self.config.tui.entity_order)
         else:
-            browser = BrowserScreen(name="Browser", connection=connection, registry=registry)
+            browser = BrowserScreen(
+                name="Browser",
+                connection=connection,
+                registry=registry,
+                entity_order=self.config.tui.entity_order,
+            )
             self.install_screen(browser, name="Browser")
         if browser in self.screen_stack:
             while self.screen_stack and self.screen_stack[-1] is not browser:

@@ -1,8 +1,26 @@
 """OpenAPI document → entity registry."""
 
 import string
+from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
+
+# Entities surfaced first in the top-level browser list; the rest follow
+# alphabetically. Overridable via the TUI config's ``entity_order``.
+PRIORITY_ENTITIES: tuple[str, ...] = ("project",)
+
+
+def sort_entities(names: Iterable[str], priority: tuple[str, ...] = PRIORITY_ENTITIES) -> list[str]:
+    """Sort entity names, honoring a priority prefix.
+
+    Names in ``priority`` come first (in their given order); the rest follow
+    alphabetically. Priority entries that are not present are ignored.
+    """
+    ordered = tuple(priority)
+    return sorted(
+        names,
+        key=lambda name: (ordered.index(name) if name in ordered else len(ordered), name),
+    )
 
 
 class EntityAction(BaseModel):
@@ -72,9 +90,15 @@ class EntityRegistry(BaseModel):
         """Get an entity by name."""
         return self.entities.get(name)
 
-    def listable(self) -> list[str]:
-        """Entities that can be listed at the top level (have ``all``)."""
-        return sorted(name for name, entity in self.entities.items() if entity.listable)
+    def listable(self, priority: tuple[str, ...] = PRIORITY_ENTITIES) -> list[str]:
+        """Entities that can be listed at the top level (have ``all``).
+
+        ``priority`` names come first (in order); the rest follow alphabetically.
+        """
+        return sort_entities(
+            (name for name, entity in self.entities.items() if entity.listable),
+            priority,
+        )
 
     def navigation_path(self, name: str) -> list[str]:
         """Chain of ancestors from a top-level entity down to ``name``."""
@@ -164,24 +188,46 @@ VERB_KEYS = {
 }
 
 
-def key_for_verb(verb: str, taken: frozenset[str] = frozenset()) -> str | None:
+def key_for_verb(
+    verb: str,
+    taken: frozenset[str] = frozenset(),
+    verb_keys: dict[str, str] | None = None,
+    system_keys: frozenset[str] | None = None,
+    reserved_keys: frozenset[str] | None = None,
+) -> str | None:
     """Assign a deterministic, collision-free keybinding to an action verb.
 
     Prefers the verb's own letters (``VERB_KEYS`` first), then any free letter
-    of the alphabet, so every action can get a key.
+    of the alphabet, so every action can get a key. ``verb_keys``,
+    ``system_keys`` and ``reserved_keys`` default to the module constants but
+    can be overridden (e.g. from the user's TUI config).
     """
-    if verb in VERB_KEYS and VERB_KEYS[verb] not in taken and VERB_KEYS[verb] not in SYSTEM_KEYS:
-        return VERB_KEYS[verb]
+    verb_keys = verb_keys or VERB_KEYS
+    system_keys = SYSTEM_KEYS if system_keys is None else system_keys
+    reserved_keys = RESERVED_KEYS if reserved_keys is None else reserved_keys
+    system_keys_lower = frozenset(key.lower() for key in system_keys)
+    if verb in verb_keys and verb_keys[verb] not in taken and verb_keys[verb] not in system_keys:
+        return verb_keys[verb]
     for character in verb:
-        if character.isalpha() and character.lower() not in taken and character.lower() not in RESERVED_KEYS:
+        if (
+            character.isalpha()
+            and character.lower() not in taken
+            and character.lower() not in reserved_keys
+            and character.lower() not in system_keys_lower
+        ):
             return character.lower()
     for character in FALLBACK_KEYS:
-        if character not in taken and character not in RESERVED_KEYS and character not in SYSTEM_KEYS:
+        if character not in taken and character not in reserved_keys and character not in system_keys:
             return character
     return None
 
 
-def action_bindings(entity: Entity) -> list[tuple[EntityAction, str | None]]:
+def action_bindings(
+    entity: Entity,
+    verb_keys: dict[str, str] | None = None,
+    system_keys: frozenset[str] | None = None,
+    reserved_keys: frozenset[str] | None = None,
+) -> list[tuple[EntityAction, str | None]]:
     """Assign keybindings to an entity's actions.
 
     Keys are assigned in **display order** (the order actions appear in the
@@ -193,7 +239,7 @@ def action_bindings(entity: Entity) -> list[tuple[EntityAction, str | None]]:
     for action in entity.actions.values():
         if classify(action) in ("list", "detail"):
             continue
-        key = key_for_verb(action.verb, frozenset(taken))
+        key = key_for_verb(action.verb, frozenset(taken), verb_keys, system_keys, reserved_keys)
         if key:
             taken.add(key)
         bindings.append((action, key))

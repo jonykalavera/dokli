@@ -4,8 +4,9 @@ import yaml
 import pytest
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
-from dokli.config import Config, ConnectionConfig
+from dokli.config import Config, ConnectionConfig, TuiConfig
 
 
 class ConnectionConfigFactory(ModelFactory[ConnectionConfig]):
@@ -112,3 +113,63 @@ class TestConnectionConfig:
         config = ConnectionConfigFactory.build(api_key="*" * 64)
         result = config.model_dump_clear()
         assert result["api_key"] == "*" * 64
+
+
+class TestTuiConfig:
+    """TUI customization options (issue #61)."""
+
+    def test_defaults(self):
+        """We expect sane defaults (dark theme, no overrides)."""
+        tui = TuiConfig()
+        assert tui.dark is True
+        assert tui.colors == {}
+        assert tui.keys.app == {}
+        assert tui.keys.verbs == {}
+        assert tui.auto_deploy is False
+
+    def test_parses_from_yaml(self, tmp_path):
+        """We expect the tui section to load from the config file."""
+        target = tmp_path / "dokli.yaml"
+        target.write_text(
+            """\
+connections:
+  - name: meche
+    url: https://meche.lan
+    api_key_cmd: "echo key"
+tui:
+  theme: light
+  colors:
+    primary: "#111111"
+  entity_colors:
+    compose: "#a6e3a1"
+  state_colors:
+    running: "#f9e2af"
+  entity_order:
+    - project
+    - server
+  keys:
+    app:
+      connections: "n"
+    verbs:
+      deploy: "z"
+  auto_deploy: true
+"""
+        )
+
+        class IsolatedConfig(Config):
+            model_config = SettingsConfigDict(env_prefix="DOKLI_", yaml_file=[str(target)])
+
+        config = IsolatedConfig()
+        assert config.tui.dark is False
+        assert config.tui.colors == {"primary": "#111111"}
+        assert config.tui.entity_colors == {"compose": "#a6e3a1"}
+        assert config.tui.state_colors == {"running": "#f9e2af"}
+        assert config.tui.entity_order == ["project", "server"]
+        assert config.tui.keys.app == {"connections": "n"}
+        assert config.tui.keys.verbs == {"deploy": "z"}
+        assert config.tui.auto_deploy is True
+
+    def test_unknown_colors_are_ignored(self):
+        """We expect unknown color fields to be ignored (no crash)."""
+        tui = TuiConfig(colors={"not_a_field": "#fff"})
+        assert tui.colors == {"not_a_field": "#fff"}
