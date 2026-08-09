@@ -647,6 +647,36 @@ def test_structural_colors_follow_active_theme():
     assert app.design["light"].background.hex != "#000000"
 
 
+def test_entity_and_state_color_overrides():
+    """We expect the app to apply entity and container-state color overrides."""
+    from dokli.tui.engine.icons import (
+        ENTITY_ICON_COLORS,
+        entity_icon_color,
+        set_entity_color_overrides,
+        set_state_color_overrides,
+        state_color,
+    )
+
+    set_entity_color_overrides({"compose": "#a6e3a1"})
+    set_state_color_overrides({"running": "#f9e2af"})
+    try:
+        assert entity_icon_color("compose") == "#a6e3a1"
+        assert entity_icon_color("project") == ENTITY_ICON_COLORS["project"]
+        assert state_color("running") == "#f9e2af"
+        assert state_color("exited") == "#f38ba8"
+    finally:
+        set_entity_color_overrides({})
+        set_state_color_overrides({})
+
+    config = Config(
+        connections=[_connection()],
+        tui=TuiConfig(entity_colors={"redis": "#fab387"}, state_colors={"exited": "#f9e2af"}),
+    )
+    DokliApp(config=config)
+    assert entity_icon_color("redis") == "#fab387"
+    assert state_color("exited") == "#f9e2af"
+
+
 def test_mount_refreshes_css_for_custom_design(mocker):
     """We expect mounting to refresh CSS so the custom design applies at startup."""
     _patch_api(mocker)

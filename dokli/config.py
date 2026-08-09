@@ -50,6 +50,14 @@ class TuiConfig(BaseModel):
         ),
     )
     keys: TuiKeysConfig = Field(default_factory=TuiKeysConfig)
+    entity_colors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-entity icon color overrides (e.g. compose: '#a6e3a1').",
+    )
+    state_colors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per-container-state color overrides (running, exited, dead, ...).",
+    )
     auto_deploy: bool = Field(
         False, description="Deploy a service after a create/update from a form (best effort)."
     )

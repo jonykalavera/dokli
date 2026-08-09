@@ -140,6 +140,10 @@ tui:
   theme: light
   colors:
     primary: "#111111"
+  entity_colors:
+    compose: "#a6e3a1"
+  state_colors:
+    running: "#f9e2af"
   keys:
     app:
       connections: "n"
@@ -155,6 +159,8 @@ tui:
         config = IsolatedConfig()
         assert config.tui.dark is False
         assert config.tui.colors == {"primary": "#111111"}
+        assert config.tui.entity_colors == {"compose": "#a6e3a1"}
+        assert config.tui.state_colors == {"running": "#f9e2af"}
         assert config.tui.keys.app == {"connections": "n"}
         assert config.tui.keys.verbs == {"deploy": "z"}
         assert config.tui.auto_deploy is True

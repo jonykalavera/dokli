@@ -327,6 +327,12 @@ tui:
   colors:                # Textual ColorSystem field overrides (both variants)
     primary: "#89b4fa"
     background: "#1e1e2e"
+  entity_colors:         # per-entity icon colors (compose, application, redis, ...)
+    compose: "#a6e3a1"
+    redis: "#fab387"
+  state_colors:          # container-state traffic-light colors
+    running: "#a6e3a1"
+    exited: "#f38ba8"
   keys:
     app:                 # app-level actions: toggle_dark, connections, help, quit, command_palette, cancel
       connections: n
@@ -343,6 +349,10 @@ tui:
 - App keys remap the global shortcuts (`D` dark, `C` connections, `?` help,
   `q` quit, `ctrl+p` palette, `escape` back); remapped keys are reserved so
   entity actions never clash with them.
+- `entity_colors` overrides the per-entity icon colors (`compose`, `application`,
+  `redis`, `project`, ...); `state_colors` overrides the container-state
+  traffic-light colors (`running`, `paused`, `exited`, `dead`, ...). Any
+  entity/state not listed keeps its default.
 - `keys.verbs` overrides the per-action bindings (`deploy` is `x`, `redeploy`
   `X`, `delete` `d`, ...).
 - `auto_deploy` triggers the entity's `deploy` action after a successful

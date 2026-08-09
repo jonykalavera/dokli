@@ -17,6 +17,7 @@ from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
 from dokli.secrets import conn_account, set_secret
 from dokli.tui.engine import parse_spec, record_title
+from dokli.tui.engine.icons import set_entity_color_overrides, set_state_color_overrides
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -236,6 +237,8 @@ class DokliApp(App):
         self.config = config or Config()
         self.connection: ConnectionConfig | None = connection
         self.design = _catppuccin_design(self.config.tui.colors or None, self.config.tui.dark)
+        set_entity_color_overrides(self.config.tui.entity_colors)
+        set_state_color_overrides(self.config.tui.state_colors)
         self.dark = self.config.tui.dark
         self.app_keys = {
             action: (self.config.tui.keys.app or {}).get(action, default)

@@ -78,9 +78,26 @@ def entity_icon(name: str) -> str:
     return ENTITY_ICONS.get(name, FALLBACK_ICON)
 
 
+# Per-entity/state color overrides from the TUI config (empty = defaults).
+_ENTITY_COLOR_OVERRIDES: dict[str, str] = {}
+_STATE_COLOR_OVERRIDES: dict[str, str] = {}
+
+
+def set_entity_color_overrides(overrides: dict[str, str] | None) -> None:
+    """Replace the per-entity icon color overrides."""
+    _ENTITY_COLOR_OVERRIDES.clear()
+    _ENTITY_COLOR_OVERRIDES.update(overrides or {})
+
+
+def set_state_color_overrides(overrides: dict[str, str] | None) -> None:
+    """Replace the per-state color overrides."""
+    _STATE_COLOR_OVERRIDES.clear()
+    _STATE_COLOR_OVERRIDES.update(overrides or {})
+
+
 def entity_icon_color(name: str) -> str:
     """Return the color for an entity's icon."""
-    return ENTITY_ICON_COLORS.get(name, DEFAULT_ICON_COLOR)
+    return _ENTITY_COLOR_OVERRIDES.get(name) or ENTITY_ICON_COLORS.get(name, DEFAULT_ICON_COLOR)
 
 
 def icon_label(name: str) -> str:
@@ -105,7 +122,9 @@ _STATE_COLORS = {
 
 def state_color(state: str) -> str:
     """Traffic-light color for a container state."""
-    return _STATE_COLORS.get(state.lower(), DEFAULT_ICON_COLOR) if state else DEFAULT_ICON_COLOR
+    if not state:
+        return DEFAULT_ICON_COLOR
+    return _STATE_COLOR_OVERRIDES.get(state.lower()) or _STATE_COLORS.get(state.lower(), DEFAULT_ICON_COLOR)
 
 
 def state_indicator(state: str) -> str:
