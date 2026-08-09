@@ -316,6 +316,35 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 | Command palette | Result view (logs + search) |
 | ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) | ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) |
 
+### TUI customization
+
+A `tui:` section in the config customizes the appearance and behavior (defaults
+are the built-in Catppuccin look, so nothing breaks):
+
+```yaml
+tui:
+  theme: dark            # or "light"
+  colors:                # Textual ColorSystem field overrides (both variants)
+    primary: "#89b4fa"
+    background: "#1e1e2e"
+  keys:
+    app:                 # app-level actions: toggle_dark, connections, help, quit, command_palette, cancel
+      connections: n
+    verbs:               # action verbs: create, update, delete, deploy, ...
+      deploy: z
+  auto_deploy: false     # deploy a service after a create/update from a form
+```
+
+- `colors` accepts any `ColorSystem` field: `primary`, `secondary`, `warning`,
+  `error`, `success`, `accent`, `background`, `surface`, `panel`, `boost`.
+- App keys remap the global shortcuts (`D` dark, `C` connections, `?` help,
+  `q` quit, `ctrl+p` palette, `escape` back); remapped keys are reserved so
+  entity actions never clash with them.
+- `keys.verbs` overrides the per-action bindings (`deploy` is `x`, `redeploy`
+  `X`, `delete` `d`, ...).
+- `auto_deploy` triggers the entity's `deploy` action after a successful
+  create/update form (best effort — skipped when the record id is unknown).
+
 ## Motivation
 
 The CLI is designed to keep up with any changes in the API. Commands are dynamically inferred from the OpenAPI spec.

@@ -8,6 +8,7 @@ from typing import Any, cast
 import httpx
 from textual import events, log
 from textual.app import App, ComposeResult, get_system_commands
+from textual.binding import _Bindings
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.design import ColorSystem
 from textual.widgets import Footer, Header, Static
@@ -25,10 +26,24 @@ from dokli.tui.screens.settings import SettingsScreen
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
 
+# App-level action -> (default key, help text). Remappable via tui.keys.app.
+APP_ACTIONS: dict[str, tuple[str, str]] = {
+    "toggle_dark": ("D", "Toggle dark mode"),
+    "connections": ("C", "Connections"),
+    "help": ("?", "Help"),
+    "command_palette": ("ctrl+p", "Command palette"),
+    "cancel": ("escape", "Cancel/Back"),
+    "quit": ("q", "Quit"),
+}
 
-def _catppuccin_design() -> dict[str, ColorSystem]:
-    """A Catppuccin (Mocha/Latte) color system for the app."""
-    return {
+
+def _catppuccin_design(overrides: dict[str, str] | None = None) -> dict[str, ColorSystem]:
+    """A Catppuccin (Mocha/Latte) color system for the app.
+
+    ``overrides`` are color fields applied to both theme variants.
+    """
+    overrides = overrides or {}
+    variants = {
         "dark": ColorSystem(
             primary="#cba6f7",
             secondary="#f5c2e7",
@@ -52,18 +67,47 @@ def _catppuccin_design() -> dict[str, ColorSystem]:
             dark=False,
         ),
     }
+    return {name: _with_color_overrides(variant, overrides) for name, variant in variants.items()}
+
+
+def _with_color_overrides(base: ColorSystem, overrides: dict[str, str]) -> ColorSystem:
+    """Rebuild a ColorSystem with the given field overrides applied."""
+    if not overrides:
+        return base
+    kwargs = {
+        "primary": base.primary,
+        "secondary": base.secondary,
+        "warning": base.warning,
+        "error": base.error,
+        "success": base.success,
+        "accent": base.accent,
+        "background": base.background,
+        "surface": base.surface,
+        "panel": base.panel,
+        "boost": base.boost,
+        "dark": getattr(base, "dark", False),
+    }
+    kwargs.update({key: value for key, value in overrides.items() if key in kwargs and value is not None})
+    return ColorSystem(**kwargs)  # ty: ignore[invalid-argument-type]
 
 
 class DokliCommands(Provider):
     """Commands for the Dokli command palette (context-aware)."""
 
     # Core commands that have an app-level keybinding shown in the help line.
-    _CORE_KEYS = {
-        "Toggle dark mode": "D",
-        "Connections": "C",
-        "Help": "?",
-        "Quit": "q",
+    _CORE_KEY_ACTIONS = {
+        "Toggle dark mode": "toggle_dark",
+        "Connections": "connections",
+        "Help": "help",
+        "Quit": "quit",
     }
+
+    def _core_keys(self) -> dict[str, str | None]:
+        """The effective keys for the core palette commands."""
+        app = cast(DokliApp, self.app)
+        return {
+            name: app.app_keys.get(action) for name, action in self._CORE_KEY_ACTIONS.items()
+        }
 
     def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
         app = cast(DokliApp, self.app)
@@ -75,7 +119,8 @@ class DokliCommands(Provider):
             ("Quit", "Exit the app", app.action_quit),
         ]
         commands = [
-            (name, _with_key(help_text, self._CORE_KEYS.get(name)), callback) for name, help_text, callback in commands
+            (name, _with_key(help_text, self._core_keys().get(name)), callback)
+            for name, help_text, callback in commands
         ]
         commands.extend(_screen_commands(self.screen))
         for connection in app.config.connections:
@@ -176,9 +221,31 @@ class DokliApp(App):
     ) -> None:
         """Construct a new TUI app."""
         super().__init__(**kwargs)
-        self.design = _catppuccin_design()
         self.config = config or Config()
         self.connection: ConnectionConfig | None = connection
+        self.design = _catppuccin_design(self.config.tui.colors or None)
+        self.dark = self.config.tui.dark
+        self.app_keys = {
+            action: (self.config.tui.keys.app or {}).get(action, default)
+            for action, (default, _) in APP_ACTIONS.items()
+        }
+        # Replace the class-level bindings with the config-derived ones so the
+        # Footer/help reflect any remapped app keys.
+        self._bindings = _Bindings(
+            [
+                (self.app_keys[action], action, help_text)
+                for action, (_, help_text) in APP_ACTIONS.items()
+            ]
+        )
+
+    def tui_keybindings(self) -> dict:
+        """Keybinding overrides for the entity registry (verb keys, reserved keys)."""
+        return {
+            "verb_keys": self.config.tui.keys.verbs or None,
+            "system_keys": frozenset(
+                key for key in self.app_keys.values() if len(key) == 1 and key.isalnum()
+            ),
+        }
 
     def on_mount(self) -> None:
         """On mount."""

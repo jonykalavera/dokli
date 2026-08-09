@@ -42,7 +42,7 @@ class HelpScreen(Screen):
             sources.append(
                 (type(previous).__name__, previous.BINDINGS, getattr(previous, "contextual_bindings", None))
             )
-        sources.append(("App", self.app.BINDINGS, None))
+        sources.append(("App", list(self.app._bindings.keys.values()), None))
         for title, bindings, contextual in sources:
             entries = _merge_entries(_binding_entries(bindings), contextual() if contextual else None)
             if not entries:

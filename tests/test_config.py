@@ -5,7 +5,7 @@ import pytest
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import ValidationError
 
-from dokli.config import Config, ConnectionConfig
+from dokli.config import Config, ConnectionConfig, TuiConfig
 
 
 class ConnectionConfigFactory(ModelFactory[ConnectionConfig]):
@@ -112,3 +112,49 @@ class TestConnectionConfig:
         config = ConnectionConfigFactory.build(api_key="*" * 64)
         result = config.model_dump_clear()
         assert result["api_key"] == "*" * 64
+
+
+class TestTuiConfig:
+    """TUI customization options (issue #61)."""
+
+    def test_defaults(self):
+        """We expect sane defaults (dark theme, no overrides)."""
+        tui = TuiConfig()
+        assert tui.dark is True
+        assert tui.colors == {}
+        assert tui.keys.app == {}
+        assert tui.keys.verbs == {}
+        assert tui.auto_deploy is False
+
+    def test_parses_from_yaml(self, tmp_path, monkeypatch):
+        """We expect the tui section to load from the config file."""
+        (tmp_path / "dokli.yaml").write_text(
+            """\
+connections:
+  - name: meche
+    url: https://meche.lan
+    api_key_cmd: "echo key"
+tui:
+  theme: light
+  colors:
+    primary: "#111111"
+  keys:
+    app:
+      connections: "n"
+    verbs:
+      deploy: "z"
+  auto_deploy: true
+"""
+        )
+        monkeypatch.chdir(tmp_path)
+        config = Config()
+        assert config.tui.dark is False
+        assert config.tui.colors == {"primary": "#111111"}
+        assert config.tui.keys.app == {"connections": "n"}
+        assert config.tui.keys.verbs == {"deploy": "z"}
+        assert config.tui.auto_deploy is True
+
+    def test_unknown_colors_are_ignored(self):
+        """We expect unknown color fields to be ignored (no crash)."""
+        tui = TuiConfig(colors={"not_a_field": "#fff"})
+        assert tui.colors == {"not_a_field": "#fff"}
