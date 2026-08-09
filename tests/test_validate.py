@@ -45,8 +45,12 @@ SCHEMA = {
                         "application/json": {
                             "schema": {
                                 "type": "object",
-                                "properties": {"filePath": {"type": "string"}, "mountPath": {"type": "string"}},
-                                "required": ["filePath", "mountPath"],
+                                "properties": {
+                                    "type": {"type": "string", "enum": ["bind", "volume", "file"]},
+                                    "filePath": {"type": "string"},
+                                    "mountPath": {"type": "string"},
+                                },
+                                "required": ["type", "filePath", "mountPath"],
                             }
                         }
                     }
@@ -156,6 +160,20 @@ def test_wrong_service_parent(mocker):
 def test_mount_kind_valid(mocker):
     """We expect the mount kind to resolve to the mounts entity."""
     manifest = _manifest(
-        Resource(kind="mount", name="rclone.conf", in_="compose:web", data={"filePath": "rclone.conf", "mountPath": "/"})
+        Resource(
+            kind="mount",
+            name="rclone.conf",
+            in_="compose:web",
+            data={"type": "bind", "filePath": "rclone.conf", "mountPath": "/"},
+        )
     )
     assert validate_manifest(_connection(mocker), manifest) == []
+
+
+def test_mount_missing_required_type(mocker):
+    """We expect a mount without its required type field to be flagged."""
+    manifest = _manifest(
+        Resource(kind="mount", name="rclone.conf", in_="compose:web", data={"filePath": "rclone.conf", "mountPath": "/"})
+    )
+    issues = validate_manifest(_connection(mocker), manifest)
+    assert any("missing required field 'type'" in issue for issue in issues)
