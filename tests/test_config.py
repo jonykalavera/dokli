@@ -4,6 +4,7 @@ import yaml
 import pytest
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import ValidationError
+from pydantic_settings import SettingsConfigDict
 
 from dokli.config import Config, ConnectionConfig, TuiConfig
 
@@ -126,9 +127,10 @@ class TestTuiConfig:
         assert tui.keys.verbs == {}
         assert tui.auto_deploy is False
 
-    def test_parses_from_yaml(self, tmp_path, monkeypatch):
+    def test_parses_from_yaml(self, tmp_path):
         """We expect the tui section to load from the config file."""
-        (tmp_path / "dokli.yaml").write_text(
+        target = tmp_path / "dokli.yaml"
+        target.write_text(
             """\
 connections:
   - name: meche
@@ -146,8 +148,11 @@ tui:
   auto_deploy: true
 """
         )
-        monkeypatch.chdir(tmp_path)
-        config = Config()
+
+        class IsolatedConfig(Config):
+            model_config = SettingsConfigDict(env_prefix="DOKLI_", yaml_file=[str(target)])
+
+        config = IsolatedConfig()
         assert config.tui.dark is False
         assert config.tui.colors == {"primary": "#111111"}
         assert config.tui.keys.app == {"connections": "n"}

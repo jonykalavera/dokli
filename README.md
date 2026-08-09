@@ -337,6 +337,9 @@ tui:
 
 - `colors` accepts any `ColorSystem` field: `primary`, `secondary`, `warning`,
   `error`, `success`, `accent`, `background`, `surface`, `panel`, `boost`.
+  Accent fields apply to both theme variants; structural fields
+  (`background`, `surface`, `panel`) only affect the active `theme:` variant,
+  so toggling light/dark (`D`) still switches the background.
 - App keys remap the global shortcuts (`D` dark, `C` connections, `?` help,
   `q` quit, `ctrl+p` palette, `escape` back); remapped keys are reserved so
   entity actions never clash with them.

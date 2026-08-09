@@ -36,13 +36,22 @@ APP_ACTIONS: dict[str, tuple[str, str]] = {
     "quit": ("q", "Quit"),
 }
 
+# Color fields that define the theme's structure: they follow the active
+# variant (so toggling light/dark still switches the background).
+TUI_STRUCTURAL = frozenset({"background", "surface", "panel"})
 
-def _catppuccin_design(overrides: dict[str, str] | None = None) -> dict[str, ColorSystem]:
+
+def _catppuccin_design(overrides: dict[str, str] | None = None, dark: bool = True) -> dict[str, ColorSystem]:
     """A Catppuccin (Mocha/Latte) color system for the app.
 
-    ``overrides`` are color fields applied to both theme variants.
+    ``overrides`` are color fields. Accent fields (primary, secondary, accent,
+    warning, error, success, boost) apply to both variants; structural fields
+    (background, surface, panel) apply only to the active ``dark`` variant so
+    the light/dark toggle stays meaningful.
     """
     overrides = overrides or {}
+    accents = {key: value for key, value in overrides.items() if key not in TUI_STRUCTURAL}
+    structural = {key: value for key, value in overrides.items() if key in TUI_STRUCTURAL}
     variants = {
         "dark": ColorSystem(
             primary="#cba6f7",
@@ -67,7 +76,10 @@ def _catppuccin_design(overrides: dict[str, str] | None = None) -> dict[str, Col
             dark=False,
         ),
     }
-    return {name: _with_color_overrides(variant, overrides) for name, variant in variants.items()}
+    return {
+        name: _with_color_overrides(variant, {**accents, **(structural if (name == "dark") == dark else {})})
+        for name, variant in variants.items()
+    }
 
 
 def _with_color_overrides(base: ColorSystem, overrides: dict[str, str]) -> ColorSystem:
@@ -223,7 +235,7 @@ class DokliApp(App):
         super().__init__(**kwargs)
         self.config = config or Config()
         self.connection: ConnectionConfig | None = connection
-        self.design = _catppuccin_design(self.config.tui.colors or None)
+        self.design = _catppuccin_design(self.config.tui.colors or None, self.config.tui.dark)
         self.dark = self.config.tui.dark
         self.app_keys = {
             action: (self.config.tui.keys.app or {}).get(action, default)
@@ -249,6 +261,10 @@ class DokliApp(App):
 
     def on_mount(self) -> None:
         """On mount."""
+        # The stylesheet is built in App.__init__ with the default design; when
+        # the configured theme equals the default, no dark-change event fires,
+        # so force a refresh to apply the custom design at startup.
+        self.call_later(self.refresh_css)
         self.install_screen(ConnectionsScreen(self.config.connections), name="Connections")
         self.install_screen(SettingsScreen(name="Settings"), name="Settings")
 

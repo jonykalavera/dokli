@@ -632,6 +632,37 @@ def test_app_applies_tui_config():
     assert binding_keys["D"] == "toggle_dark"
 
 
+def test_structural_colors_follow_active_theme():
+    """We expect structural colors to only affect the active theme variant."""
+    config = Config(
+        connections=[_connection()],
+        tui=TuiConfig(theme="dark", colors={"background": "#000000", "primary": "#E4007C"}),
+    )
+    app = DokliApp(config=config)
+
+    assert app.dark is True
+    assert app.design["dark"].primary.hex == "#E4007C"
+    assert app.design["light"].primary.hex == "#E4007C"
+    assert app.design["dark"].background.hex == "#000000"
+    assert app.design["light"].background.hex != "#000000"
+
+
+def test_mount_refreshes_css_for_custom_design(mocker):
+    """We expect mounting to refresh CSS so the custom design applies at startup."""
+    _patch_api(mocker)
+    config = Config(connections=[_connection()], tui=TuiConfig(colors={"primary": "#E4007C"}))
+    app = DokliApp(config=config)
+    refresh = mocker.spy(app, "refresh_css")
+
+    async def main():
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+
+    _run(main())
+    assert refresh.called
+
+
 def test_key_for_verb_honors_overrides():
     """We expect key_for_verb to respect custom verb and system keys."""
     assert key_for_verb("deploy") == "x"
