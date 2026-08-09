@@ -1,5 +1,6 @@
 """Dokli TUI."""
 
+import asyncio
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -23,6 +24,7 @@ from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.settings import SettingsScreen
+from dokli.tui.screens.splash import SplashScreen
 
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
@@ -299,12 +301,21 @@ class DokliApp(App):
         """Set the active connection and open the entity browser."""
         self.connection = connection
         log.info(f"Setting connection: {connection}")
+        self._splash = SplashScreen(classes="Splash")
+        self.push_screen(self._splash)
+        self.run_worker(self._prepare_connection(connection), exclusive=True, group="connection")
+
+    async def _prepare_connection(self, connection: ConnectionConfig) -> None:
+        """Fetch the schema off the event loop, then open the browser."""
+        self._splash_status("Fetching schema…")
         try:
-            schema = APIClient(connection).schema
+            schema = await asyncio.to_thread(lambda: APIClient(connection).schema)
         except httpx.HTTPError as err:
+            self._pop_splash()
             self._connection_failed(connection, err)
             return
         registry = parse_spec(schema)
+        self._splash_status("Preparing browser…")
         browser = self._installed_screens.get("Browser")
         if isinstance(browser, BrowserScreen):
             browser.reload(connection, registry, entity_order=self.config.tui.entity_order)
@@ -316,11 +327,25 @@ class DokliApp(App):
                 entity_order=self.config.tui.entity_order,
             )
             self.install_screen(browser, name="Browser")
+        self._pop_splash()
         if browser in self.screen_stack:
             while self.screen_stack and self.screen_stack[-1] is not browser:
                 self.pop_screen()
         else:
             self.push_screen("Browser")
+
+    def _splash_status(self, text: str) -> None:
+        """Update the splash status line, if a splash is showing."""
+        splash = getattr(self, "_splash", None)
+        if splash is not None and splash.is_mounted:
+            splash.set_status(text)
+
+    def _pop_splash(self) -> None:
+        """Pop the splash screen if it is showing."""
+        splash = getattr(self, "_splash", None)
+        if splash is not None and splash in self.screen_stack:
+            self.pop_screen()
+        self._splash = None
 
     def _connection_failed(self, connection: ConnectionConfig, err: Exception) -> None:
         """Fall back to the connections screen when a connection is unreachable."""

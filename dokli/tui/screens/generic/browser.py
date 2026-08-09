@@ -1,6 +1,7 @@
 """Yazi-style 3-column browser over the schema-driven hierarchy."""
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -8,7 +9,7 @@ import httpx
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label
+from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
@@ -110,7 +111,13 @@ class BrowserScreen(Screen):
             VerticalScroll(id="current-pane"),
             VerticalScroll(id="detail-pane"),
         )
+        yield LoadingIndicator(id="loading", classes="spinner")
         yield Input(placeholder="Filter...", id="filter")
+
+    def _set_loading(self, loading: bool) -> None:
+        """Show or hide the loading spinner."""
+        with contextlib.suppress(Exception):
+            self.query_one("#loading", LoadingIndicator).display = loading
 
     async def on_mount(self) -> None:
         """On mount, probe which entities are usable with this API key."""
@@ -138,9 +145,13 @@ class BrowserScreen(Screen):
 
     async def _run_reprobe(self) -> None:
         """Probe entity usability in a worker thread, then refresh the list."""
-        results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)
-        self._usable = {name for name, usable in results.items() if usable}
-        await self._refresh_all()
+        self._set_loading(True)
+        try:
+            results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)
+            self._usable = {name for name, usable in results.items() if usable}
+            await self._refresh_all()
+        finally:
+            self._set_loading(False)
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -410,6 +421,14 @@ class BrowserScreen(Screen):
         self._rerender()
 
     async def action_refresh(self) -> None:
+        """Reload the current level (re-probing entity usability at the top)."""
+        self._set_loading(True)
+        try:
+            await self._action_refresh()
+        finally:
+            self._set_loading(False)
+
+    async def _action_refresh(self) -> None:
         """Reload the current level (re-probing entity usability at the top)."""
         level = self.current
         if level.kind == "entities":

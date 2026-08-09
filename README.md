@@ -304,6 +304,9 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 - **Yazi-style 3-column browser**: parent | current | detail, with `j`/`k` navigate, `h`/`l` drill in/out, `/` filter, `F5` refresh, and auto-generated action keybindings per entity.
 - **Command palette** (`ctrl+p`): search across commands and the focused screen's available actions, with shortcuts shown in the help line.
 - **Help** (`?`): lists the app, screen and contextual keybindings.
+- **Loading feedback**: a splash screen with the Dokploy logo shows while a
+  connection's schema is fetched (off the event loop), and loading spinners
+  appear while the browser probes/refreshes entities and results re-fetch.
 - **Results**: read-only queries open a result screen with search (`/`, `n`/`N` to jump) and `F5` to re-fetch — handy for logs.
 - Entity icons are color-coded (Catppuccin palette), and container states show as a traffic-light dot.
 - Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.

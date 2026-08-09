@@ -5,7 +5,7 @@ import asyncio
 import httpx
 from textual.command import CommandPalette
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Label, Switch
+from textual.widgets import Input, Label, Static, Switch
 
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
@@ -21,6 +21,7 @@ from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
+from dokli.tui.screens.splash import SplashScreen
 
 FAKE_SCHEMA = {
     "paths": {
@@ -739,6 +740,84 @@ def test_browser_respects_entity_order(mocker):
             labels = _current_labels(app)
             assert "server" in labels[0]
             assert "project" in labels[1]
+
+    _run(main())
+
+
+def test_connection_opens_browser_after_splash(mocker):
+    """We expect a connection to show the splash, then the browser."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, BrowserScreen)
+
+    _run(main())
+
+
+def test_splash_screen_shows_status(mocker):
+    """We expect the splash to render the logo and accept status updates."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            splash = SplashScreen(classes="Splash")
+            app.install_screen(splash, name="splash")
+            app.push_screen("splash")
+            await pilot.pause()
+            assert "logo" in [widget.id for widget in splash.query(Static)]
+            splash.set_status("Fetching schema…")
+            await pilot.pause()
+            assert str(splash.query_one("#splash-status", Label).renderable) == "Fetching schema…"
+
+    _run(main())
+
+
+def test_browser_loading_indicator_toggles(mocker):
+    """We expect the browser spinner to toggle on refresh."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            loading = screen.query_one("#loading")
+            assert loading.display is False
+            screen._set_loading(True)
+            await pilot.pause()
+            assert loading.display is True
+            screen._set_loading(False)
+            await pilot.pause()
+            assert loading.display is False
+
+    _run(main())
+
+
+def test_result_screen_loading_indicator(mocker):
+    """We expect the result screen to host a togglable spinner."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, data={"items": []})
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            loading = screen.query_one("#result-loading")
+            assert loading.display is False
+            screen._set_loading(True)
+            await pilot.pause()
+            assert loading.display is True
 
     _run(main())
 

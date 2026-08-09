@@ -1,6 +1,17 @@
 .hidden {
   display: none;
 }
+BrowserScreen,
+ResultScreen {
+  layers: default overlay;
+}
+LoadingIndicator.spinner {
+  layer: overlay;
+  display: none;
+  width: 100%;
+  height: 100%;
+  align: center middle;
+}
 Label.title {
   text-style: bold;
   margin-top: 1;
