@@ -7,10 +7,17 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from click.shell_completion import CompletionItem
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, field_serializer, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
 
 from dokli.secrets import conn_account, get_secret
+
+
+def complete_connection_names(ctx: Any, param: Any, incomplete: str) -> list[CompletionItem]:
+    """Click shell completion for the configured connection names."""
+    names = [connection.name for connection in Config().connections]
+    return [CompletionItem(name) for name in names if name.startswith(incomplete)]
 
 
 class ConnectionConfig(BaseModel):

@@ -9,7 +9,7 @@ from rich.table import Table
 
 from dokli.api_client import APIClient
 from dokli.apply import Applier
-from dokli.config import Config, ConnectionConfig
+from dokli.config import Config, ConnectionConfig, complete_connection_names
 from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
 from dokli.export import export_manifest
@@ -38,7 +38,11 @@ app.add_typer(build_connections_command(state["config"]))
 app.add_typer(build_secrets_command())
 
 
-def tui_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:
+def tui_command(
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
+) -> None:
     """Text User Interface."""
     assert tui, "TUI not loaded"
     tui.config = state["config"]
@@ -78,7 +82,11 @@ def init_command(
 
 
 @app.command(name="refresh")
-def refresh_command(connection_name: str | None = typer.Argument(None, help="Connection name.")) -> None:
+def refresh_command(
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
+) -> None:
     """Refetch and refresh the cached OpenAPI schema for a connection."""
     connection = _get_connection(connection_name)
     APIClient(connection, force_refresh=True)
@@ -87,7 +95,9 @@ def refresh_command(connection_name: str | None = typer.Argument(None, help="Con
 
 @app.command(name="state")
 def state_command(
-    connection_name: str | None = typer.Argument(None, help="Connection name."),
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
     show_secrets: bool = typer.Option(False, "--show-secrets", help="Show environment variables (secrets)."),
 ) -> None:
     """Show the current state of a Dokploy instance."""
@@ -206,7 +216,9 @@ def validate_command(
 
 @app.command(name="export")
 def export_command(
-    connection_name: str | None = typer.Argument(None, help="Connection name."),
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
     output: str = typer.Option("dokploy.yaml", "--output", "-o", help="Output file, or '-' for stdout."),
     include_secrets: bool = typer.Option(False, "--include-secrets", help="Export environment variables (secrets)."),
 ) -> None:
