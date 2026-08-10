@@ -1721,10 +1721,11 @@ def test_container_contextual_logs(mocker):
 
 
 def test_mount_title_uses_path():
-    """We expect mounts to be titled by their path, not their id."""
+    """We expect mounts to be titled by their host file path, not their id."""
     from dokli.tui.engine import record_title
 
-    assert record_title({"mountId": "m1", "mountPath": "/data", "filePath": "/srv/data"}) == "/data"
+    assert record_title({"mountId": "m1", "mountPath": "/", "filePath": "/srv/data"}) == "/srv/data"
+    assert record_title({"mountId": "m2", "mountPath": "/", "volumeName": "myvol"}) == "myvol"
 
 
 async def _select_connection(app, pilot):

@@ -34,7 +34,9 @@ def record_id(record: dict[str, Any], entity_name: str = "") -> str | None:
 
 def record_title(record: dict[str, Any]) -> str:
     """A short title for a record (used in lists)."""
-    for key in ("name", "appName", "title", "label", "mountPath", "filePath", "volumeName"):
+    # For mounts, prefer the host file path / volume name over the container
+    # mount path (which is almost always "/").
+    for key in ("name", "appName", "title", "label", "filePath", "volumeName", "mountPath"):
         value = record.get(key)
         if value:
             return str(value)
