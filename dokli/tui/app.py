@@ -14,6 +14,7 @@ from textual.binding import _Bindings
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.design import ColorSystem
 from textual.widgets import Footer, Header, Static
+from textual.worker import get_current_worker
 
 from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
@@ -36,6 +37,12 @@ SPLASH_MIN_SECONDS = 1.2
 
 # Cap on the schema fetch, so a hanging DNS/connect cannot freeze the splash.
 SCHEMA_FETCH_TIMEOUT = 15.0
+
+
+def _build_connection_client(connection: ConnectionConfig) -> tuple[APIClient, dict]:
+    """Build an API client (fetching the schema) in a worker thread."""
+    client = APIClient(connection)
+    return client, client.schema
 
 # App-level action -> (default key, help text). Remappable via tui.keys.app.
 APP_ACTIONS: dict[str, tuple[str, str]] = {
@@ -317,34 +324,44 @@ class DokliApp(App):
         )
 
     async def _prepare_connection(self, connection: ConnectionConfig) -> None:
-        """Fetch the schema off the event loop, then open the browser."""
-        self._splash_status("Fetching schema…")
+        """Fetch the schema and build the browser entirely off the event loop."""
         try:
-            schema = await asyncio.wait_for(
-                asyncio.to_thread(lambda: APIClient(connection).schema), timeout=SCHEMA_FETCH_TIMEOUT
+            self._splash_status("Fetching OpenAPI schema…")
+            # Fetch the schema AND build the API client in a worker thread so no
+            # network call ever runs on the event loop (an unreachable host would
+            # otherwise freeze the whole UI until the network returns).
+            client, schema = await asyncio.wait_for(
+                asyncio.to_thread(_build_connection_client, connection),
+                timeout=SCHEMA_FETCH_TIMEOUT,
             )
+            self._splash_status("Parsing registry…")
+            registry = parse_spec(schema)
+            self._splash_status("Preparing browser…")
+            browser = self._installed_screens.get("Browser")
+            if isinstance(browser, BrowserScreen):
+                browser.reload(connection, registry, entity_order=self.config.tui.entity_order, client=client)
+            else:
+                browser = BrowserScreen(
+                    name="Browser",
+                    connection=connection,
+                    registry=registry,
+                    entity_order=self.config.tui.entity_order,
+                    client=client,
+                )
+                self.install_screen(browser, name="Browser")
+            # Hold the splash for at least the minimum so the spinner is visible
+            # even when the schema fetch is fast (e.g. cached).
+            elapsed = time.monotonic() - getattr(self, "_splash_started", time.monotonic())
+            if elapsed < SPLASH_MIN_SECONDS:
+                await asyncio.sleep(SPLASH_MIN_SECONDS - elapsed)
         except (httpx.HTTPError, asyncio.TimeoutError) as err:
             self._pop_splash()
             self._connection_failed(connection, err)
             return
-        registry = parse_spec(schema)
-        self._splash_status("Preparing browser…")
-        browser = self._installed_screens.get("Browser")
-        if isinstance(browser, BrowserScreen):
-            browser.reload(connection, registry, entity_order=self.config.tui.entity_order)
-        else:
-            browser = BrowserScreen(
-                name="Browser",
-                connection=connection,
-                registry=registry,
-                entity_order=self.config.tui.entity_order,
-            )
-            self.install_screen(browser, name="Browser")
-        # Hold the splash for at least the minimum so the spinner is visible
-        # even when the schema fetch is fast (e.g. cached).
-        elapsed = time.monotonic() - getattr(self, "_splash_started", time.monotonic())
-        if elapsed < SPLASH_MIN_SECONDS:
-            await asyncio.sleep(SPLASH_MIN_SECONDS - elapsed)
+        except Exception:
+            self._pop_splash()
+            self._connection_failed(connection, RuntimeError("Could not prepare the connection."))
+            return
         self._pop_splash()
         if browser in self.screen_stack:
             while self.screen_stack and self.screen_stack[-1] is not browser:
@@ -365,9 +382,13 @@ class DokliApp(App):
             self.pop_screen()
         self._splash = None
         worker = getattr(self, "_connection_worker", None)
-        if worker is not None:
+        try:
+            current = get_current_worker()
+        except Exception:
+            current = None
+        if worker is not None and worker is not current:
             worker.cancel()
-            self._connection_worker = None
+        self._connection_worker = None
 
     def cancel_connection(self) -> None:
         """Abort an in-flight connection attempt and return to the previous screen."""

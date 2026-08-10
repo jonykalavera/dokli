@@ -175,7 +175,7 @@ def _fake_requests():
 
 
 def _patch_api(mocker):
-    client = mocker.Mock()
+    client = mocker.Mock(schema=FAKE_SCHEMA)
     responses = _fake_requests()
     clear_probe_cache("test-env")
 
@@ -184,7 +184,7 @@ def _patch_api(mocker):
 
     client.request.side_effect = fake_request
     mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
-    mocker.patch("dokli.tui.app.APIClient", return_value=mocker.Mock(schema=FAKE_SCHEMA))
+    mocker.patch("dokli.tui.app.APIClient", return_value=client)
     return responses
 
 

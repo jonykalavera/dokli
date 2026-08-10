@@ -82,14 +82,20 @@ class BrowserScreen(Screen):
         connection: ConnectionConfig,
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
+        client: APIClient | None = None,
         *args,
         **kwargs,
     ) -> None:
-        """Construct the browser screen."""
+        """Construct the browser screen.
+
+        ``client`` is an already-built API client (schema fetched). When not
+        provided, it is built here — callers should pre-build it off the event
+        loop so the schema fetch never blocks the UI.
+        """
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.registry = registry
-        self.client = APIClient(connection)
+        self.client = client if client is not None else APIClient(connection)
         self.entity_order = tuple(entity_order or ())
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
@@ -128,11 +134,12 @@ class BrowserScreen(Screen):
         connection: ConnectionConfig,
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
+        client: APIClient | None = None,
     ) -> None:
         """Point this browser at a new connection/registry and re-probe."""
         self.connection = connection
         self.registry = registry
-        self.client = APIClient(connection)
+        self.client = client if client is not None else APIClient(connection)
         if entity_order is not None:
             self.entity_order = tuple(entity_order)
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
@@ -145,6 +152,7 @@ class BrowserScreen(Screen):
 
     async def _run_reprobe(self) -> None:
         """Probe entity usability in a worker thread, then refresh the list."""
+        self.app.sub_title = f"{self.connection.name} · probing entities…"
         self._set_loading(True)
         try:
             results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)
