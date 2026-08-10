@@ -857,6 +857,53 @@ def test_splash_escape_cancels_connection(mocker):
     _run(main())
 
 
+def test_probe_timeout_keeps_browser_usable(mocker):
+    """We expect a hanging probe to time out and leave the entity list usable."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    import dokli.tui.screens.generic.browser as B
+
+    mocker.patch.object(B, "PROBE_TIMEOUT", 0.2)
+    release = threading.Event()
+
+    def hanging_probe(client, reg, name):
+        release.wait(10)
+        return {}
+
+    mocker.patch.object(B, "probe_entities", side_effect=hanging_probe)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            await asyncio.sleep(0.6)
+            await pilot.pause()
+            assert screen._usable is None
+            names = [item.get("name") for item in screen._visible_items(screen.current)]
+            assert "project" in names
+            release.set()
+
+    _run(main())
+
+
+def test_connection_reports_status_stages(mocker):
+    """We expect the splash to report each preparation stage."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        spy = mocker.spy(app, "_splash_status")
+        async with app.run_test() as pilot:
+            await _wait_for_browser(app, pilot)
+        texts = [call.args[0] for call in spy.call_args_list]
+        assert "Fetching OpenAPI schema…" in texts
+        assert "Parsing registry…" in texts
+        assert "Preparing browser…" in texts
+
+    _run(main())
+
+
 def test_splash_spinner_animates(mocker):
     """We expect the splash spinner to cycle through frames over time."""
     _patch_api(mocker)

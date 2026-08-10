@@ -35,6 +35,10 @@ from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 
+# Cap on the entity-usability probe so a hanging DNS/connect can't stall the
+# browser's initial loading forever.
+PROBE_TIMEOUT = 15.0
+
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
@@ -155,8 +159,15 @@ class BrowserScreen(Screen):
         self.app.sub_title = f"{self.connection.name} · probing entities…"
         self._set_loading(True)
         try:
-            results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)
+            results = await asyncio.wait_for(
+                asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name),
+                timeout=PROBE_TIMEOUT,
+            )
             self._usable = {name for name, usable in results.items() if usable}
+            await self._refresh_all()
+        except asyncio.TimeoutError:
+            # Probing timed out (e.g. DNS hangs); show all entities un-filtered.
+            self._usable = None
             await self._refresh_all()
         finally:
             self._set_loading(False)
