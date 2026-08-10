@@ -116,6 +116,14 @@ FAKE_SCHEMA = {
             }
         },
         "/server.all": {"get": {}},
+        "/docker.getStackContainersByAppName": {
+            "get": {
+                "parameters": [
+                    {"name": "appName", "in": "query", "required": True},
+                    {"name": "serverId", "in": "query"},
+                ]
+            }
+        },
         "/deployment.all": {
             "get": {
                 "parameters": [
@@ -192,6 +200,9 @@ def _fake_requests():
         "docker.getContainersByAppNameMatch": [
             {"containerId": "cc1", "name": "frigate", "state": "running", "status": "Up 8 weeks"},
             {"containerId": "cc2", "name": "frigate-notify", "state": "running", "status": "Up 8 weeks"},
+        ],
+        "docker.getStackContainersByAppName": [
+            {"containerId": "sc1", "name": "stack-svc", "state": "running", "status": "Up 2 days"},
         ],
         "compose.readLogs": "2026-08-05T19:55:54Z frigate started",
         "deployment.allCentralized": [
@@ -1529,6 +1540,42 @@ def test_related_containers_enrich_via_one(mocker):
     _run(main())
 
 
+def test_related_containers_use_swarm_for_stacks(mocker):
+    """We expect a stack-type compose to fetch containers from the swarm endpoint."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[
+                        {
+                            "_kind": "compose",
+                            "composeId": "c1",
+                            "name": "stack",
+                            "composeType": "stack",
+                            "appName": "media-stack-abc123",
+                            "serverId": "srv1",
+                        }
+                    ],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            related = await screen._related_records(screen.selected)
+            assert [r["name"] for r in related] == ["stack-svc"]
+            calls = [c for c in screen.client.request.call_args_list if c[0][1].startswith("docker.get")]
+            assert any(c[0][1] == "docker.getStackContainersByAppName" for c in calls)
+            assert not any(c[0][1] == "docker.getContainersByAppNameMatch" for c in calls)
+
+    _run(main())
+
+
 def test_entity_list_uses_canonical_list_verb(mocker):
     """We expect deployment to be listed via its no-param allCentralized."""
     _patch_api(mocker)
@@ -1573,7 +1620,7 @@ def test_related_action_opens_deployments(mocker):
             await pilot.pause()
             compose = registry.get("compose")
             bindings = {a.route: key for a, key in screen._entity_bindings(compose) if key}
-            assert "deployment.allByCompose" in bindings
+            assert bindings["deployment.allByCompose"] == "d"
             contextual = dict(screen.contextual_bindings())
             assert any("deployment.allByCompose" in label for label in contextual.values())
             await pilot.press(bindings["deployment.allByCompose"])

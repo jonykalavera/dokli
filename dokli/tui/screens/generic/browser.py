@@ -323,7 +323,7 @@ class BrowserScreen(Screen):
                 rel_action = rel_entity.get(spec["verb"]) if rel_entity else None
                 if rel_action is None:
                     continue
-                key = key_for_verb(spec["verb"], frozenset(taken), **keybindings)
+                key = spec.get("key") or key_for_verb(spec["verb"], frozenset(taken), **keybindings)
                 if key:
                     taken.add(key)
                 bindings.append((rel_action, key))
@@ -532,13 +532,13 @@ class BrowserScreen(Screen):
             self.run_worker(self.action_right, exclusive=True)  # type: ignore[arg-type]
             event.stop()
             return
-        if not event.character:
+        if not event.character and not event.key:
             return
         entity = self.registry.get(self._selected_kind() or "")
         if entity is None:
             return
         for action, key in self._entity_bindings(entity):
-            if key and key == event.character:
+            if key and key in (event.character, event.key):
                 self._run_action(action)
                 event.stop()
                 return

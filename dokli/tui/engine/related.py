@@ -24,6 +24,7 @@ RELATED_PROVIDERS: dict[str, dict] = {
     "compose": {
         "entity": "docker",
         "verb": "getContainersByAppNameMatch",
+        "stack_verb": "getStackContainersByAppName",
         "fill": {"appName": "appName", "appType": "composeType", "serverId": "serverId"},
         "label": "Containers",
     },
@@ -85,13 +86,31 @@ PARAM_SOURCES: dict[str, dict] = {
 #   label: section/action title in the UI.
 RELATED_ACTIONS: dict[str, list[dict]] = {
     "compose": [
-        {"entity": "deployment", "verb": "allByCompose", "fill": {"composeId": "composeId"}, "label": "Deployments"},
+        {
+            "entity": "deployment",
+            "verb": "allByCompose",
+            "fill": {"composeId": "composeId"},
+            "label": "Deployments",
+            "key": "d",
+        },
     ],
     "application": [
-        {"entity": "deployment", "verb": "all", "fill": {"applicationId": "applicationId"}, "label": "Deployments"},
+        {
+            "entity": "deployment",
+            "verb": "all",
+            "fill": {"applicationId": "applicationId"},
+            "label": "Deployments",
+            "key": "d",
+        },
     ],
     "server": [
-        {"entity": "deployment", "verb": "allByServer", "fill": {"serverId": "serverId"}, "label": "Deployments"},
+        {
+            "entity": "deployment",
+            "verb": "allByServer",
+            "fill": {"serverId": "serverId"},
+            "label": "Deployments",
+            "key": "d",
+        },
     ],
 }
 
@@ -136,12 +155,20 @@ def related_records(client, registry: EntityRegistry, parent_entity: str, record
     spec = RELATED_PROVIDERS.get(parent_entity)
     if spec is None:
         return []
+    record = _enrich_record(client, registry, parent_entity, record, spec["fill"])
+    # Stack-type composes run on swarm: their containers come from a different
+    # endpoint that takes no ``appType``.
+    if spec.get("stack_verb") and record.get("composeType") == "stack":
+        verb = spec["stack_verb"]
+        fill = {key: value for key, value in spec["fill"].items() if key != "appType"}
+    else:
+        verb = spec["verb"]
+        fill = spec["fill"]
     entity = registry.get(spec["entity"])
-    action = entity.get(spec["verb"]) if entity else None
+    action = entity.get(verb) if entity else None
     if action is None:
         return []
-    record = _enrich_record(client, registry, parent_entity, record, spec["fill"])
-    params = _build_params(record, spec["fill"])
+    params = _build_params(record, fill)
     if not params:
         return []
     try:

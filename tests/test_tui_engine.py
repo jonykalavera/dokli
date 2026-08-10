@@ -175,14 +175,14 @@ class TestKeyBindings:
         by_verb = {action.verb: key for action, key in bindings}
         assert by_verb["create"] == "c"
         assert by_verb["update"] == "u"
-        assert by_verb["remove"] == "d"
+        assert by_verb["remove"] == "delete"
 
     def test_collision_resolved_by_order(self):
         """We expect the first action to keep its preferred key on a collision."""
         entity = self._entity("remove", "redeploy", "restart")
         bindings = action_bindings(entity)
         by_verb = {action.verb: key for action, key in bindings}
-        assert by_verb["remove"] == "d"
+        assert by_verb["remove"] == "delete"
         assert by_verb["restart"] == "R"
 
     def test_read_logs_uses_uppercase_l(self):
