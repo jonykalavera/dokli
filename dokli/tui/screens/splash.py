@@ -1,8 +1,9 @@
 """Splash/loading screen shown while a connection is being prepared."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Label, Static
@@ -19,6 +20,10 @@ _SPINNER_INTERVAL = 0.12
 
 class SplashScreen(Screen):
     """A splash screen with the Dokploy logo as backdrop and a centered status box."""
+
+    BINDINGS = [
+        Binding("escape", "cancel_connection", "Cancel"),
+    ]
 
     def __init__(self, *args, **kwargs) -> None:
         """Construct the splash screen."""
@@ -48,6 +53,10 @@ class SplashScreen(Screen):
     def _advance_spinner(self) -> None:
         self._frame = (self._frame + 1) % len(SPINNER_FRAMES)
         self._render_status()
+
+    def action_cancel_connection(self) -> None:
+        """Abort the connection attempt and go back."""
+        cast(Any, self.app).cancel_connection()
 
     def set_status(self, text: str) -> None:
         """Update the splash status line (no-op once unmounted)."""

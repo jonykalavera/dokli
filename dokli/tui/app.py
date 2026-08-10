@@ -34,6 +34,9 @@ ASCII_ART_PATH = TUI_PATH / "asciiart"
 # when the schema fetch is fast (e.g. a warm cache).
 SPLASH_MIN_SECONDS = 1.2
 
+# Cap on the schema fetch, so a hanging DNS/connect cannot freeze the splash.
+SCHEMA_FETCH_TIMEOUT = 15.0
+
 # App-level action -> (default key, help text). Remappable via tui.keys.app.
 APP_ACTIONS: dict[str, tuple[str, str]] = {
     "toggle_dark": ("D", "Toggle dark mode"),
@@ -309,14 +312,18 @@ class DokliApp(App):
         self._splash_started = time.monotonic()
         self._splash = SplashScreen(classes="Splash")
         self.push_screen(self._splash)
-        self.run_worker(self._prepare_connection(connection), exclusive=True, group="connection")
+        self._connection_worker = self.run_worker(
+            self._prepare_connection(connection), exclusive=True, group="connection"
+        )
 
     async def _prepare_connection(self, connection: ConnectionConfig) -> None:
         """Fetch the schema off the event loop, then open the browser."""
         self._splash_status("Fetching schema…")
         try:
-            schema = await asyncio.to_thread(lambda: APIClient(connection).schema)
-        except httpx.HTTPError as err:
+            schema = await asyncio.wait_for(
+                asyncio.to_thread(lambda: APIClient(connection).schema), timeout=SCHEMA_FETCH_TIMEOUT
+            )
+        except (httpx.HTTPError, asyncio.TimeoutError) as err:
             self._pop_splash()
             self._connection_failed(connection, err)
             return
@@ -352,11 +359,19 @@ class DokliApp(App):
             splash.set_status(text)
 
     def _pop_splash(self) -> None:
-        """Pop the splash screen if it is showing."""
+        """Pop the splash screen (if showing) and cancel its connection worker."""
         splash = getattr(self, "_splash", None)
         if splash is not None and splash in self.screen_stack:
             self.pop_screen()
         self._splash = None
+        worker = getattr(self, "_connection_worker", None)
+        if worker is not None:
+            worker.cancel()
+            self._connection_worker = None
+
+    def cancel_connection(self) -> None:
+        """Abort an in-flight connection attempt and return to the previous screen."""
+        self._pop_splash()
 
     def _connection_failed(self, connection: ConnectionConfig, err: Exception) -> None:
         """Fall back to the connections screen when a connection is unreachable."""

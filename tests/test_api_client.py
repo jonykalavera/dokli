@@ -1,6 +1,6 @@
 """API client tests."""
 
-from dokli.api_client import APIClient
+from dokli.api_client import APIClient, DEFAULT_TIMEOUT
 from dokli.config import ConnectionConfig
 
 
@@ -20,6 +20,15 @@ def _client(mocker) -> tuple[APIClient, object]:
 
 class TestRequestBody:
     """Request body handling tests."""
+
+    def test_session_uses_bounded_timeout(self, mocker):
+        """We expect the httpx session to use short timeouts so slow hosts fail fast."""
+        mocker.patch("dokli.api_client.APIClient.get_open_api_document", return_value={})
+        connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+        client = APIClient(connection)
+        assert client.session.timeout.connect == 5.0
+        assert client.session.timeout.read == 10.0
+        assert DEFAULT_TIMEOUT.connect == 5.0
 
     def test_sends_dict_body_as_json(self, mocker):
         """We expect dict bodies to be sent as JSON."""

@@ -1,6 +1,8 @@
 """TUI tests (browser navigation, forms, wizard)."""
 
 import asyncio
+import threading
+import time
 
 import httpx
 from textual.command import CommandPalette
@@ -792,6 +794,69 @@ def test_splash_screen_shows_status(mocker):
     _run(main())
 
 
+def test_api_get_does_not_block_loop(mocker):
+    """We expect a slow API call to run off the event loop (UI stays responsive)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            real_request = screen.client.request
+
+            def slow_request(*args, **kwargs):
+                time.sleep(1.5)
+                return real_request(*args, **kwargs)
+
+            screen.client.request = slow_request
+            task = asyncio.create_task(screen._api_get(action, {}))
+            await pilot.pause()
+            start = time.monotonic()
+            await asyncio.sleep(0.2)
+            elapsed = time.monotonic() - start
+            assert elapsed < 1.0, f"loop blocked for {elapsed:.2f}s"
+            result = await task
+            assert result is not None
+
+    _run(main())
+
+
+def test_splash_escape_cancels_connection(mocker):
+    """We expect escape on the splash to abort the connection attempt."""
+    _patch_api(mocker)
+
+    class SlowSchema:
+        def __init__(self):
+            self.release = threading.Event()
+
+        @property
+        def schema(self):
+            self.release.wait(30)
+            return {"paths": {}}
+
+    slow = SlowSchema()
+    mocker.patch("dokli.tui.app.APIClient", return_value=slow)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, SplashScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, SplashScreen)
+            await asyncio.sleep(1.5)
+            await pilot.pause()
+            assert not isinstance(app.screen, BrowserScreen)
+            slow.release.set()
+
+    _run(main())
+
+
 def test_splash_spinner_animates(mocker):
     """We expect the splash spinner to cycle through frames over time."""
     _patch_api(mocker)
@@ -1361,7 +1426,7 @@ def test_related_containers_enrich_via_one(mocker):
                 )
             ]
             screen.current.index = 0
-            related = screen._related_records(screen.selected)
+            related = await screen._related_records(screen.selected)
             docker_call = next(
                 call
                 for call in screen.client.request.call_args_list

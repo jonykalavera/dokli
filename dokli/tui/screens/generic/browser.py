@@ -198,12 +198,14 @@ class BrowserScreen(Screen):
             return None
         return selected.get("_kind") or (self.current.kind if self.current.kind != "entities" else None)
 
-    def _related_records(self, record: dict) -> list[dict]:
+    async def _related_records(self, record: dict) -> list[dict]:
         """Related records of a selected record, cached by record identity."""
         kind = self._selected_kind() or ""
         key = f"{kind}:{record_id(record, kind)}"
         if key not in self._related_cache:
-            self._related_cache[key] = related_records(self.client, self.registry, kind, record)
+            self._related_cache[key] = await asyncio.to_thread(
+                related_records, self.client, self.registry, kind, record
+            )
         return self._related_cache[key]
 
     def _item_label(self, item: dict, level: Level) -> str:
@@ -274,7 +276,7 @@ class BrowserScreen(Screen):
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
                 for child_entity, child in children[:10]:
                     widgets.append(Label(f"  {icon_label(child_entity)}  {record_title(child)}"))
-            related = self._related_records(selected)
+            related = await self._related_records(selected)
             if related:
                 spec = related_spec(kind)
                 label = spec["label"] if spec else "Related"
@@ -596,7 +598,7 @@ class BrowserScreen(Screen):
                 timeout=10,
             )
             return
-        candidates = related_records(self.client, self.registry, kind, record)
+        candidates = await asyncio.to_thread(related_records, self.client, self.registry, kind, record)
         if not candidates:
             self.notify(
                 f"No {spec['label']} found for '{record_title(record)}'.",
@@ -674,7 +676,9 @@ class BrowserScreen(Screen):
             self.notify("Auto-deploy skipped: record id not available.", severity="warning")
             return
         try:
-            self.client.request("POST", deploy.route, {"body": {f"{entity_name}Id": entity_id}})
+            await asyncio.to_thread(
+                self.client.request, "POST", deploy.route, {"body": {f"{entity_name}Id": entity_id}}
+            )
         except httpx.HTTPError as err:
             self.notify(f"Auto-deploy failed: {err}", severity="error", timeout=10)
             return
@@ -684,7 +688,7 @@ class BrowserScreen(Screen):
     async def _api_get(self, action, params: dict):
         """Execute a GET-style action and return the JSON, or None on error."""
         try:
-            response = self.client.request(action.method, action.route, params)
+            response = await asyncio.to_thread(self.client.request, action.method, action.route, params)
             return response.json()
         except httpx.HTTPError as err:
             self.notify(f"API error: {err}", severity="error", timeout=10)

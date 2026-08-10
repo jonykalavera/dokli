@@ -8,6 +8,9 @@ import httpx
 
 from dokli.config import ConnectionConfig
 
+# Bounded timeouts so unreachable/slow instances fail fast instead of hanging.
+DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+
 
 class APIClient:
     """Dokploy API client."""
@@ -23,7 +26,7 @@ class APIClient:
             "x-api-key": connection.get_api_key(),
             "accept": "application/json",
         }
-        self.session = httpx.Client(verify=False, follow_redirects=True)
+        self.session = httpx.Client(verify=False, follow_redirects=True, timeout=DEFAULT_TIMEOUT)
         self.schema = self.get_open_api_document()
 
     def _get_cache_path(self):

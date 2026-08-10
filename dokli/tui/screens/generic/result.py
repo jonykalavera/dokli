@@ -1,5 +1,6 @@
 """Result screen: shows the response of a read-only query action."""
 
+import asyncio
 import contextlib
 from typing import TYPE_CHECKING, Any
 
@@ -103,7 +104,9 @@ class ResultScreen(Screen):
         """Fetch fresh data and re-render (keeping any active search)."""
         self._set_loading(True)
         try:
-            response = APIClient(self.connection).request("GET", self.action.route, self.params)
+            response = await asyncio.to_thread(
+                lambda: APIClient(self.connection).request("GET", self.action.route, self.params)
+            )
             self.data = response.json()
             self._lines = _plain_lines(self.data)
             self._recompute_matches()
