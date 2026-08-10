@@ -130,7 +130,8 @@ class BrowserScreen(Screen):
             self.query_one("#loading", LoadingIndicator).display = loading
 
     async def on_mount(self) -> None:
-        """On mount, probe which entities are usable with this API key."""
+        """On mount, render the entity list immediately, then probe usability."""
+        await self._refresh_all()
         await self._run_reprobe()
 
     def reload(

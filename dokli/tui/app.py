@@ -370,9 +370,9 @@ class DokliApp(App):
             self.push_screen("Browser")
 
     def _splash_status(self, text: str) -> None:
-        """Update the splash status line, if a splash is showing."""
+        """Update the splash status line (stored even before the splash mounts)."""
         splash = getattr(self, "_splash", None)
-        if splash is not None and splash.is_mounted:
+        if splash is not None:
             splash.set_status(text)
 
     def _pop_splash(self) -> None:
