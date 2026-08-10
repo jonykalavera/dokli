@@ -147,6 +147,10 @@ SplashScreen #splash-status {
   content-align: center middle;
 }
 
+SplashScreen #splash-status.error {
+  color: $error;
+}
+
 ConnectionWidget Label#icon {
   background: $success;
 }

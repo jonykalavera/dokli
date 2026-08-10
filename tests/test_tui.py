@@ -760,13 +760,23 @@ def test_connection_opens_browser_after_splash(mocker):
     """We expect a connection to show the splash, then the browser."""
     _patch_api(mocker)
 
+    class SlowClient:
+        @property
+        def schema(self):
+            time.sleep(0.4)
+            return FAKE_SCHEMA
+
+        def request(self, method, path, params):
+            return FakeResponse({})
+
+    mocker.patch("dokli.tui.app.APIClient", return_value=SlowClient())
+
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
             await pilot.pause()
             assert isinstance(app.screen, SplashScreen)
-            await asyncio.sleep(1.5)
-            await pilot.pause()
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
 
     _run(main())
@@ -900,6 +910,34 @@ def test_connection_reports_status_stages(mocker):
         assert "Fetching OpenAPI schema…" in texts
         assert "Parsing registry…" in texts
         assert "Preparing browser…" in texts
+
+    _run(main())
+
+
+def test_offline_connection_shows_error_and_loads_browser(mocker):
+    """We expect no-connectivity (cached schema) to warn on the splash, load the
+    browser from cache, and leave a toast."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    first_entity = next(iter(registry.listable()), None)
+
+    def failing_request(method, path, params):
+        if path == f"{first_entity}.all":
+            raise httpx.ConnectError("down", request=httpx.Request("GET", "https://example.com/"))
+        return FakeResponse({})
+
+    import dokli.tui.app as tui_app
+
+    tui_app.APIClient.return_value.request.side_effect = failing_request
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        notify = mocker.spy(app, "notify")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await _wait_for_browser(app, pilot)
+            assert isinstance(app.screen, BrowserScreen)
+        assert any("No connectivity" in str(call) for call in notify.call_args_list)
 
     _run(main())
 

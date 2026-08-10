@@ -32,6 +32,7 @@ class SplashScreen(Screen):
             self._logo = "".join(logo.readlines())
         self._status = "Connecting…"
         self._frame = 0
+        self._error = False
         self._spinner = None
 
     def compose(self) -> "ComposeResult":
@@ -58,12 +59,19 @@ class SplashScreen(Screen):
         """Abort the connection attempt and go back."""
         cast(Any, self.app).cancel_connection()
 
-    def set_status(self, text: str) -> None:
+    def set_status(self, text: str, error: bool = False) -> None:
         """Update the splash status line (no-op once unmounted)."""
         self._status = text
+        self._error = error
         self._render_status()
 
     def _render_status(self) -> None:
         if not self.is_mounted:
             return
-        self.query_one("#splash-status", Label).update(f"{SPINNER_FRAMES[self._frame]} {self._status}")
+        try:
+            label = self.query_one("#splash-status", Label)
+            label.set_classes("error" if self._error else "")
+            label.update(f"{SPINNER_FRAMES[self._frame]} {self._status}")
+            label.refresh()
+        except Exception:
+            pass

@@ -169,6 +169,7 @@ class BrowserScreen(Screen):
         except asyncio.TimeoutError:
             # Probing timed out (e.g. DNS hangs); show all entities un-filtered.
             self._usable = None
+            self.notify(f"No connectivity to {self.connection.name} — actions may fail.", severity="error", timeout=8)
             await self._refresh_all()
         finally:
             self._set_loading(False)
