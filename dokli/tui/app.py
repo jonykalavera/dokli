@@ -34,7 +34,8 @@ ASCII_ART_PATH = TUI_PATH / "asciiart"
 SCHEMA_FETCH_TIMEOUT = 15.0
 
 # Cap on the live connectivity check performed after a cached schema load.
-CONNECTIVITY_TIMEOUT = 5.0
+# Short so an offline connect doesn't wait long before the browser loads.
+CONNECTIVITY_TIMEOUT = 2.0
 
 
 def _build_connection_client(connection: ConnectionConfig) -> tuple[APIClient, dict]:
@@ -338,7 +339,9 @@ class DokliApp(App):
             self._splash_status("Preparing browser…")
             browser = self._installed_screens.get("Browser")
             if isinstance(browser, BrowserScreen):
-                browser.reload(connection, registry, entity_order=self.config.tui.entity_order, client=client)
+                browser.reload(
+                    connection, registry, entity_order=self.config.tui.entity_order, client=client, offline=not online
+                )
             else:
                 browser = BrowserScreen(
                     name="Browser",
@@ -346,6 +349,7 @@ class DokliApp(App):
                     registry=registry,
                     entity_order=self.config.tui.entity_order,
                     client=client,
+                    offline=not online,
                 )
                 self.install_screen(browser, name="Browser")
         except (httpx.HTTPError, asyncio.TimeoutError) as err:

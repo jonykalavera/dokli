@@ -87,6 +87,7 @@ class BrowserScreen(Screen):
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
         client: APIClient | None = None,
+        offline: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -94,13 +95,15 @@ class BrowserScreen(Screen):
 
         ``client`` is an already-built API client (schema fetched). When not
         provided, it is built here — callers should pre-build it off the event
-        loop so the schema fetch never blocks the UI.
+        loop so the schema fetch never blocks the UI. ``offline`` skips the
+        entity-usability probe (no connectivity).
         """
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.registry = registry
         self.client = client if client is not None else APIClient(connection)
         self.entity_order = tuple(entity_order or ())
+        self.offline = offline
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
@@ -132,7 +135,8 @@ class BrowserScreen(Screen):
     async def on_mount(self) -> None:
         """On mount, render the entity list immediately, then probe usability."""
         await self._refresh_all()
-        await self._run_reprobe()
+        if not self.offline:
+            await self._run_reprobe()
 
     def reload(
         self,
@@ -140,11 +144,13 @@ class BrowserScreen(Screen):
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
         client: APIClient | None = None,
+        offline: bool = False,
     ) -> None:
         """Point this browser at a new connection/registry and re-probe."""
         self.connection = connection
         self.registry = registry
         self.client = client if client is not None else APIClient(connection)
+        self.offline = offline
         if entity_order is not None:
             self.entity_order = tuple(entity_order)
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
@@ -153,7 +159,8 @@ class BrowserScreen(Screen):
         self._usable = None
         self._related_cache = {}
         clear_probe_cache(connection.name)
-        self.run_worker(self._run_reprobe())  # type: ignore[arg-type]
+        if not offline:
+            self.run_worker(self._run_reprobe())  # type: ignore[arg-type]
 
     async def _run_reprobe(self) -> None:
         """Probe entity usability in a worker thread, then refresh the list."""

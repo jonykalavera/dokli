@@ -937,6 +937,7 @@ def test_offline_connection_shows_error_and_loads_browser(mocker):
             await pilot.pause()
             await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
+            assert app.screen.offline is True
         assert any("No connectivity" in str(call) for call in notify.call_args_list)
 
     _run(main())
