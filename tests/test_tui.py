@@ -762,7 +762,7 @@ def test_connection_opens_browser_after_splash(mocker):
     class SlowClient:
         @property
         def schema(self):
-            time.sleep(0.4)
+            time.sleep(2)
             return FAKE_SCHEMA
 
         def request(self, method, path, params):
@@ -773,8 +773,13 @@ def test_connection_opens_browser_after_splash(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            await pilot.pause()
-            assert isinstance(app.screen, SplashScreen)
+            splash_seen = False
+            for _ in range(60):
+                await pilot.pause()
+                if isinstance(app.screen, SplashScreen):
+                    splash_seen = True
+                    break
+            assert splash_seen, "splash never shown"
             await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
 
