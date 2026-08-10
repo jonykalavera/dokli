@@ -120,6 +120,24 @@ LIST_VERB_OVERRIDES: dict[str, str] = {
     "deployment": "allCentralized",
 }
 
+# Actions of the parent service exposed on a child record (e.g. a docker
+# container's logs via the parent service's readLogs). ``fill`` maps params
+# taken from the child record; the parent's own id comes from the parent record.
+#   verb: parent action verb, fill: {param: child field}, label, key.
+PARENT_ACTIONS: dict[str, list[dict]] = {
+    "docker": [
+        {"verb": "readLogs", "fill": {"containerId": "containerId"}, "label": "Logs", "key": "L"},
+    ],
+}
+
+
+def parent_action_spec(entity: str, route: str) -> dict | None:
+    """The PARENT_ACTIONS spec whose parent action route matches ``route``, if any."""
+    for spec in PARENT_ACTIONS.get(entity, []):
+        if spec["verb"] == route.split(".", 1)[-1]:
+            return spec
+    return None
+
 
 def related_spec(parent_entity: str) -> dict | None:
     """The related-provider spec for a parent entity, if any."""

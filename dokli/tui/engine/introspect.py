@@ -34,7 +34,7 @@ def record_id(record: dict[str, Any], entity_name: str = "") -> str | None:
 
 def record_title(record: dict[str, Any]) -> str:
     """A short title for a record (used in lists)."""
-    for key in ("name", "appName", "title", "label"):
+    for key in ("name", "appName", "title", "label", "mountPath", "filePath", "volumeName"):
         value = record.get(key)
         if value:
             return str(value)

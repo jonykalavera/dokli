@@ -30,7 +30,7 @@ from dokli.tui.engine import (
     related_spec,
     state_indicator,
 )
-from dokli.tui.engine.related import RELATED_ACTIONS
+from dokli.tui.engine.related import PARENT_ACTIONS, RELATED_ACTIONS
 from dokli.tui.engine.spec import PRIORITY_ENTITIES
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -327,6 +327,14 @@ class BrowserScreen(Screen):
                 if key:
                     taken.add(key)
                 bindings.append((rel_action, key))
+            for spec in PARENT_ACTIONS.get(self._selected_kind() or "", []):
+                parent_action = self._parent_action(spec)
+                if parent_action is None:
+                    continue
+                key = spec.get("key") or key_for_verb(spec["verb"], frozenset(taken), **keybindings)
+                if key:
+                    taken.add(key)
+                bindings.append((parent_action, key))
             return bindings
         return [
             (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
@@ -422,10 +430,12 @@ class BrowserScreen(Screen):
                     if enriched:
                         record = enriched
             children = collect_children(record)
-            if not children:
+            containers = await self._related_records(record)
+            items = [{"_kind": "docker", **container} for container in containers]
+            items += [{"_kind": child_entity, **child} for child_entity, child in children]
+            if not items:
                 self.notify(f"'{entity_name}' has no children.", severity="warning")
                 return
-            items = [{"_kind": child_entity, **child} for child_entity, child in children]
             self.path.append(Level(kind="children", items=items, entity=entity_name, record=record))
         self._reset_filter()
         self._rerender()
@@ -550,6 +560,8 @@ class BrowserScreen(Screen):
         if action.method == "GET":
             if self._related_action_spec(action.route) is not None:
                 self.run_worker(self._show_related_list(action), exclusive=True, group="action")  # type: ignore[arg-type]
+            elif self._parent_action_spec(action.route) is not None:
+                self.run_worker(self._show_parent_action(action), exclusive=True, group="action")  # type: ignore[arg-type]
             else:
                 self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
@@ -599,10 +611,28 @@ class BrowserScreen(Screen):
         """The RELATED_ACTIONS spec for the selected record matching ``route``, if any."""
         return related_action_spec(self._selected_kind() or "", route)
 
+    def _parent_action(self, spec: dict):
+        """The parent service's action named by a PARENT_ACTIONS spec."""
+        parent_name = self.current.entity or ""
+        parent_entity = self.registry.get(parent_name)
+        return parent_entity.get(spec["verb"]) if parent_entity else None
+
+    def _parent_action_spec(self, route: str) -> dict | None:
+        """The PARENT_ACTIONS spec whose parent action route matches ``route``, if any."""
+        for spec in PARENT_ACTIONS.get(self._selected_kind() or "", []):
+            action = self._parent_action(spec)
+            if action is not None and action.route == route:
+                return spec
+        return None
+
     def _action_verb_label(self, action) -> str:
         """The display name for an action, prefixed with its entity when contextual."""
         spec = self._related_action_spec(action.route)
-        return f"{spec['entity']}.{action.verb}" if spec else action.verb
+        if spec:
+            return f"{spec['entity']}.{action.verb}"
+        if self._parent_action_spec(action.route) is not None:
+            return f"{self.current.entity or ''}.{action.verb}"
+        return action.verb
 
     async def _show_related_list(self, action) -> None:
         """Run a contextual related list action into a navigable records list."""
@@ -627,6 +657,34 @@ class BrowserScreen(Screen):
         )
         self._reset_filter()
         self._rerender()
+
+    async def _show_parent_action(self, action) -> None:
+        """Run a parent action (e.g. the service's readLogs).
+
+        Params are filled from the child record and the parent service record.
+        """
+        spec = self._parent_action_spec(action.route)
+        if spec is None:
+            await self._show_result(action)
+            return
+        parent_name = self.current.entity or ""
+        parent_record = self.current.record or {}
+        params = {}
+        for param, field in spec["fill"].items():
+            value = (self.selected or {}).get(field)
+            if value:
+                params[param] = value
+        parent_id = f"{parent_name}Id"
+        value = parent_record.get(parent_id)
+        if value:
+            params[parent_id] = value
+        missing = [param for param in action.required_params if not params.get(param)]
+        if missing:
+            await self._resolve_missing(action, params, missing)
+            return
+        data = await self._api_get(action, params)
+        if data is not None:
+            self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
 
     async def _resolve_missing(self, action, params: dict, missing: list[str]) -> None:
         """Satisfy missing required params (e.g. containerId) via a picker."""

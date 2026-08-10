@@ -306,9 +306,14 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 - **Help** (`?`): lists the app, screen and contextual keybindings.
 - **Related actions**: entities whose list action needs a parent (e.g.
   `deployment.allByCompose`) are surfaced as a separate contextual action on
-  the parent record (`Deployments` on a compose/application/server), opening a
-  navigable list; entities whose `all` requires a parent are listed at the top
-  level via their canonical no-param action (e.g. `deployment.allCentralized`).
+  the parent record (`Deployments` on a compose/application/server, `d`),
+  opening a navigable list; entities whose `all` requires a parent are listed at
+  the top level via their canonical no-param action (e.g. `deployment.allCentralized`).
+- **Containers**: drilling into a service lists its containers first (swarm-aware
+  for `stack` composes) plus the nested children; selecting a container exposes
+  docker actions (restart/stop/start/...) and the parent service's logs
+  (`compose.readLogs`/`application.readLogs` with the container id). `delete`/
+  `remove` actions are bound to the Delete key, `deploy` to `x`.
 - **Loading feedback**: a splash screen with the Dokploy logo shows while a
   connection's schema is fetched (off the event loop; `escape` cancels it), and
   loading spinners appear while the browser refreshes entities and results

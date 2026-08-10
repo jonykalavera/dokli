@@ -14,10 +14,12 @@ from dokli.tui.engine.introspect import (
 )
 from dokli.tui.engine.related import (
     PARAM_SOURCES,
+    PARENT_ACTIONS,
     RELATED_ACTIONS,
     RELATED_PROVIDERS,
     list_verb_override,
     param_source,
+    parent_action_spec,
     related_action_spec,
     related_records,
     related_spec,
@@ -38,6 +40,7 @@ from dokli.tui.engine.spec import (
 __all__ = [
     "DESTRUCTIVE_VERBS",
     "PARAM_SOURCES",
+    "PARENT_ACTIONS",
     "RELATED_ACTIONS",
     "RELATED_PROVIDERS",
     "Entity",
@@ -56,6 +59,7 @@ __all__ = [
     "list_verb_override",
     "nested_child_entity",
     "param_source",
+    "parent_action_spec",
     "parse_spec",
     "record_id",
     "record_title",

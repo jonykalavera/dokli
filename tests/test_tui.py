@@ -124,6 +124,21 @@ FAKE_SCHEMA = {
                 ]
             }
         },
+        "/docker.restartContainer": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"containerId": {"type": "string"}, "serverId": {"type": "string"}},
+                                "required": ["containerId"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/deployment.all": {
             "get": {
                 "parameters": [
@@ -1631,6 +1646,85 @@ def test_related_action_opens_deployments(mocker):
 
     _run(main())
 
+
+
+def test_drill_into_service_lists_containers_first(mocker):
+    """We expect drilling into a service record to list containers before children."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="compose",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            items = screen.current.items
+            assert items and items[0]["_kind"] == "docker"
+            kinds = [item["_kind"] for item in items]
+            assert "docker" in kinds
+            docker = registry.get("docker")
+            assert "docker.restartContainer" in {a.route for a, _ in screen._entity_bindings(docker)}
+
+    _run(main())
+
+
+def test_container_contextual_logs(mocker):
+    """We expect a docker container to expose the parent service's readLogs."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="compose",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            screen.current.index = 0
+            await pilot.pause()
+            docker = registry.get("docker")
+            bindings = {a.route: key for a, key in screen._entity_bindings(docker) if key}
+            assert bindings["compose.readLogs"] == "L"
+            await pilot.press(bindings["compose.readLogs"])
+            await pilot.pause()
+            calls = [c for c in screen.client.request.call_args_list if c[0][1] == "compose.readLogs"]
+            assert calls
+            params = calls[-1][0][2]
+            assert params.get("containerId") == "cc1"
+            assert params.get("composeId") == "c1"
+
+    _run(main())
+
+
+def test_mount_title_uses_path():
+    """We expect mounts to be titled by their path, not their id."""
+    from dokli.tui.engine import record_title
+
+    assert record_title({"mountId": "m1", "mountPath": "/data", "filePath": "/srv/data"}) == "/data"
 
 
 async def _select_connection(app, pilot):
