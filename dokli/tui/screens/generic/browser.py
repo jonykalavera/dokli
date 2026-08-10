@@ -1,6 +1,7 @@
 """Yazi-style 3-column browser over the schema-driven hierarchy."""
 
 import asyncio
+import contextlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -8,7 +9,7 @@ import httpx
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label
+from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
@@ -16,12 +17,10 @@ from dokli.tui.engine import (
     EntityRegistry,
     action_bindings,
     classify,
-    clear_probe_cache,
     collect_children,
     field_label,
     icon_label,
     param_source,
-    probe_entities,
     record_id,
     record_title,
     related_records,
@@ -81,19 +80,24 @@ class BrowserScreen(Screen):
         connection: ConnectionConfig,
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
+        client: APIClient | None = None,
         *args,
         **kwargs,
     ) -> None:
-        """Construct the browser screen."""
+        """Construct the browser screen.
+
+        ``client`` is an already-built API client (schema fetched). When not
+        provided, it is built here — callers should pre-build it off the event
+        loop so the schema fetch never blocks the UI.
+        """
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.registry = registry
-        self.client = APIClient(connection)
+        self.client = client if client is not None else APIClient(connection)
         self.entity_order = tuple(entity_order or ())
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
-        self._usable: set[str] | None = None
         self._related_cache: dict[str, list[dict]] = {}
 
     def _listable_entities(self) -> list[str]:
@@ -110,37 +114,36 @@ class BrowserScreen(Screen):
             VerticalScroll(id="current-pane"),
             VerticalScroll(id="detail-pane"),
         )
+        yield LoadingIndicator(id="loading", classes="spinner")
         yield Input(placeholder="Filter...", id="filter")
 
+    def _set_loading(self, loading: bool) -> None:
+        """Show or hide the loading spinner."""
+        with contextlib.suppress(Exception):
+            self.query_one("#loading", LoadingIndicator).display = loading
+
     async def on_mount(self) -> None:
-        """On mount, probe which entities are usable with this API key."""
-        await self._run_reprobe()
+        """On mount, render the entity list immediately."""
+        await self._refresh_all()
 
     def reload(
         self,
         connection: ConnectionConfig,
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
+        client: APIClient | None = None,
     ) -> None:
-        """Point this browser at a new connection/registry and re-probe."""
+        """Point this browser at a new connection/registry."""
         self.connection = connection
         self.registry = registry
-        self.client = APIClient(connection)
+        self.client = client if client is not None else APIClient(connection)
         if entity_order is not None:
             self.entity_order = tuple(entity_order)
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
-        self._usable = None
         self._related_cache = {}
-        clear_probe_cache(connection.name)
-        self.run_worker(self._run_reprobe())  # type: ignore[arg-type]
-
-    async def _run_reprobe(self) -> None:
-        """Probe entity usability in a worker thread, then refresh the list."""
-        results = await asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name)
-        self._usable = {name for name, usable in results.items() if usable}
-        await self._refresh_all()
+        self.run_worker(self._refresh_current, exclusive=True)  # type: ignore[arg-type]
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -187,12 +190,14 @@ class BrowserScreen(Screen):
             return None
         return selected.get("_kind") or (self.current.kind if self.current.kind != "entities" else None)
 
-    def _related_records(self, record: dict) -> list[dict]:
+    async def _related_records(self, record: dict) -> list[dict]:
         """Related records of a selected record, cached by record identity."""
         kind = self._selected_kind() or ""
         key = f"{kind}:{record_id(record, kind)}"
         if key not in self._related_cache:
-            self._related_cache[key] = related_records(self.client, self.registry, kind, record)
+            self._related_cache[key] = await asyncio.to_thread(
+                related_records, self.client, self.registry, kind, record
+            )
         return self._related_cache[key]
 
     def _item_label(self, item: dict, level: Level) -> str:
@@ -205,8 +210,6 @@ class BrowserScreen(Screen):
 
     def _visible_items(self, level: Level) -> list[dict]:
         items = level.items
-        if level.kind == "entities" and self._usable is not None:
-            items = [item for item in items if item.get("name") in self._usable]
         if not self._filter:
             return items
         query = self._filter.lower()
@@ -263,7 +266,7 @@ class BrowserScreen(Screen):
                 widgets.append(Label(f"Children ({len(children)})", classes="section"))
                 for child_entity, child in children[:10]:
                     widgets.append(Label(f"  {icon_label(child_entity)}  {record_title(child)}"))
-            related = self._related_records(selected)
+            related = await self._related_records(selected)
             if related:
                 spec = related_spec(kind)
                 label = spec["label"] if spec else "Related"
@@ -411,10 +414,17 @@ class BrowserScreen(Screen):
 
     async def action_refresh(self) -> None:
         """Reload the current level (re-probing entity usability at the top)."""
+        self._set_loading(True)
+        try:
+            await self._action_refresh()
+        finally:
+            self._set_loading(False)
+
+    async def _action_refresh(self) -> None:
+        """Reload the current level's data."""
         level = self.current
         if level.kind == "entities":
-            clear_probe_cache(self.connection.name)
-            await self._run_reprobe()
+            await self._refresh_all()
             return
         self._related_cache.clear()
         entity = self.registry.get(level.entity or "")
@@ -577,7 +587,7 @@ class BrowserScreen(Screen):
                 timeout=10,
             )
             return
-        candidates = related_records(self.client, self.registry, kind, record)
+        candidates = await asyncio.to_thread(related_records, self.client, self.registry, kind, record)
         if not candidates:
             self.notify(
                 f"No {spec['label']} found for '{record_title(record)}'.",
@@ -655,7 +665,9 @@ class BrowserScreen(Screen):
             self.notify("Auto-deploy skipped: record id not available.", severity="warning")
             return
         try:
-            self.client.request("POST", deploy.route, {"body": {f"{entity_name}Id": entity_id}})
+            await asyncio.to_thread(
+                self.client.request, "POST", deploy.route, {"body": {f"{entity_name}Id": entity_id}}
+            )
         except httpx.HTTPError as err:
             self.notify(f"Auto-deploy failed: {err}", severity="error", timeout=10)
             return
@@ -665,7 +677,7 @@ class BrowserScreen(Screen):
     async def _api_get(self, action, params: dict):
         """Execute a GET-style action and return the JSON, or None on error."""
         try:
-            response = self.client.request(action.method, action.route, params)
+            response = await asyncio.to_thread(self.client.request, action.method, action.route, params)
             return response.json()
         except httpx.HTTPError as err:
             self.notify(f"API error: {err}", severity="error", timeout=10)

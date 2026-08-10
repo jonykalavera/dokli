@@ -1,15 +1,17 @@
 """TUI tests (browser navigation, forms, wizard)."""
 
 import asyncio
+import threading
+import time
 
 import httpx
 from textual.command import CommandPalette
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Label, Switch
+from textual.widgets import Input, Label, Static, Switch
 
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
-from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
+from dokli.tui.engine import build_form_model, parse_spec, record_title
 from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb, sort_entities
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
@@ -21,6 +23,7 @@ from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
+from dokli.tui.screens.splash import SPINNER_FRAMES, SplashScreen
 
 FAKE_SCHEMA = {
     "paths": {
@@ -172,16 +175,15 @@ def _fake_requests():
 
 
 def _patch_api(mocker):
-    client = mocker.Mock()
+    client = mocker.Mock(schema=FAKE_SCHEMA)
     responses = _fake_requests()
-    clear_probe_cache("test-env")
 
     def fake_request(method, path, params):
         return FakeResponse(responses.get(path, []))
 
     client.request.side_effect = fake_request
     mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
-    mocker.patch("dokli.tui.app.APIClient", return_value=mocker.Mock(schema=FAKE_SCHEMA))
+    mocker.patch("dokli.tui.app.APIClient", return_value=client)
     return responses
 
 
@@ -208,6 +210,16 @@ async def _wait_for_label(app, pilot, label):
         if any(label in current for current in _current_labels(app)):
             return
     raise AssertionError(f"Label {label!r} never appeared")
+
+
+async def _wait_for_browser(app, pilot):
+    """Wait for the browser, allowing for the splash minimum duration."""
+    for _ in range(100):
+        await pilot.pause()
+        if isinstance(app.screen, BrowserScreen):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("Browser never appeared")
 
 
 def _current_labels(app):
@@ -743,6 +755,235 @@ def test_browser_respects_entity_order(mocker):
     _run(main())
 
 
+def test_connection_opens_browser_after_splash(mocker):
+    """We expect a connection to show the splash, then the browser."""
+    _patch_api(mocker)
+
+    class SlowClient:
+        @property
+        def schema(self):
+            time.sleep(2)
+            return FAKE_SCHEMA
+
+        def request(self, method, path, params):
+            return FakeResponse({})
+
+    mocker.patch("dokli.tui.app.APIClient", return_value=SlowClient())
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            splash_seen = False
+            for _ in range(60):
+                await pilot.pause()
+                if isinstance(app.screen, SplashScreen):
+                    splash_seen = True
+                    break
+            assert splash_seen, "splash never shown"
+            await _wait_for_browser(app, pilot)
+            assert isinstance(app.screen, BrowserScreen)
+
+    _run(main())
+
+
+def test_splash_screen_shows_status(mocker):
+    """We expect the splash to render the logo, a status box, and accept updates."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            splash = SplashScreen(classes="Splash")
+            app.install_screen(splash, name="splash")
+            app.push_screen("splash")
+            await pilot.pause()
+            assert "splash-logo" in [widget.id for widget in splash.query(Static)]
+            assert splash.query_one("#status-panel") is not None
+            splash.set_status("Fetching schema…")
+            await pilot.pause()
+            status = str(splash.query_one("#splash-status", Label).renderable)
+            assert status.endswith("Fetching schema…")
+            assert status.split()[0] in SPINNER_FRAMES
+
+    _run(main())
+
+
+def test_api_get_does_not_block_loop(mocker):
+    """We expect a slow API call to run off the event loop (UI stays responsive)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            real_request = screen.client.request
+
+            def slow_request(*args, **kwargs):
+                time.sleep(1.5)
+                return real_request(*args, **kwargs)
+
+            screen.client.request = slow_request
+            task = asyncio.create_task(screen._api_get(action, {}))
+            await pilot.pause()
+            start = time.monotonic()
+            await asyncio.sleep(0.2)
+            elapsed = time.monotonic() - start
+            assert elapsed < 1.0, f"loop blocked for {elapsed:.2f}s"
+            result = await task
+            assert result is not None
+
+    _run(main())
+
+
+def test_splash_escape_cancels_connection(mocker):
+    """We expect escape on the splash to abort the connection attempt."""
+    _patch_api(mocker)
+
+    class SlowSchema:
+        def __init__(self):
+            self.release = threading.Event()
+
+        @property
+        def schema(self):
+            self.release.wait(30)
+            return {"paths": {}}
+
+    slow = SlowSchema()
+    mocker.patch("dokli.tui.app.APIClient", return_value=slow)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, SplashScreen)
+            await pilot.press("escape")
+            await pilot.pause()
+            assert not isinstance(app.screen, SplashScreen)
+            await asyncio.sleep(1.5)
+            await pilot.pause()
+            assert not isinstance(app.screen, BrowserScreen)
+            slow.release.set()
+
+    _run(main())
+
+
+def test_connection_reports_status_stages(mocker):
+    """We expect the splash to report each preparation stage."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        spy = mocker.spy(app, "_splash_status")
+        async with app.run_test() as pilot:
+            await _wait_for_browser(app, pilot)
+        texts = [call.args[0] for call in spy.call_args_list]
+        assert "Fetching OpenAPI schema…" in texts
+        assert "Parsing registry…" in texts
+        assert "Preparing browser…" in texts
+
+    _run(main())
+
+
+def test_offline_connection_shows_error_and_loads_browser(mocker):
+    """We expect no-connectivity (cached schema) to warn on the splash, load the
+    browser from cache, and leave a toast."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    first_entity = next(iter(registry.listable()), None)
+
+    def failing_request(method, path, params):
+        if path == f"{first_entity}.all":
+            raise httpx.ConnectError("down", request=httpx.Request("GET", "https://example.com/"))
+        return FakeResponse({})
+
+    import dokli.tui.app as tui_app
+
+    tui_app.APIClient.return_value.request.side_effect = failing_request
+
+    async def main():
+        app = DokliApp(config=_config(), connection=_connection())
+        notify = mocker.spy(app, "notify")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await _wait_for_browser(app, pilot)
+            assert isinstance(app.screen, BrowserScreen)
+        assert any("No connectivity" in str(call) for call in notify.call_args_list)
+
+    _run(main())
+
+
+def test_splash_spinner_animates(mocker):
+    """We expect the splash spinner to cycle through frames over time."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            splash = SplashScreen(classes="Splash")
+            app.install_screen(splash, name="splash")
+            app.push_screen("splash")
+            await pilot.pause()
+            label = splash.query_one("#splash-status", Label)
+            first = str(label.renderable).split()[0]
+            for _ in range(40):
+                await pilot.pause()
+                current = str(label.renderable).split()[0]
+                if current != first:
+                    break
+            assert current != first
+            assert current in SPINNER_FRAMES
+
+    _run(main())
+
+
+def test_browser_loading_indicator_toggles(mocker):
+    """We expect the browser spinner to toggle on refresh."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            loading = screen.query_one("#loading")
+            assert loading.display is False
+            screen._set_loading(True)
+            await pilot.pause()
+            assert loading.display is True
+            screen._set_loading(False)
+            await pilot.pause()
+            assert loading.display is False
+
+    _run(main())
+
+
+def test_result_screen_loading_indicator(mocker):
+    """We expect the result screen to host a togglable spinner."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, data={"items": []})
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            loading = screen.query_one("#result-loading")
+            assert loading.display is False
+            screen._set_loading(True)
+            await pilot.pause()
+            assert loading.display is True
+
+    _run(main())
+
+
 def test_auto_deploy_callback_gating(mocker):
     """We expect the auto-deploy hook to fire only when enabled and possible."""
     _patch_api(mocker)
@@ -1244,7 +1485,7 @@ def test_related_containers_enrich_via_one(mocker):
                 )
             ]
             screen.current.index = 0
-            related = screen._related_records(screen.selected)
+            related = await screen._related_records(screen.selected)
             docker_call = next(
                 call
                 for call in screen.client.request.call_args_list
@@ -1256,71 +1497,6 @@ def test_related_containers_enrich_via_one(mocker):
             assert [r["name"] for r in related] == ["frigate", "frigate-notify"]
 
     _run(main())
-
-
-def test_unusable_entities_are_hidden(mocker):
-    """We expect entities whose all action returns 403 to be hidden."""
-    import httpx
-
-    clear_probe_cache("test-env")
-    client = mocker.Mock()
-    responses = _fake_requests()
-
-    def fake_request(method, path, params):
-        if path == "auditLog.all":
-            request = httpx.Request("GET", "https://example.com/api/auditLog.all")
-            response = httpx.Response(403, request=request)
-            raise httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
-        return FakeResponse(responses.get(path, []))
-
-    client.request.side_effect = fake_request
-    mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
-    mocker.patch("dokli.tui.app.APIClient", return_value=mocker.Mock(schema=FAKE_SCHEMA))
-    registry = parse_spec(FAKE_SCHEMA)
-
-    async def main():
-        app = DokliApp(config=_config())
-        async with app.run_test() as pilot:
-            await _mount_browser(app, pilot, _connection(), registry)
-            for _ in range(30):
-                await pilot.pause()
-                labels = _current_labels(app)
-                if "auditLog" not in labels and any("project" in label for label in labels):
-                    break
-            labels = _current_labels(app)
-            assert not any("auditLog" in label for label in labels)
-            assert any("project" in label for label in labels)
-
-    _run(main())
-
-
-def test_probe_entity(mocker):
-    """We expect probe_entity to distinguish usable and gated endpoints."""
-    import httpx
-
-    def action():
-        return EntityAction(verb="all", method="GET", route="x.all")
-
-    ok_client = mocker.Mock()
-    ok_client.request.return_value = FakeResponse([], status_code=200)
-    assert probe_entity(ok_client, Entity(name="x", actions={"all": action()})) is True
-
-    forbidden_client = mocker.Mock()
-
-    def raise_403(method, path, params):
-        request = httpx.Request("GET", "https://example.com/api/x.all")
-        response = httpx.Response(403, request=request)
-        raise httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
-
-    forbidden_client.request.side_effect = raise_403
-    assert probe_entity(forbidden_client, Entity(name="x", actions={"all": action()})) is False
-
-    def raise_transport(method, path, params):
-        raise httpx.ConnectError("connection refused", request=httpx.Request("GET", "https://example.com/api/x.all"))
-
-    transport_client = mocker.Mock()
-    transport_client.request.side_effect = raise_transport
-    assert probe_entity(transport_client, Entity(name="x", actions={"all": action()})) is True
 
 
 async def _select_connection(app, pilot):
@@ -1341,6 +1517,7 @@ def test_connection_selection_opens_browser(mocker):
         async with app.run_test() as pilot:
             await pilot.pause()
             await _select_connection(app, pilot)
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
 
     _run(main())
@@ -1353,10 +1530,7 @@ def test_connection_argument_opens_browser_directly(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            for _ in range(30):
-                await pilot.pause()
-                if isinstance(app.screen, BrowserScreen):
-                    break
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
             assert app.connection is not None
             assert app.connection.name == "test-env"
@@ -1502,10 +1676,7 @@ def test_switch_connection_reuses_browser(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            for _ in range(30):
-                await pilot.pause()
-                if isinstance(app.screen, BrowserScreen):
-                    break
+            await _wait_for_browser(app, pilot)
             first = app.screen
             # go back to the connections screen and pick another connection
             app.action_connections()
@@ -1516,8 +1687,7 @@ def test_switch_connection_reuses_browser(mocker):
             assert isinstance(app.screen, ConnectionsScreen)
             second = ConnectionConfig(name="stage", url="https://stage.example.com", api_key_cmd="echo key")
             app.set_connection(second)
-            for _ in range(20):
-                await pilot.pause()
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
             assert app.screen is first
             assert app.screen.connection.name == "stage"
@@ -1535,10 +1705,7 @@ def test_help_screen_shows_bindings(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            for _ in range(30):
-                await pilot.pause()
-                if isinstance(app.screen, BrowserScreen):
-                    break
+            await _wait_for_browser(app, pilot)
             # select 'project' so its contextual actions are available
             screen = app.screen
             vis = screen._visible_items(screen.current)

@@ -1,5 +1,6 @@
 """Shared action confirmation and execution helpers."""
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -46,10 +47,22 @@ def _run(
     body: dict,
     on_success: Callable[[], Any] | None,
 ) -> None:
-    client = APIClient(connection)
+    """Run the action off the event loop so the UI stays responsive."""
+    screen.run_worker(_run_async(screen, connection, action, body, on_success), group="action")
+
+
+async def _run_async(
+    screen,
+    connection: ConnectionConfig,
+    action: EntityAction,
+    body: dict,
+    on_success: Callable[[], Any] | None,
+) -> None:
+    """Execute the request in a worker thread, then report back on the loop."""
     params: dict = {"body": body} if body else {}
     try:
-        client.request(action.method, action.route, params)
+        client = await asyncio.to_thread(APIClient, connection)
+        await asyncio.to_thread(client.request, action.method, action.route, params)
     except httpx.HTTPError as err:
         screen.notify(f"API error: {err}", severity="error", timeout=10)
         return

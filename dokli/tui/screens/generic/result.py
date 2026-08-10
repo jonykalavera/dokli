@@ -1,5 +1,7 @@
 """Result screen: shows the response of a read-only query action."""
 
+import asyncio
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -7,7 +9,7 @@ from rich.text import Text
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label
+from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
@@ -71,6 +73,7 @@ class ResultScreen(Screen):
         yield Label(f"{self.connection.name} · {self.action.route}", classes="title")
         yield self.search_input
         yield VerticalScroll(Label(_render_data(self.data), id="result"), id="result-scroll")
+        yield LoadingIndicator(id="result-loading", classes="spinner")
         yield Label("", id="match-status")
 
     def on_screen_resume(self, event) -> None:
@@ -99,15 +102,24 @@ class ResultScreen(Screen):
 
     async def _refresh(self) -> None:
         """Fetch fresh data and re-render (keeping any active search)."""
+        self._set_loading(True)
         try:
-            response = APIClient(self.connection).request("GET", self.action.route, self.params)
+            response = await asyncio.to_thread(
+                lambda: APIClient(self.connection).request("GET", self.action.route, self.params)
+            )
+            self.data = response.json()
+            self._lines = _plain_lines(self.data)
+            self._recompute_matches()
+            await self._apply_search()
         except httpx.HTTPError as err:
             self.notify(f"API error: {err}", severity="error", timeout=10)
-            return
-        self.data = response.json()
-        self._lines = _plain_lines(self.data)
-        self._recompute_matches()
-        await self._apply_search()
+        finally:
+            self._set_loading(False)
+
+    def _set_loading(self, loading: bool) -> None:
+        """Show or hide the refresh spinner."""
+        with contextlib.suppress(Exception):
+            self.query_one("#result-loading", LoadingIndicator).display = loading
 
     # -- search ------------------------------------------------------------
 

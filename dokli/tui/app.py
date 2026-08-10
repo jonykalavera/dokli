@@ -1,5 +1,6 @@
 """Dokli TUI."""
 
+import asyncio
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -12,6 +13,7 @@ from textual.binding import _Bindings
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.design import ColorSystem
 from textual.widgets import Footer, Header, Static
+from textual.worker import get_current_worker
 
 from dokli.api_client import APIClient
 from dokli.config import Config, ConnectionConfig
@@ -23,9 +25,23 @@ from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.settings import SettingsScreen
+from dokli.tui.screens.splash import SplashScreen
 
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
+
+# Cap on the schema fetch, so a hanging DNS/connect cannot freeze the splash.
+SCHEMA_FETCH_TIMEOUT = 15.0
+
+# Cap on the live connectivity check performed after a cached schema load.
+# Short so an offline connect doesn't wait long before the browser loads.
+CONNECTIVITY_TIMEOUT = 2.0
+
+
+def _build_connection_client(connection: ConnectionConfig) -> tuple[APIClient, dict]:
+    """Build an API client (fetching the schema) in a worker thread."""
+    client = APIClient(connection)
+    return client, client.schema
 
 # App-level action -> (default key, help text). Remappable via tui.keys.app.
 APP_ACTIONS: dict[str, tuple[str, str]] = {
@@ -299,28 +315,111 @@ class DokliApp(App):
         """Set the active connection and open the entity browser."""
         self.connection = connection
         log.info(f"Setting connection: {connection}")
+        self._splash = SplashScreen(classes="Splash")
+        self.push_screen(self._splash)
+        self._connection_worker = self.run_worker(
+            self._prepare_connection(connection), exclusive=True, group="connection"
+        )
+
+    async def _prepare_connection(self, connection: ConnectionConfig) -> None:
+        """Fetch the schema and build the browser entirely off the event loop."""
         try:
-            schema = APIClient(connection).schema
-        except httpx.HTTPError as err:
+            self._splash_status("Fetching OpenAPI schema…")
+            # Fetch the schema AND build the API client in a worker thread so no
+            # network call ever runs on the event loop (an unreachable host would
+            # otherwise freeze the whole UI until the network returns).
+            client, schema = await asyncio.wait_for(
+                asyncio.to_thread(_build_connection_client, connection),
+                timeout=SCHEMA_FETCH_TIMEOUT,
+            )
+            self._splash_status("Parsing registry…")
+            registry = parse_spec(schema)
+            self._splash_status("Checking connectivity…")
+            online = await self._check_connectivity(client, registry)
+            self._splash_status("Preparing browser…")
+            browser = self._installed_screens.get("Browser")
+            if isinstance(browser, BrowserScreen):
+                browser.reload(
+                    connection, registry, entity_order=self.config.tui.entity_order, client=client
+                )
+            else:
+                browser = BrowserScreen(
+                    name="Browser",
+                    connection=connection,
+                    registry=registry,
+                    entity_order=self.config.tui.entity_order,
+                    client=client,
+                )
+                self.install_screen(browser, name="Browser")
+        except (httpx.HTTPError, asyncio.TimeoutError) as err:
+            self._pop_splash()
             self._connection_failed(connection, err)
             return
-        registry = parse_spec(schema)
-        browser = self._installed_screens.get("Browser")
-        if isinstance(browser, BrowserScreen):
-            browser.reload(connection, registry, entity_order=self.config.tui.entity_order)
-        else:
-            browser = BrowserScreen(
-                name="Browser",
-                connection=connection,
-                registry=registry,
-                entity_order=self.config.tui.entity_order,
-            )
-            self.install_screen(browser, name="Browser")
+        except Exception:
+            self._pop_splash()
+            self._connection_failed(connection, RuntimeError("Could not prepare the connection."))
+            return
+        if not online:
+            self._splash_error(connection)
+            # Hold briefly so the error is visible on the splash before the
+            # browser (loaded from cache) takes over.
+            await asyncio.sleep(0.8)
+        self._pop_splash()
         if browser in self.screen_stack:
             while self.screen_stack and self.screen_stack[-1] is not browser:
                 self.pop_screen()
         else:
             self.push_screen("Browser")
+        if not online:
+            self.notify(f"No connectivity to {connection.name} — actions may fail.", severity="error", timeout=8)
+
+    async def _check_connectivity(self, client: APIClient, registry) -> bool:
+        """Return whether the instance is actually reachable (not just cached)."""
+        entity = next(iter(registry.listable()), None)
+        if entity is None:
+            return True
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(client.request, "GET", f"{entity}.all", {}),
+                timeout=CONNECTIVITY_TIMEOUT,
+            )
+            return True
+        except (httpx.TransportError, asyncio.TimeoutError):
+            return False
+        except httpx.HTTPStatusError:
+            # The API responded (even with an error) — connectivity exists.
+            return True
+
+    def _splash_error(self, connection: ConnectionConfig) -> None:
+        """Mark the splash status as an error (shown on the way to the browser)."""
+        splash = getattr(self, "_splash", None)
+        if splash is not None:
+            splash.set_status(f"No connectivity to {connection.name} — actions may fail.", error=True)
+
+    def _splash_status(self, text: str) -> None:
+        """Update the splash status line (stored even before the splash mounts)."""
+        splash = getattr(self, "_splash", None)
+        if splash is not None:
+            splash.set_status(text)
+
+    def _pop_splash(self) -> None:
+        """Pop the splash screen (if showing) and cancel its connection worker."""
+        splash = getattr(self, "_splash", None)
+        if splash is not None and splash in self.screen_stack:
+            self.pop_screen()
+        self._splash = None
+        worker = getattr(self, "_connection_worker", None)
+        try:
+            current = get_current_worker()
+        except Exception:
+            current = None
+        if worker is not None and worker is not current:
+            worker.cancel()
+        self._connection_worker = None
+
+    def cancel_connection(self) -> None:
+        """Abort an in-flight connection attempt and return to the previous screen."""
+        self._pop_splash()
 
     def _connection_failed(self, connection: ConnectionConfig, err: Exception) -> None:
         """Fall back to the connections screen when a connection is unreachable."""
