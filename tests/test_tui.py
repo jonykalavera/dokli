@@ -211,6 +211,16 @@ async def _wait_for_label(app, pilot, label):
     raise AssertionError(f"Label {label!r} never appeared")
 
 
+async def _wait_for_browser(app, pilot):
+    """Wait for the browser, allowing for the splash minimum duration."""
+    for _ in range(100):
+        await pilot.pause()
+        if isinstance(app.screen, BrowserScreen):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("Browser never appeared")
+
+
 def _current_labels(app):
     labels = [
         str(label.renderable)
@@ -752,7 +762,8 @@ def test_connection_opens_browser_after_splash(mocker):
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
             await pilot.pause()
-            await pilot.pause()
+            assert isinstance(app.screen, SplashScreen)
+            await asyncio.sleep(1.5)
             await pilot.pause()
             assert isinstance(app.screen, BrowserScreen)
 
@@ -1447,6 +1458,7 @@ def test_connection_selection_opens_browser(mocker):
         async with app.run_test() as pilot:
             await pilot.pause()
             await _select_connection(app, pilot)
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
 
     _run(main())
@@ -1459,10 +1471,7 @@ def test_connection_argument_opens_browser_directly(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            for _ in range(30):
-                await pilot.pause()
-                if isinstance(app.screen, BrowserScreen):
-                    break
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
             assert app.connection is not None
             assert app.connection.name == "test-env"
@@ -1608,10 +1617,7 @@ def test_switch_connection_reuses_browser(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            for _ in range(30):
-                await pilot.pause()
-                if isinstance(app.screen, BrowserScreen):
-                    break
+            await _wait_for_browser(app, pilot)
             first = app.screen
             # go back to the connections screen and pick another connection
             app.action_connections()
@@ -1622,8 +1628,7 @@ def test_switch_connection_reuses_browser(mocker):
             assert isinstance(app.screen, ConnectionsScreen)
             second = ConnectionConfig(name="stage", url="https://stage.example.com", api_key_cmd="echo key")
             app.set_connection(second)
-            for _ in range(20):
-                await pilot.pause()
+            await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
             assert app.screen is first
             assert app.screen.connection.name == "stage"
@@ -1641,10 +1646,7 @@ def test_help_screen_shows_bindings(mocker):
     async def main():
         app = DokliApp(config=_config(), connection=_connection())
         async with app.run_test() as pilot:
-            for _ in range(30):
-                await pilot.pause()
-                if isinstance(app.screen, BrowserScreen):
-                    break
+            await _wait_for_browser(app, pilot)
             # select 'project' so its contextual actions are available
             screen = app.screen
             vis = screen._visible_items(screen.current)

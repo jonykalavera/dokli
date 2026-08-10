@@ -1,6 +1,7 @@
 """Dokli TUI."""
 
 import asyncio
+import time
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -28,6 +29,10 @@ from dokli.tui.screens.splash import SplashScreen
 
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
+
+# Minimum time the splash stays up so the spinner animation is visible even
+# when the schema fetch is fast (e.g. a warm cache).
+SPLASH_MIN_SECONDS = 1.2
 
 # App-level action -> (default key, help text). Remappable via tui.keys.app.
 APP_ACTIONS: dict[str, tuple[str, str]] = {
@@ -301,6 +306,7 @@ class DokliApp(App):
         """Set the active connection and open the entity browser."""
         self.connection = connection
         log.info(f"Setting connection: {connection}")
+        self._splash_started = time.monotonic()
         self._splash = SplashScreen(classes="Splash")
         self.push_screen(self._splash)
         self.run_worker(self._prepare_connection(connection), exclusive=True, group="connection")
@@ -327,6 +333,11 @@ class DokliApp(App):
                 entity_order=self.config.tui.entity_order,
             )
             self.install_screen(browser, name="Browser")
+        # Hold the splash for at least the minimum so the spinner is visible
+        # even when the schema fetch is fast (e.g. cached).
+        elapsed = time.monotonic() - getattr(self, "_splash_started", time.monotonic())
+        if elapsed < SPLASH_MIN_SECONDS:
+            await asyncio.sleep(SPLASH_MIN_SECONDS - elapsed)
         self._pop_splash()
         if browser in self.screen_stack:
             while self.screen_stack and self.screen_stack[-1] is not browser:
