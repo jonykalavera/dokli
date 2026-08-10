@@ -12,7 +12,6 @@ from dokli.tui.engine.introspect import (
     record_id,
     record_title,
 )
-from dokli.tui.engine.probe import clear_probe_cache, probe_entities, probe_entity
 from dokli.tui.engine.related import (
     PARAM_SOURCES,
     RELATED_PROVIDERS,
@@ -43,7 +42,6 @@ __all__ = [
     "action_bindings",
     "build_form_model",
     "classify",
-    "clear_probe_cache",
     "collect_children",
     "entity_icon",
     "entity_icon_color",
@@ -54,8 +52,6 @@ __all__ = [
     "nested_child_entity",
     "param_source",
     "parse_spec",
-    "probe_entities",
-    "probe_entity",
     "record_id",
     "record_title",
     "related_records",

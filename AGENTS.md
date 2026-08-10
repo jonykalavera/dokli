@@ -22,11 +22,11 @@ Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
 
 - **`make test` needs the live config reachable.** `test_cli.py` collection imports `dokli.cli`, which calls `register_connections` and fetches the OpenAPI schema for every connection in `~/.config/dokli/dokli.yaml` at import time. An unreachable/polluted config breaks collection with a 404. Restore the real config (`connections: [meche]`) if tests overwrite it.
 - **Never let tests write the real config.** App persistence handlers call `Config.save()`; tests must `mocker.patch("dokli.config.Config.save")` (pydantic blocks `patch.object` on an instance — patch the class). A stray real save overwrites the user's `~/.config/dokli/dokli.yaml`.
-- TUI tests live in `tests/test_tui.py`: reuse `FAKE_SCHEMA`, `_patch_api(mocker)` (returns the responses dict + patches both APIClient sites), `FakeResponse`, and the pilot helpers `_mount_browser` / `_wait_for_label` / `_select`. Call `clear_probe_cache("test-env")` when changing probe responses.
+- TUI tests live in `tests/test_tui.py`: reuse `FAKE_SCHEMA`, `_patch_api(mocker)` (returns the responses dict + patches both APIClient sites), `FakeResponse`, and the pilot helpers `_mount_browser` / `_wait_for_label` / `_select`.
 
 ## TUI specifics
 
-- **Engine** (`dokli/tui/engine/`): `spec.py` builds the entity registry from `settings.getOpenApiDocument` and assigns deterministic keybindings; `probe.py` hides entities whose `all` returns 401/403 or needs params; `related.py` finds containers via `compose.one.appName` (the docker project slug) + `appType`, enriching list records through the entity's `one` action — do not match containers by the display `name`.
+- **Engine** (`dokli/tui/engine/`): `spec.py` builds the entity registry from `settings.getOpenApiDocument` and assigns deterministic keybindings; `related.py` finds containers via `compose.one.appName` (the docker project slug) + `appType`, enriching list records through the entity's `one` action — do not match containers by the display `name`.
 - **Keybindings**: `D` = dark mode, `F5` = refresh, `L` = readLogs. `RESERVED_KEYS = "hjklrq"` and `SYSTEM_KEYS = frozenset("D")` in `spec.py` — never assign those to actions (`l` is drill-in).
 - **Pilot testing quirks** (hard-won):
   - `push_screen(screen, cb)` callbacks never fire under the pilot; await the result with `push_screen_wait` from a worker instead.

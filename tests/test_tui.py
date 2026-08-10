@@ -11,7 +11,7 @@ from textual.widgets import Input, Label, Static, Switch
 
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
-from dokli.tui.engine import build_form_model, clear_probe_cache, parse_spec, probe_entity, record_title
+from dokli.tui.engine import build_form_model, parse_spec, record_title
 from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb, sort_entities
 from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
@@ -177,7 +177,6 @@ def _fake_requests():
 def _patch_api(mocker):
     client = mocker.Mock(schema=FAKE_SCHEMA)
     responses = _fake_requests()
-    clear_probe_cache("test-env")
 
     def fake_request(method, path, params):
         return FakeResponse(responses.get(path, []))
@@ -867,36 +866,6 @@ def test_splash_escape_cancels_connection(mocker):
     _run(main())
 
 
-def test_probe_timeout_keeps_browser_usable(mocker):
-    """We expect a hanging probe to time out and leave the entity list usable."""
-    _patch_api(mocker)
-    registry = parse_spec(FAKE_SCHEMA)
-    import dokli.tui.screens.generic.browser as B
-
-    mocker.patch.object(B, "PROBE_TIMEOUT", 0.2)
-    release = threading.Event()
-
-    def hanging_probe(client, reg, name):
-        release.wait(10)
-        return {}
-
-    mocker.patch.object(B, "probe_entities", side_effect=hanging_probe)
-
-    async def main():
-        app = DokliApp(config=_config())
-        async with app.run_test() as pilot:
-            await _mount_browser(app, pilot, _connection(), registry)
-            screen = app.screen
-            await asyncio.sleep(0.6)
-            await pilot.pause()
-            assert screen._usable is None
-            names = [item.get("name") for item in screen._visible_items(screen.current)]
-            assert "project" in names
-            release.set()
-
-    _run(main())
-
-
 def test_connection_reports_status_stages(mocker):
     """We expect the splash to report each preparation stage."""
     _patch_api(mocker)
@@ -937,7 +906,6 @@ def test_offline_connection_shows_error_and_loads_browser(mocker):
             await pilot.pause()
             await _wait_for_browser(app, pilot)
             assert isinstance(app.screen, BrowserScreen)
-            assert app.screen.offline is True
         assert any("No connectivity" in str(call) for call in notify.call_args_list)
 
     _run(main())
@@ -1524,71 +1492,6 @@ def test_related_containers_enrich_via_one(mocker):
             assert [r["name"] for r in related] == ["frigate", "frigate-notify"]
 
     _run(main())
-
-
-def test_unusable_entities_are_hidden(mocker):
-    """We expect entities whose all action returns 403 to be hidden."""
-    import httpx
-
-    clear_probe_cache("test-env")
-    client = mocker.Mock()
-    responses = _fake_requests()
-
-    def fake_request(method, path, params):
-        if path == "auditLog.all":
-            request = httpx.Request("GET", "https://example.com/api/auditLog.all")
-            response = httpx.Response(403, request=request)
-            raise httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
-        return FakeResponse(responses.get(path, []))
-
-    client.request.side_effect = fake_request
-    mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
-    mocker.patch("dokli.tui.app.APIClient", return_value=mocker.Mock(schema=FAKE_SCHEMA))
-    registry = parse_spec(FAKE_SCHEMA)
-
-    async def main():
-        app = DokliApp(config=_config())
-        async with app.run_test() as pilot:
-            await _mount_browser(app, pilot, _connection(), registry)
-            for _ in range(30):
-                await pilot.pause()
-                labels = _current_labels(app)
-                if "auditLog" not in labels and any("project" in label for label in labels):
-                    break
-            labels = _current_labels(app)
-            assert not any("auditLog" in label for label in labels)
-            assert any("project" in label for label in labels)
-
-    _run(main())
-
-
-def test_probe_entity(mocker):
-    """We expect probe_entity to distinguish usable and gated endpoints."""
-    import httpx
-
-    def action():
-        return EntityAction(verb="all", method="GET", route="x.all")
-
-    ok_client = mocker.Mock()
-    ok_client.request.return_value = FakeResponse([], status_code=200)
-    assert probe_entity(ok_client, Entity(name="x", actions={"all": action()})) is True
-
-    forbidden_client = mocker.Mock()
-
-    def raise_403(method, path, params):
-        request = httpx.Request("GET", "https://example.com/api/x.all")
-        response = httpx.Response(403, request=request)
-        raise httpx.HTTPStatusError("403 Forbidden", request=request, response=response)
-
-    forbidden_client.request.side_effect = raise_403
-    assert probe_entity(forbidden_client, Entity(name="x", actions={"all": action()})) is False
-
-    def raise_transport(method, path, params):
-        raise httpx.ConnectError("connection refused", request=httpx.Request("GET", "https://example.com/api/x.all"))
-
-    transport_client = mocker.Mock()
-    transport_client.request.side_effect = raise_transport
-    assert probe_entity(transport_client, Entity(name="x", actions={"all": action()})) is True
 
 
 async def _select_connection(app, pilot):

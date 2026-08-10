@@ -17,12 +17,10 @@ from dokli.tui.engine import (
     EntityRegistry,
     action_bindings,
     classify,
-    clear_probe_cache,
     collect_children,
     field_label,
     icon_label,
     param_source,
-    probe_entities,
     record_id,
     record_title,
     related_records,
@@ -34,10 +32,6 @@ from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
-
-# Cap on the entity-usability probe so a hanging DNS/connect can't stall the
-# browser's initial loading forever.
-PROBE_TIMEOUT = 15.0
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -87,7 +81,6 @@ class BrowserScreen(Screen):
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
         client: APIClient | None = None,
-        offline: bool = False,
         *args,
         **kwargs,
     ) -> None:
@@ -95,19 +88,16 @@ class BrowserScreen(Screen):
 
         ``client`` is an already-built API client (schema fetched). When not
         provided, it is built here — callers should pre-build it off the event
-        loop so the schema fetch never blocks the UI. ``offline`` skips the
-        entity-usability probe (no connectivity).
+        loop so the schema fetch never blocks the UI.
         """
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.registry = registry
         self.client = client if client is not None else APIClient(connection)
         self.entity_order = tuple(entity_order or ())
-        self.offline = offline
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
-        self._usable: set[str] | None = None
         self._related_cache: dict[str, list[dict]] = {}
 
     def _listable_entities(self) -> list[str]:
@@ -133,10 +123,8 @@ class BrowserScreen(Screen):
             self.query_one("#loading", LoadingIndicator).display = loading
 
     async def on_mount(self) -> None:
-        """On mount, render the entity list immediately, then probe usability."""
+        """On mount, render the entity list immediately."""
         await self._refresh_all()
-        if not self.offline:
-            await self._run_reprobe()
 
     def reload(
         self,
@@ -144,42 +132,18 @@ class BrowserScreen(Screen):
         registry: EntityRegistry,
         entity_order: list[str] | None = None,
         client: APIClient | None = None,
-        offline: bool = False,
     ) -> None:
-        """Point this browser at a new connection/registry and re-probe."""
+        """Point this browser at a new connection/registry."""
         self.connection = connection
         self.registry = registry
         self.client = client if client is not None else APIClient(connection)
-        self.offline = offline
         if entity_order is not None:
             self.entity_order = tuple(entity_order)
         entities = [{"_kind": name, "name": name} for name in self._listable_entities()]
         self.path = [Level(kind="entities", items=entities)]
         self._filter = ""
-        self._usable = None
         self._related_cache = {}
-        clear_probe_cache(connection.name)
-        if not offline:
-            self.run_worker(self._run_reprobe())  # type: ignore[arg-type]
-
-    async def _run_reprobe(self) -> None:
-        """Probe entity usability in a worker thread, then refresh the list."""
-        self.app.sub_title = f"{self.connection.name} · probing entities…"
-        self._set_loading(True)
-        try:
-            results = await asyncio.wait_for(
-                asyncio.to_thread(probe_entities, self.client, self.registry, self.connection.name),
-                timeout=PROBE_TIMEOUT,
-            )
-            self._usable = {name for name, usable in results.items() if usable}
-            await self._refresh_all()
-        except asyncio.TimeoutError:
-            # Probing timed out (e.g. DNS hangs); show all entities un-filtered.
-            self._usable = None
-            self.notify(f"No connectivity to {self.connection.name} — actions may fail.", severity="error", timeout=8)
-            await self._refresh_all()
-        finally:
-            self._set_loading(False)
+        self.run_worker(self._refresh_current, exclusive=True)  # type: ignore[arg-type]
 
     def on_screen_resume(self, event) -> None:
         """On screen resume."""
@@ -246,8 +210,6 @@ class BrowserScreen(Screen):
 
     def _visible_items(self, level: Level) -> list[dict]:
         items = level.items
-        if level.kind == "entities" and self._usable is not None:
-            items = [item for item in items if item.get("name") in self._usable]
         if not self._filter:
             return items
         query = self._filter.lower()
@@ -459,11 +421,10 @@ class BrowserScreen(Screen):
             self._set_loading(False)
 
     async def _action_refresh(self) -> None:
-        """Reload the current level (re-probing entity usability at the top)."""
+        """Reload the current level's data."""
         level = self.current
         if level.kind == "entities":
-            clear_probe_cache(self.connection.name)
-            await self._run_reprobe()
+            await self._refresh_all()
             return
         self._related_cache.clear()
         entity = self.registry.get(level.entity or "")

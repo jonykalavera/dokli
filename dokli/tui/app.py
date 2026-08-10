@@ -340,7 +340,7 @@ class DokliApp(App):
             browser = self._installed_screens.get("Browser")
             if isinstance(browser, BrowserScreen):
                 browser.reload(
-                    connection, registry, entity_order=self.config.tui.entity_order, client=client, offline=not online
+                    connection, registry, entity_order=self.config.tui.entity_order, client=client
                 )
             else:
                 browser = BrowserScreen(
@@ -349,7 +349,6 @@ class DokliApp(App):
                     registry=registry,
                     entity_order=self.config.tui.entity_order,
                     client=client,
-                    offline=not online,
                 )
                 self.install_screen(browser, name="Browser")
         except (httpx.HTTPError, asyncio.TimeoutError) as err:
