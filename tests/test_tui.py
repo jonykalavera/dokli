@@ -21,7 +21,7 @@ from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.generic.wizard import WizardScreen
-from dokli.tui.screens.splash import SplashScreen
+from dokli.tui.screens.splash import SPINNER_FRAMES, SplashScreen
 
 FAKE_SCHEMA = {
     "paths": {
@@ -774,7 +774,33 @@ def test_splash_screen_shows_status(mocker):
             assert splash.query_one("#status-panel") is not None
             splash.set_status("Fetching schema…")
             await pilot.pause()
-            assert str(splash.query_one("#splash-status", Label).renderable) == "Fetching schema…"
+            status = str(splash.query_one("#splash-status", Label).renderable)
+            assert status.endswith("Fetching schema…")
+            assert status.split()[0] in SPINNER_FRAMES
+
+    _run(main())
+
+
+def test_splash_spinner_animates(mocker):
+    """We expect the splash spinner to cycle through frames over time."""
+    _patch_api(mocker)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            splash = SplashScreen(classes="Splash")
+            app.install_screen(splash, name="splash")
+            app.push_screen("splash")
+            await pilot.pause()
+            label = splash.query_one("#splash-status", Label)
+            first = str(label.renderable).split()[0]
+            for _ in range(40):
+                await pilot.pause()
+                current = str(label.renderable).split()[0]
+                if current != first:
+                    break
+            assert current != first
+            assert current in SPINNER_FRAMES
 
     _run(main())
 
