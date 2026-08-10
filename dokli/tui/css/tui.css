@@ -122,6 +122,30 @@ Static#logo {
   margin-bottom: 1;
 }
 
+SplashScreen #splash-logo {
+  content-align: center middle;
+  margin-top: 2;
+  margin-bottom: 1;
+}
+
+SplashScreen #status-zone {
+  height: 1fr;
+  width: 100%;
+  align: center middle;
+}
+
+SplashScreen #status-panel {
+  border: round $accent;
+  height: auto;
+  width: auto;
+  min-width: 20;
+  padding: 0 2;
+}
+
+SplashScreen #splash-status {
+  content-align: center middle;
+}
+
 ConnectionWidget Label#icon {
   background: $success;
 }

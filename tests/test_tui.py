@@ -760,7 +760,7 @@ def test_connection_opens_browser_after_splash(mocker):
 
 
 def test_splash_screen_shows_status(mocker):
-    """We expect the splash to render the logo and accept status updates."""
+    """We expect the splash to render the logo, a status box, and accept updates."""
     _patch_api(mocker)
 
     async def main():
@@ -770,7 +770,8 @@ def test_splash_screen_shows_status(mocker):
             app.install_screen(splash, name="splash")
             app.push_screen("splash")
             await pilot.pause()
-            assert "logo" in [widget.id for widget in splash.query(Static)]
+            assert "splash-logo" in [widget.id for widget in splash.query(Static)]
+            assert splash.query_one("#status-panel") is not None
             splash.set_status("Fetching schema…")
             await pilot.pause()
             assert str(splash.query_one("#splash-status", Label).renderable) == "Fetching schema…"
