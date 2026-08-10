@@ -116,6 +116,29 @@ FAKE_SCHEMA = {
             }
         },
         "/server.all": {"get": {}},
+        "/deployment.all": {
+            "get": {
+                "parameters": [
+                    {"name": "applicationId", "in": "query", "required": True},
+                ]
+            }
+        },
+        "/deployment.allByCompose": {
+            "get": {
+                "parameters": [
+                    {"name": "composeId", "in": "query", "required": True},
+                ]
+            }
+        },
+        "/deployment.allCentralized": {"get": {}},
+        "/deployment.readLogs": {
+            "get": {
+                "parameters": [
+                    {"name": "deploymentId", "in": "query", "required": True},
+                    {"name": "tail", "in": "query"},
+                ]
+            }
+        },
     }
 }
 
@@ -171,6 +194,13 @@ def _fake_requests():
             {"containerId": "cc2", "name": "frigate-notify", "state": "running", "status": "Up 8 weeks"},
         ],
         "compose.readLogs": "2026-08-05T19:55:54Z frigate started",
+        "deployment.allCentralized": [
+            {"deploymentId": "d1", "name": "media-torrents-abc123", "status": "running"},
+        ],
+        "deployment.allByCompose": [
+            {"deploymentId": "d1", "name": "media-torrents-abc123", "status": "running"},
+        ],
+        "deployment.readLogs": "2026-08-05T20:00:00Z deployment started",
     }
 
 
@@ -1497,6 +1527,61 @@ def test_related_containers_enrich_via_one(mocker):
             assert [r["name"] for r in related] == ["frigate", "frigate-notify"]
 
     _run(main())
+
+
+def test_entity_list_uses_canonical_list_verb(mocker):
+    """We expect deployment to be listed via its no-param allCentralized."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "deployment")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media-torrents-abc123")
+            screen = app.screen
+            assert screen.current.kind == "deployment"
+            calls = [c for c in screen.client.request.call_args_list if c[0][1] == "deployment.allCentralized"]
+            assert calls
+
+    _run(main())
+
+
+def test_related_action_opens_deployments(mocker):
+    """We expect a compose record to expose deployment.allByCompose as a
+    separate action that opens a navigable deployment list."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            compose = registry.get("compose")
+            bindings = {a.route: key for a, key in screen._entity_bindings(compose) if key}
+            assert "deployment.allByCompose" in bindings
+            await pilot.press(bindings["deployment.allByCompose"])
+            await _wait_for_label(app, pilot, "media-torrents-abc123")
+            assert screen._selected_kind() == "deployment"
+            deploy = registry.get("deployment")
+            assert "deployment.readLogs" in {a.route for a, _ in screen._entity_bindings(deploy)}
+
+    _run(main())
+
 
 
 async def _select_connection(app, pilot):

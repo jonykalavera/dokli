@@ -20,13 +20,17 @@ from dokli.tui.engine import (
     collect_children,
     field_label,
     icon_label,
+    key_for_verb,
+    list_verb_override,
     param_source,
     record_id,
     record_title,
+    related_action_spec,
     related_records,
     related_spec,
     state_indicator,
 )
+from dokli.tui.engine.related import RELATED_ACTIONS
 from dokli.tui.engine.spec import PRIORITY_ENTITIES
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -307,15 +311,26 @@ class BrowserScreen(Screen):
         At the top-level entity list the "selected" item is a synthetic record,
         so only actions that do not need an existing record are exposed:
         create/new and read-only GET queries. Once inside a real record, all
-        actions (update, remove, ...) are available.
+        actions (update, remove, ...) are available, plus the contextual
+        related-entity actions declared in ``RELATED_ACTIONS``.
         """
         keybindings = getattr(self.app, "tui_keybindings", lambda: {})()
         bindings = action_bindings(entity, **keybindings)
-        if self.current.kind == "entities":
-            bindings = [
-                (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
-            ]
-        return bindings
+        if self.current.kind != "entities":
+            taken = {key for _, key in bindings if key}
+            for spec in RELATED_ACTIONS.get(self._selected_kind() or "", []):
+                rel_entity = self.registry.get(spec["entity"])
+                rel_action = rel_entity.get(spec["verb"]) if rel_entity else None
+                if rel_action is None:
+                    continue
+                key = key_for_verb(spec["verb"], frozenset(taken), **keybindings)
+                if key:
+                    taken.add(key)
+                bindings.append((rel_action, key))
+            return bindings
+        return [
+            (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
+        ]
 
     def contextual_bindings(self) -> list[tuple[str, str]]:
         """The current selection's action keybindings, for the help screen."""
@@ -381,9 +396,10 @@ class BrowserScreen(Screen):
         if entity is None:
             return
         if self.current.kind == "entities":
-            action = entity.get("all")
+            list_verb = list_verb_override(entity_name) or "all"
+            action = entity.get(list_verb)
             if action is None:
-                self.notify(f"'{entity_name}' has no 'all' action.", severity="warning")
+                self.notify(f"'{entity_name}' has no '{list_verb}' action.", severity="warning")
                 return
             data = await self._api_get(action, {})
             if data is None:
@@ -530,7 +546,10 @@ class BrowserScreen(Screen):
             self.run_worker(self._open_form(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         if action.method == "GET":
-            self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
+            if self._related_action_spec(action.route) is not None:
+                self.run_worker(self._show_related_list(action), exclusive=True, group="action")  # type: ignore[arg-type]
+            else:
+                self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         body = {}
         schema = action.request_schema
@@ -573,6 +592,34 @@ class BrowserScreen(Screen):
         data = await self._api_get(action, params)
         if data is not None:
             self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
+
+    def _related_action_spec(self, route: str) -> dict | None:
+        """The RELATED_ACTIONS spec for the selected record matching ``route``, if any."""
+        return related_action_spec(self._selected_kind() or "", route)
+
+    async def _show_related_list(self, action) -> None:
+        """Run a contextual related list action into a navigable records list."""
+        spec = self._related_action_spec(action.route)
+        if spec is None:
+            await self._show_result(action)
+            return
+        params, missing = self._build_params(action)
+        if missing:
+            await self._resolve_missing(action, params, missing)
+            return
+        data = await self._api_get(action, params)
+        if data is None:
+            return
+        records = data if isinstance(data, list) else data.get("items", [])
+        items = [{"_kind": spec["entity"], **record} for record in records if isinstance(record, dict)]
+        if not items:
+            self.notify(f"No {spec['label'].lower()} found.", severity="warning")
+            return
+        self.path.append(
+            Level(kind=spec["entity"], items=items, entity=spec["entity"], record=self.selected or {})
+        )
+        self._reset_filter()
+        self._rerender()
 
     async def _resolve_missing(self, action, params: dict, missing: list[str]) -> None:
         """Satisfy missing required params (e.g. containerId) via a picker."""

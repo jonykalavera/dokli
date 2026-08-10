@@ -78,10 +78,46 @@ PARAM_SOURCES: dict[str, dict] = {
     "containerId": {"value_field": "containerId", "label_field": "name"},
 }
 
+# Contextual related-entity list actions, surfaced as a separate action on the
+# parent record. The schema does not express these relations (e.g. a compose's
+# deployments), so they are declared here.
+#   entity: related entity, verb: action to call, fill: {param: record field},
+#   label: section/action title in the UI.
+RELATED_ACTIONS: dict[str, list[dict]] = {
+    "compose": [
+        {"entity": "deployment", "verb": "allByCompose", "fill": {"composeId": "composeId"}, "label": "Deployments"},
+    ],
+    "application": [
+        {"entity": "deployment", "verb": "all", "fill": {"applicationId": "applicationId"}, "label": "Deployments"},
+    ],
+    "server": [
+        {"entity": "deployment", "verb": "allByServer", "fill": {"serverId": "serverId"}, "label": "Deployments"},
+    ],
+}
+
+# Entities whose ``all`` requires a parent id: the canonical no-param list
+# action used when listing them at the top level.
+LIST_VERB_OVERRIDES: dict[str, str] = {
+    "deployment": "allCentralized",
+}
+
 
 def related_spec(parent_entity: str) -> dict | None:
     """The related-provider spec for a parent entity, if any."""
     return RELATED_PROVIDERS.get(parent_entity)
+
+
+def related_action_spec(parent_entity: str, route: str) -> dict | None:
+    """The RELATED_ACTIONS spec whose entity.verb matches ``route``, if any."""
+    for spec in RELATED_ACTIONS.get(parent_entity, []):
+        if f"{spec['entity']}.{spec['verb']}" == route:
+            return spec
+    return None
+
+
+def list_verb_override(entity: str) -> str | None:
+    """The canonical no-param list verb for an entity, if its ``all`` needs a parent."""
+    return LIST_VERB_OVERRIDES.get(entity)
 
 
 def param_source(param: str) -> dict | None:
