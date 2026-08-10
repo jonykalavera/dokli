@@ -1671,6 +1671,15 @@ def test_drill_into_service_lists_containers_first(mocker):
             await pilot.pause()
             await screen.action_right()
             await pilot.pause()
+            assert screen.current.kind == "categories"
+            assert [item["label"] for item in screen.current.items] == ["Containers", "Deployments"]
+            containers_idx = next(
+                i for i, item in enumerate(screen.current.items) if item.get("_category") == "containers"
+            )
+            screen.current.index = containers_idx
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
             items = screen.current.items
             assert items and items[0]["_kind"] == "docker"
             kinds = [item["_kind"] for item in items]
@@ -1704,6 +1713,13 @@ def test_container_contextual_logs(mocker):
             await pilot.pause()
             await screen.action_right()
             await pilot.pause()
+            containers_idx = next(
+                i for i, item in enumerate(screen.current.items) if item.get("_category") == "containers"
+            )
+            screen.current.index = containers_idx
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
             screen.current.index = 0
             await pilot.pause()
             docker = registry.get("docker")
@@ -1716,6 +1732,35 @@ def test_container_contextual_logs(mocker):
             params = calls[-1][0][2]
             assert params.get("containerId") == "cc1"
             assert params.get("composeId") == "c1"
+
+    _run(main())
+
+
+def test_record_categories_counts(mocker):
+    """We expect nested child arrays to carry free counts and lazy ones not."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            record = {
+                "_kind": "compose",
+                "composeId": "c1",
+                "name": "torrents",
+                "domains": [{"domainId": "d1"}, {"domainId": "d2"}],
+                "mounts": [{"mountId": "m1"}],
+            }
+            screen.path = [Level(kind="compose", items=[record], entity="compose")]
+            screen.current.index = 0
+            await pilot.pause()
+            cats = {category["label"]: category for category in screen._record_categories(record)}
+            assert cats["Containers"]["count"] is None
+            assert cats["Deployments"]["count"] is None
+            assert cats["Domain"]["count"] == 2
+            assert cats["Mount"]["count"] == 1
 
     _run(main())
 
