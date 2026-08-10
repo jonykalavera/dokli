@@ -14,23 +14,20 @@ ASCII_ART_PATH = Path(__file__).resolve().parent.parent / "asciiart"
 
 
 class SplashScreen(Screen):
-    """A splash screen with the Dokploy logo and a centered status box."""
+    """A splash screen with the Dokploy logo as backdrop and a centered status box."""
 
     def __init__(self, *args, **kwargs) -> None:
         """Construct the splash screen."""
         super().__init__(*args, **kwargs)
-        with open(ASCII_ART_PATH / "dokploy-logo-compact.txt") as logo:
+        with open(ASCII_ART_PATH / "dokploy-logo-notext.txt") as logo:
             self._logo = "".join(logo.readlines())
 
     def compose(self) -> "ComposeResult":
-        """Compose the splash: logo on top, centered status box below."""
+        """Compose the splash: the logo fills the screen, status box floats on top."""
         yield Header()
-        yield Static(self._logo, id="splash-logo")
-        yield Vertical(
-            Vertical(Label("Connecting…", id="splash-status"), id="status-panel"),
-            id="status-zone",
-        )
         yield Footer()
+        yield Static(self._logo, id="splash-logo")
+        yield Vertical(Label("Connecting…", id="splash-status"), id="status-panel")
 
     def set_status(self, text: str) -> None:
         """Update the splash status line (no-op once unmounted)."""

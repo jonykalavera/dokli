@@ -2,8 +2,13 @@
   display: none;
 }
 BrowserScreen,
-ResultScreen {
+ResultScreen,
+SplashScreen {
   layers: default overlay;
+}
+
+SplashScreen {
+  align: center middle;
 }
 LoadingIndicator.spinner {
   layer: overlay;
@@ -123,20 +128,16 @@ Static#logo {
 }
 
 SplashScreen #splash-logo {
-  content-align: center middle;
-  margin-top: 2;
-  margin-bottom: 1;
-}
-
-SplashScreen #status-zone {
-  height: 1fr;
   width: 100%;
-  align: center middle;
+  height: 1fr;
+  content-align: center middle;
 }
 
 SplashScreen #status-panel {
+  layer: overlay;
+  align: center middle;
   border: round $accent;
-  height: auto;
+  height: 3;
   width: auto;
   min-width: 20;
   padding: 0 2;
