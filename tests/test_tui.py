@@ -1574,6 +1574,8 @@ def test_related_action_opens_deployments(mocker):
             compose = registry.get("compose")
             bindings = {a.route: key for a, key in screen._entity_bindings(compose) if key}
             assert "deployment.allByCompose" in bindings
+            contextual = dict(screen.contextual_bindings())
+            assert any("deployment.allByCompose" in label for label in contextual.values())
             await pilot.press(bindings["deployment.allByCompose"])
             await _wait_for_label(app, pilot, "media-torrents-abc123")
             assert screen._selected_kind() == "deployment"

@@ -342,7 +342,9 @@ class BrowserScreen(Screen):
         title = record_title(selected) if selected else ""
         for action, key in self._entity_bindings(entity):
             if key:
-                label = action.verb if not title else f"{action.verb} {title}"
+                label = self._action_verb_label(action)
+                if title:
+                    label = f"{label} {title}"
                 entries.append((key, label))
         return entries
 
@@ -596,6 +598,11 @@ class BrowserScreen(Screen):
     def _related_action_spec(self, route: str) -> dict | None:
         """The RELATED_ACTIONS spec for the selected record matching ``route``, if any."""
         return related_action_spec(self._selected_kind() or "", route)
+
+    def _action_verb_label(self, action) -> str:
+        """The display name for an action, prefixed with its entity when contextual."""
+        spec = self._related_action_spec(action.route)
+        return f"{spec['entity']}.{action.verb}" if spec else action.verb
 
     async def _show_related_list(self, action) -> None:
         """Run a contextual related list action into a navigable records list."""
