@@ -231,6 +231,8 @@ def _fake_requests():
             "composeType": "docker-compose",
             "sourceType": "raw",
             "composeFile": "version: '3'",
+            "domains": [],
+            "mounts": [],
         },
         "docker.getContainersByAppNameMatch": [
             {"containerId": "cc1", "name": "frigate", "state": "running", "status": "Up 8 weeks"},
@@ -1692,7 +1694,7 @@ def test_drill_into_service_lists_containers_first(mocker):
             await screen.action_right()
             await pilot.pause()
             assert screen.current.kind == "categories"
-            assert [item["label"] for item in screen.current.items] == ["Containers", "Deployments"]
+            assert {"Containers", "Deployments", "Domain", "Mount"} <= {item["label"] for item in screen.current.items}
             containers_idx = next(
                 i for i, item in enumerate(screen.current.items) if item.get("_category") == "containers"
             )
@@ -1844,6 +1846,34 @@ def test_empty_child_category_allows_create(mocker):
             await pilot.pause()
             assert screen.current.kind == "domain"
             assert screen.current.items == []
+            domain = registry.get("domain")
+            assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
+
+    _run(main())
+
+
+def test_category_picker_uses_child_entity(mocker):
+    """We expect selecting a category to expose that child entity's actions
+    (e.g. 'create domain'), not the parent service's."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            record = {"_kind": "compose", "composeId": "c1", "name": "torrents", "domains": []}
+            screen.path = [Level(kind="compose", items=[record], entity="compose")]
+            screen.current.index = 0
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            assert screen.current.kind == "categories"
+            domain_idx = next(i for i, item in enumerate(screen.current.items) if item.get("child_entity") == "domain")
+            screen.current.index = domain_idx
+            await pilot.pause()
+            assert screen._selected_kind() == "domain"
             domain = registry.get("domain")
             assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
 

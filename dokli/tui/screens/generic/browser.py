@@ -197,7 +197,7 @@ class BrowserScreen(Screen):
 
     async def _related_records(self, record: dict) -> list[dict]:
         """Related records of a selected record, cached by record identity."""
-        kind = self._selected_kind() or ""
+        kind = self.current.entity or self._selected_kind() or ""
         key = f"{kind}:{record_id(record, kind)}"
         if key not in self._related_cache:
             self._related_cache[key] = await asyncio.to_thread(
@@ -481,10 +481,16 @@ class BrowserScreen(Screen):
         kind = self._selected_kind() or ""
         categories: list[dict] = []
         if related_spec(kind) is not None:
-            categories.append({"_kind": kind, "_category": "containers", "label": "Containers", "count": None})
+            categories.append({"_kind": "docker", "_category": "containers", "label": "Containers", "count": None})
         for spec in RELATED_ACTIONS.get(kind, []):
             categories.append(
-                {"_kind": kind, "_category": "related", "related_spec": spec, "label": spec["label"], "count": None}
+                {
+                    "_kind": spec["entity"],
+                    "_category": "related",
+                    "related_spec": spec,
+                    "label": spec["label"],
+                    "count": None,
+                }
             )
         # Include nested child-array keys even when empty, so you can create the
         # first record of a category (e.g. a compose with no domains yet).
@@ -494,7 +500,7 @@ class BrowserScreen(Screen):
                 continue
             categories.append(
                 {
-                    "_kind": kind,
+                    "_kind": child_entity,
                     "_category": "nested",
                     "child_entity": child_entity,
                     "label": child_entity.title(),
@@ -505,7 +511,7 @@ class BrowserScreen(Screen):
 
     async def _open_category(self, category: dict, record: dict) -> None:
         """Open a child category, fetching its records on demand."""
-        parent_kind = self._selected_kind() or ""
+        parent_kind = self.current.entity or ""
         cat = category["_category"]
         if cat == "containers":
             containers = await self._related_records(record)
