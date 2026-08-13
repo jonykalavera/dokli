@@ -131,14 +131,6 @@ PARENT_ACTIONS: dict[str, list[dict]] = {
 }
 
 
-def parent_action_spec(entity: str, route: str) -> dict | None:
-    """The PARENT_ACTIONS spec whose parent action route matches ``route``, if any."""
-    for spec in PARENT_ACTIONS.get(entity, []):
-        if spec["verb"] == route.split(".", 1)[-1]:
-            return spec
-    return None
-
-
 def related_spec(parent_entity: str) -> dict | None:
     """The related-provider spec for a parent entity, if any."""
     return RELATED_PROVIDERS.get(parent_entity)

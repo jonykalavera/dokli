@@ -765,7 +765,7 @@ class BrowserScreen(Screen):
             self.notify(f"No {spec['label'].lower()} found.", severity="warning")
             return
         self.path.append(
-            Level(kind=spec["entity"], items=items, entity=spec["entity"], record=self.selected or {})
+            Level(kind=spec["entity"], items=items, entity=self.current.entity, record=self.selected or {})
         )
         self._reset_filter()
         self._rerender()
