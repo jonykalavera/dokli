@@ -159,6 +159,26 @@ FAKE_SCHEMA = {
                 }
             }
         },
+        "/domain.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "host": {"type": "string"},
+                                    "domainId": {"type": "string"},
+                                    "composeId": {"type": "string"},
+                                    "applicationId": {"type": "string"},
+                                },
+                                "required": ["host", "domainId"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/application.update": {
             "post": {
                 "requestBody": {
@@ -1987,7 +2007,48 @@ def test_service_update_form_keeps_fk_fields(mocker):
             assert isinstance(form_screen, ActionFormScreen)
             assert "environmentId" in form_screen.form.fields
             assert "githubId" in form_screen.form.fields
-            assert form_screen.inject == {}
+            assert "applicationId" not in form_screen.form.fields
+            assert form_screen.inject == {"applicationId": "a1"}
+
+    _run(main())
+
+
+def test_child_update_form_hides_own_and_parent_ids(mocker):
+    """We expect a child update form to hide its own primary key and the parent
+    id, injecting both from the record."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="domain",
+                    items=[
+                        {
+                            "_kind": "domain",
+                            "domainId": "d1",
+                            "host": "x.example.com",
+                            "composeId": "c1",
+                        }
+                    ],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            domain = registry.get("domain")
+            await screen._open_form(domain.get("update"))
+            await pilot.pause()
+            form_screen = app.screen
+            assert isinstance(form_screen, ActionFormScreen)
+            assert "domainId" not in form_screen.form.fields
+            assert "composeId" not in form_screen.form.fields
+            assert form_screen.inject == {"domainId": "d1", "composeId": "c1"}
 
     _run(main())
 

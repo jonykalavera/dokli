@@ -872,22 +872,21 @@ class BrowserScreen(Screen):
         own = f"{entity_name}Id"
         return {field for field in props if field.endswith("Id") and field != own and field not in AMBIENT_ID_FIELDS}
 
-    def _form_parent_handling(self, action, entity_name: str, record: dict) -> tuple[set[str], dict]:
-        """Parent-id fields to hide from a child form, and the one to inject.
+    def _form_id_handling(self, action, entity_name: str, record: dict) -> tuple[set[str], dict]:
+        """Id fields to hide from a form, and the ones to inject.
 
-        Only when the current context carries a parent record; otherwise the
-        fields stay editable (current behavior).
+        Parent-id fields are hidden only with a parent context (and only for
+        curated child entities). The entity's own primary key is always hidden —
+        auto-generated on create, injected back from the record on update.
         """
-        if not self.current.record:
-            return set(), {}
-        candidates = self._parent_id_candidates(action, entity_name)
-        inject: dict = {}
-        for field in candidates:
-            value = record.get(field)
-            if value:
-                inject = {field: value}
-                break
-        return candidates, inject
+        excluded = set()
+        if self.current.record:
+            excluded |= self._parent_id_candidates(action, entity_name)
+        own = f"{entity_name}Id"
+        if own in action.request_schema.get("properties", {}):
+            excluded.add(own)
+        inject = {field: record[field] for field in excluded if record.get(field)}
+        return excluded, inject
 
     async def _open_form(self, action) -> None:
         """Open an action form.
@@ -914,7 +913,7 @@ class BrowserScreen(Screen):
                     enriched = await self._api_get(one_action, params)
                     if enriched:
                         record = enriched
-        excluded, inject = self._form_parent_handling(action, entity_name, record)
+        excluded, inject = self._form_id_handling(action, entity_name, record)
         self.app.push_screen(
             ActionFormScreen(
                 self.connection,
