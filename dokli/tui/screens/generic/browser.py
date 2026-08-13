@@ -22,6 +22,7 @@ from dokli.tui.engine import (
     icon_label,
     key_for_verb,
     list_verb_override,
+    nested_child_entity,
     param_source,
     record_id,
     record_title,
@@ -485,17 +486,19 @@ class BrowserScreen(Screen):
             categories.append(
                 {"_kind": kind, "_category": "related", "related_spec": spec, "label": spec["label"], "count": None}
             )
-        nested: dict[str, list[dict]] = {}
-        for child_entity, child in collect_children(record):
-            nested.setdefault(child_entity, []).append(child)
-        for child_entity, children in nested.items():
+        # Include nested child-array keys even when empty, so you can create the
+        # first record of a category (e.g. a compose with no domains yet).
+        for key, value in record.items():
+            child_entity = nested_child_entity(key)
+            if not child_entity or not isinstance(value, list):
+                continue
             categories.append(
                 {
                     "_kind": kind,
                     "_category": "nested",
                     "child_entity": child_entity,
                     "label": child_entity.title(),
-                    "count": len(children),
+                    "count": len(value),
                 }
             )
         return categories

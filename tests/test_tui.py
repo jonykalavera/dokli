@@ -1823,6 +1823,33 @@ def test_create_form_prefills_parent(mocker):
     _run(main())
 
 
+def test_empty_child_category_allows_create(mocker):
+    """We expect an empty nested array to still yield a category so the first
+    child record can be created (e.g. a compose with no domains yet)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            record = {"_kind": "compose", "composeId": "c1", "name": "torrents", "domains": []}
+            screen.path = [Level(kind="compose", items=[record], entity="compose")]
+            screen.current.index = 0
+            await pilot.pause()
+            cats = {category["label"]: category for category in screen._record_categories(record)}
+            assert cats["Domain"]["count"] == 0
+            await screen._open_category(cats["Domain"], record)
+            await pilot.pause()
+            assert screen.current.kind == "domain"
+            assert screen.current.items == []
+            domain = registry.get("domain")
+            assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
+
+    _run(main())
+
+
 async def _select_connection(app, pilot):
     list_view = app.screen.query_one("#connections-list")
     list_view.index = 0
