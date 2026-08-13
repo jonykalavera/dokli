@@ -111,6 +111,8 @@ class ResultScreen(Screen):
             self._lines = _plain_lines(self.data)
             self._recompute_matches()
             await self._apply_search()
+            if not self._query:
+                self.query_one("#result-scroll", VerticalScroll).scroll_home(animate=False)
         except httpx.HTTPError as err:
             self.notify(f"API error: {err}", severity="error", timeout=10)
         finally:
@@ -171,16 +173,24 @@ class ResultScreen(Screen):
         self.run_worker(self._apply_search(), exclusive=True, group="search")  # type: ignore[arg-type]
 
     async def _apply_search(self) -> None:
-        """Render the result with the current matches highlighted."""
-        container = self.query_one("#result-scroll", VerticalScroll)
-        await container.remove_children()
+        """Render the result with the current matches highlighted.
+
+        A single persistent ``#result`` Label is updated in place — the scroll
+        container never re-mounts children, keeping its scrollbar stable.
+        """
+        self._recompute_matches()
+        label = self.query_one("#result", Label)
         if not self._query:
-            await container.mount(Label(_render_data(self.data), id="result"))
+            label.update(_render_data(self.data))
             self._render_status()
             return
-        widgets = [Label(self._highlight_line(line, i)) for i, line in enumerate(self._lines)]
-        await container.mount(*widgets)
-        self._scroll_to_current(container)
+        text = Text()
+        for i, line in enumerate(self._lines):
+            if i:
+                text.append("\n")
+            text.append(self._highlight_line(line, i))
+        label.update(text)
+        self._scroll_to_current()
         self._render_status()
 
     def _highlight_line(self, line: str, line_index: int) -> Text:
@@ -201,14 +211,13 @@ class ResultScreen(Screen):
             start = index + len(query)
         return text
 
-    def _scroll_to_current(self, container: VerticalScroll) -> None:
+    def _scroll_to_current(self) -> None:
         """Scroll the current match into view."""
         if not self._matches:
             return
+        container = self.query_one("#result-scroll", VerticalScroll)
         line_index = self._matches[self._match_index]
-        widgets = list(container.children)
-        if 0 <= line_index < len(widgets):
-            container.scroll_to_widget(widgets[line_index], animate=False)
+        container.scroll_to(y=line_index, animate=False)
 
     def _render_status(self) -> None:
         """Update the match counter label."""

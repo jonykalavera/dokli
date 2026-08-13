@@ -2053,6 +2053,34 @@ def test_child_update_form_hides_own_and_parent_ids(mocker):
     _run(main())
 
 
+def test_result_refresh_keeps_single_label(mocker):
+    """We expect re-rendering the result to update a single persistent label
+    (no remove/mount churn that would destabilize the scrollbar)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, data="line1\nline2", params={})
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            screen._query = "line"
+            await screen._apply_search()
+            await pilot.pause()
+            container = screen.query_one("#result-scroll", VerticalScroll)
+            assert len(container.children) == 1
+            assert "line1" in str(screen.query_one("#result", Label).renderable)
+            screen._query = ""
+            await screen._apply_search()
+            await pilot.pause()
+            assert len(screen.query_one("#result-scroll", VerticalScroll).children) == 1
+
+    _run(main())
+
+
 async def _select_connection(app, pilot):
     list_view = app.screen.query_one("#connections-list")
     list_view.index = 0
