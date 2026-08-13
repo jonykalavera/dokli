@@ -828,14 +828,36 @@ class BrowserScreen(Screen):
         if data is not None:
             self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
 
+    def _create_prefill(self, action) -> dict:
+        """Prefill a create form with the parent service id.
+
+        When opened from a service's child category (e.g. a domain under a
+        compose) the parent id and any curated fields are prefilled.
+        """
+        parent_kind = self.current.entity or ""
+        parent_record = self.current.record or {}
+        prefill: dict = {}
+        if not parent_kind or not parent_record:
+            return prefill
+        parent_id = f"{parent_kind}Id"
+        value = parent_record.get(parent_id)
+        if value:
+            prefill[parent_id] = value
+        if action.route == "domain.create" and parent_kind == "compose":
+            prefill["domainType"] = "compose"
+        return prefill
+
     async def _open_form(self, action) -> None:
         """Open an action form.
 
-        Create actions start empty; update/save/edit actions are enriched with
-        the full record via ``one`` when available.
+        Create actions start with the parent service id prefilled (when opened
+        from a service's child category); update/save/edit actions are enriched
+        with the full record via ``one`` when available.
         """
         record: dict = {}
-        if action.verb not in ("create", "new"):
+        if action.verb in ("create", "new"):
+            record = self._create_prefill(action)
+        else:
             record = self.selected or {}
             entity = self.registry.get(self._selected_kind() or "")
             one_action = entity.get("one") if entity else None

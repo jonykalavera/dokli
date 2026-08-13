@@ -139,6 +139,26 @@ FAKE_SCHEMA = {
                 }
             }
         },
+        "/domain.create": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "host": {"type": "string"},
+                                    "composeId": {"type": "string"},
+                                    "applicationId": {"type": "string"},
+                                    "domainType": {"type": "string", "enum": ["application", "compose"]},
+                                },
+                                "required": ["host"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/deployment.all": {
             "get": {
                 "parameters": [
@@ -1771,6 +1791,36 @@ def test_mount_title_uses_path():
 
     assert record_title({"mountId": "m1", "mountPath": "/", "filePath": "/srv/data"}) == "/srv/data"
     assert record_title({"mountId": "m2", "mountPath": "/", "volumeName": "myvol"}) == "myvol"
+
+
+def test_create_form_prefills_parent(mocker):
+    """We expect a create form opened from a service category to prefill the parent."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="domains",
+                    items=[],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            await pilot.pause()
+            domain = registry.get("domain")
+            await screen._open_form(domain.get("create"))
+            await pilot.pause()
+            form_screen = app.screen
+            assert isinstance(form_screen, ActionFormScreen)
+            assert form_screen.form.fields["composeId"].value == "c1"
+            assert str(form_screen.form.fields["domainType"].value) == "compose"
+
+    _run(main())
 
 
 async def _select_connection(app, pilot):
