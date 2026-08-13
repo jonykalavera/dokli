@@ -32,6 +32,7 @@ from dokli.tui.engine import (
     state_indicator,
 )
 from dokli.tui.engine.related import PARENT_ACTIONS, RELATED_ACTIONS
+from dokli.tui.engine.schemas import AMBIENT_ID_FIELDS
 from dokli.tui.engine.spec import PRIORITY_ENTITIES
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -856,19 +857,48 @@ class BrowserScreen(Screen):
             prefill["domainType"] = "compose"
         return prefill
 
+    def _parent_id_candidates(self, action, entity_name: str) -> set[str]:
+        """The parent-id fields of a child schema (foreign keys to a parent).
+
+        Every ``*Id`` property that is not the entity's own id nor an ambient
+        id is a mutually-exclusive parent reference.
+        """
+        props = set(action.request_schema.get("properties", {}))
+        own = f"{entity_name}Id"
+        return {field for field in props if field.endswith("Id") and field != own and field not in AMBIENT_ID_FIELDS}
+
+    def _form_parent_handling(self, action, entity_name: str, record: dict) -> tuple[set[str], dict]:
+        """Parent-id fields to hide from a child form, and the one to inject.
+
+        Only when the current context carries a parent record; otherwise the
+        fields stay editable (current behavior).
+        """
+        if not self.current.record:
+            return set(), {}
+        candidates = self._parent_id_candidates(action, entity_name)
+        inject: dict = {}
+        for field in candidates:
+            value = record.get(field)
+            if value:
+                inject = {field: value}
+                break
+        return candidates, inject
+
     async def _open_form(self, action) -> None:
         """Open an action form.
 
         Create actions start with the parent service id prefilled (when opened
         from a service's child category); update/save/edit actions are enriched
-        with the full record via ``one`` when available.
+        with the full record via ``one`` when available. Parent-id fields are
+        hidden from the form and injected from context.
         """
+        entity_name = self._selected_kind() or ""
         record: dict = {}
         if action.verb in ("create", "new"):
             record = self._create_prefill(action)
         else:
             record = self.selected or {}
-            entity = self.registry.get(self._selected_kind() or "")
+            entity = self.registry.get(entity_name)
             one_action = entity.get("one") if entity else None
             if entity is not None and one_action is not None:
                 params = {
@@ -879,12 +909,15 @@ class BrowserScreen(Screen):
                     enriched = await self._api_get(one_action, params)
                     if enriched:
                         record = enriched
+        excluded, inject = self._form_parent_handling(action, entity_name, record)
         self.app.push_screen(
             ActionFormScreen(
                 self.connection,
                 action,
                 record=record,
                 on_success=self._auto_deploy_callback(action),
+                excluded=excluded,
+                inject=inject,
                 classes="Entities",
             )
         )

@@ -262,6 +262,7 @@ def _patch_api(mocker):
     client.request.side_effect = fake_request
     mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
     mocker.patch("dokli.tui.app.APIClient", return_value=client)
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient", return_value=client)
     return responses
 
 
@@ -1796,7 +1797,8 @@ def test_mount_title_uses_path():
 
 
 def test_create_form_prefills_parent(mocker):
-    """We expect a create form opened from a service category to prefill the parent."""
+    """We expect a create form opened from a service category to hide parent-id
+    fields and prefill derived ones."""
     _patch_api(mocker)
     registry = parse_spec(FAKE_SCHEMA)
 
@@ -1819,10 +1821,68 @@ def test_create_form_prefills_parent(mocker):
             await pilot.pause()
             form_screen = app.screen
             assert isinstance(form_screen, ActionFormScreen)
-            assert form_screen.form.fields["composeId"].value == "c1"
+            assert "composeId" not in form_screen.form.fields
+            assert "applicationId" not in form_screen.form.fields
+            assert form_screen.inject == {"composeId": "c1"}
             assert str(form_screen.form.fields["domainType"].value) == "compose"
 
     _run(main())
+
+
+def test_create_form_injects_parent_on_submit(mocker):
+    """We expect the hidden parent id to be sent on submit."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="domains",
+                    items=[],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            await pilot.pause()
+            domain = registry.get("domain")
+            await screen._open_form(domain.get("create"))
+            await pilot.pause()
+            form_screen = app.screen
+            form_screen.form.fields["host"].value = "x.example.com"
+            form_screen.action_submit()
+            await pilot.pause()
+            await pilot.press("y")
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            await pilot.pause()
+            calls = [c for c in screen.client.request.call_args_list if c[0][1] == "domain.create"]
+            assert calls
+            body = calls[-1][0][2].get("body", {})
+            assert body.get("composeId") == "c1"
+            assert body.get("host") == "x.example.com"
+
+    _run(main())
+
+
+def test_form_parent_ids_visible_without_context():
+    """We expect parent-id fields to stay editable when there is no parent context."""
+    from dokli.tui.engine.schemas import build_form_model
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "host": {"type": "string"},
+            "composeId": {"type": "string"},
+            "applicationId": {"type": "string"},
+        },
+    }
+    model = build_form_model(schema)
+    assert "composeId" in model.model_fields
+    assert "applicationId" in model.model_fields
 
 
 def test_empty_child_category_allows_create(mocker):

@@ -33,16 +33,24 @@ class ActionFormScreen(Screen):
         action: EntityAction,
         record: dict | None = None,
         on_success: Callable[[], None] | None = None,
+        excluded: set[str] | None = None,
+        inject: dict | None = None,
         *args,
         **kwargs,
     ) -> None:
-        """Construct the action form screen."""
+        """Construct the action form screen.
+
+        ``excluded`` fields are dropped from the form (e.g. parent-id fields);
+        ``inject`` fields are merged into the submitted body (e.g. the parent id
+        derived from context).
+        """
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.action = action
         self.record = record or {}
         self.on_success = on_success
-        model = build_form_model(action.request_schema, name=f"{action.route}Form")
+        self.inject = inject or {}
+        model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=excluded or set())
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
         self.form = Form.from_model(model, data=prefill, classes="action-form")
 
@@ -87,7 +95,7 @@ class ActionFormScreen(Screen):
             self,
             self.connection,
             self.action,
-            body,
+            {**self.inject, **body},
             on_success=self._success,
         )
 
