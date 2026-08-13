@@ -159,6 +159,25 @@ FAKE_SCHEMA = {
                 }
             }
         },
+        "/application.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "applicationId": {"type": "string"},
+                                    "environmentId": {"type": "string"},
+                                    "githubId": {"type": "string"},
+                                    "dockerImage": {"type": "string"},
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/deployment.all": {
             "get": {
                 "parameters": [
@@ -1809,7 +1828,7 @@ def test_create_form_prefills_parent(mocker):
             screen = app.screen
             screen.path = [
                 Level(
-                    kind="domains",
+                    kind="domain",
                     items=[],
                     entity="compose",
                     record={"composeId": "c1", "name": "torrents"},
@@ -1841,7 +1860,7 @@ def test_create_form_injects_parent_on_submit(mocker):
             screen = app.screen
             screen.path = [
                 Level(
-                    kind="domains",
+                    kind="domain",
                     items=[],
                     entity="compose",
                     record={"composeId": "c1", "name": "torrents"},
@@ -1936,6 +1955,39 @@ def test_category_picker_uses_child_entity(mocker):
             assert screen._selected_kind() == "domain"
             domain = registry.get("domain")
             assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
+
+    _run(main())
+
+
+def test_service_update_form_keeps_fk_fields(mocker):
+    """We expect service entities' own update forms to keep FK fields editable
+    (environmentId, githubId) even with a parent context."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "application", "applicationId": "a1", "name": "web"}],
+                    entity="application",
+                    record={"applicationId": "a1", "name": "web"},
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            entity = registry.get("application")
+            await screen._open_form(entity.get("update"))
+            await pilot.pause()
+            form_screen = app.screen
+            assert isinstance(form_screen, ActionFormScreen)
+            assert "environmentId" in form_screen.form.fields
+            assert "githubId" in form_screen.form.fields
+            assert form_screen.inject == {}
 
     _run(main())
 

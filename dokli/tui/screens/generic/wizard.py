@@ -30,6 +30,8 @@ class WizardScreen(Screen):
         connection: ConnectionConfig,
         action: EntityAction,
         record: dict | None = None,
+        excluded: set[str] | None = None,
+        inject: dict | None = None,
         *args,
         **kwargs,
     ) -> None:
@@ -38,7 +40,8 @@ class WizardScreen(Screen):
         self.connection = connection
         self.action = action
         self.record = record or {}
-        self.model = build_form_model(action.request_schema, name=f"{action.route}Wizard")
+        self.inject = inject or {}
+        self.model = build_form_model(action.request_schema, name=f"{action.route}Wizard", excluded=excluded or set())
         self.fields = list(self.model.model_fields.items())
         self.controls = {
             name: FormControl.from_field(name, field, value=self.record.get(name)) for name, field in self.fields
@@ -111,6 +114,6 @@ class WizardScreen(Screen):
             self,
             self.connection,
             self.action,
-            body,
+            {**self.inject, **body},
             on_success=lambda: self.dismiss(None),
         )

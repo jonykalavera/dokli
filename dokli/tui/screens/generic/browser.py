@@ -32,7 +32,7 @@ from dokli.tui.engine import (
     state_indicator,
 )
 from dokli.tui.engine.related import PARENT_ACTIONS, RELATED_ACTIONS
-from dokli.tui.engine.schemas import AMBIENT_ID_FIELDS
+from dokli.tui.engine.schemas import AMBIENT_ID_FIELDS, CHILD_ENTITIES
 from dokli.tui.engine.spec import PRIORITY_ENTITIES
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -192,9 +192,11 @@ class BrowserScreen(Screen):
 
     def _selected_kind(self) -> str | None:
         selected = self.selected
-        if not selected:
-            return None
-        return selected.get("_kind") or (self.current.kind if self.current.kind != "entities" else None)
+        kind = selected.get("_kind") if selected else None
+        if kind:
+            return kind
+        # Empty lists (e.g. a category with no records yet) still know their kind.
+        return self.current.kind if self.current.kind != "entities" else None
 
     async def _related_records(self, record: dict) -> list[dict]:
         """Related records of a selected record, cached by record identity."""
@@ -861,8 +863,11 @@ class BrowserScreen(Screen):
         """The parent-id fields of a child schema (foreign keys to a parent).
 
         Every ``*Id`` property that is not the entity's own id nor an ambient
-        id is a mutually-exclusive parent reference.
+        id is a mutually-exclusive parent reference — only for curated child
+        entities. Service entities' own forms keep their FK fields editable.
         """
+        if entity_name not in CHILD_ENTITIES:
+            return set()
         props = set(action.request_schema.get("properties", {}))
         own = f"{entity_name}Id"
         return {field for field in props if field.endswith("Id") and field != own and field not in AMBIENT_ID_FIELDS}

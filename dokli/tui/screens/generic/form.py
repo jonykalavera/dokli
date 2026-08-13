@@ -49,8 +49,9 @@ class ActionFormScreen(Screen):
         self.action = action
         self.record = record or {}
         self.on_success = on_success
+        self.excluded = excluded or set()
         self.inject = inject or {}
-        model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=excluded or set())
+        model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=self.excluded)
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
         self.form = Form.from_model(model, data=prefill, classes="action-form")
 
@@ -107,7 +108,16 @@ class ActionFormScreen(Screen):
 
     def action_wizard(self) -> None:
         """Open the step-by-step wizard for the same action."""
-        self.app.push_screen(WizardScreen(self.connection, self.action, record=self.record, classes="Entities"))
+        self.app.push_screen(
+            WizardScreen(
+                self.connection,
+                self.action,
+                record=self.record,
+                excluded=self.excluded,
+                inject=self.inject,
+                classes="Entities",
+            )
+        )
 
     def action_cancel(self) -> None:
         """Cancel the form."""

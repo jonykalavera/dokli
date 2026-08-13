@@ -48,6 +48,25 @@ AMBIENT_ID_FIELDS = frozenset(
     }
 )
 
+# Leaf entities that hang off a service/project as children. Only for these do
+# ``*Id`` properties act as mutually-exclusive parent references; the service
+# entities' own forms (application.update, compose.update, ...) keep their FK
+# fields editable (environmentId, githubId, ...).
+CHILD_ENTITIES = frozenset(
+    {
+        "domain",
+        "port",
+        "mount",
+        "backup",
+        "schedule",
+        "security",
+        "redirects",
+        "patch",
+        "previewDeployment",
+        "environment",
+    }
+)
+
 # String fields that are expected to hold multi-line content.
 MULTILINE_FIELDS = {
     "description",
