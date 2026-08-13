@@ -116,6 +116,72 @@ FAKE_SCHEMA = {
             }
         },
         "/server.all": {"get": {}},
+        "/docker.getStackContainersByAppName": {
+            "get": {
+                "parameters": [
+                    {"name": "appName", "in": "query", "required": True},
+                    {"name": "serverId", "in": "query"},
+                ]
+            }
+        },
+        "/docker.restartContainer": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {"containerId": {"type": "string"}, "serverId": {"type": "string"}},
+                                "required": ["containerId"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/domain.create": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "host": {"type": "string"},
+                                    "composeId": {"type": "string"},
+                                    "applicationId": {"type": "string"},
+                                    "domainType": {"type": "string", "enum": ["application", "compose"]},
+                                },
+                                "required": ["host"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/deployment.all": {
+            "get": {
+                "parameters": [
+                    {"name": "applicationId", "in": "query", "required": True},
+                ]
+            }
+        },
+        "/deployment.allByCompose": {
+            "get": {
+                "parameters": [
+                    {"name": "composeId", "in": "query", "required": True},
+                ]
+            }
+        },
+        "/deployment.allCentralized": {"get": {}},
+        "/deployment.readLogs": {
+            "get": {
+                "parameters": [
+                    {"name": "deploymentId", "in": "query", "required": True},
+                    {"name": "tail", "in": "query"},
+                ]
+            }
+        },
     }
 }
 
@@ -165,12 +231,24 @@ def _fake_requests():
             "composeType": "docker-compose",
             "sourceType": "raw",
             "composeFile": "version: '3'",
+            "domains": [],
+            "mounts": [],
         },
         "docker.getContainersByAppNameMatch": [
             {"containerId": "cc1", "name": "frigate", "state": "running", "status": "Up 8 weeks"},
             {"containerId": "cc2", "name": "frigate-notify", "state": "running", "status": "Up 8 weeks"},
         ],
+        "docker.getStackContainersByAppName": [
+            {"containerId": "sc1", "name": "stack-svc", "state": "running", "status": "Up 2 days"},
+        ],
         "compose.readLogs": "2026-08-05T19:55:54Z frigate started",
+        "deployment.allCentralized": [
+            {"deploymentId": "d1", "name": "media-torrents-abc123", "status": "running"},
+        ],
+        "deployment.allByCompose": [
+            {"deploymentId": "d1", "name": "media-torrents-abc123", "status": "running"},
+        ],
+        "deployment.readLogs": "2026-08-05T20:00:00Z deployment started",
     }
 
 
@@ -1495,6 +1573,309 @@ def test_related_containers_enrich_via_one(mocker):
             assert params["appName"] == "media-torrents-abc123"
             assert params["appType"] == "docker-compose"
             assert [r["name"] for r in related] == ["frigate", "frigate-notify"]
+
+    _run(main())
+
+
+def test_related_containers_use_swarm_for_stacks(mocker):
+    """We expect a stack-type compose to fetch containers from the swarm endpoint."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[
+                        {
+                            "_kind": "compose",
+                            "composeId": "c1",
+                            "name": "stack",
+                            "composeType": "stack",
+                            "appName": "media-stack-abc123",
+                            "serverId": "srv1",
+                        }
+                    ],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            related = await screen._related_records(screen.selected)
+            assert [r["name"] for r in related] == ["stack-svc"]
+            calls = [c for c in screen.client.request.call_args_list if c[0][1].startswith("docker.get")]
+            assert any(c[0][1] == "docker.getStackContainersByAppName" for c in calls)
+            assert not any(c[0][1] == "docker.getContainersByAppNameMatch" for c in calls)
+
+    _run(main())
+
+
+def test_entity_list_uses_canonical_list_verb(mocker):
+    """We expect deployment to be listed via its no-param allCentralized."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "deployment")
+            await pilot.pause()
+            await pilot.press("enter")
+            await _wait_for_label(app, pilot, "media-torrents-abc123")
+            screen = app.screen
+            assert screen.current.kind == "deployment"
+            calls = [c for c in screen.client.request.call_args_list if c[0][1] == "deployment.allCentralized"]
+            assert calls
+
+    _run(main())
+
+
+def test_related_action_opens_deployments(mocker):
+    """We expect a compose record to expose deployment.allByCompose as a
+    separate action that opens a navigable deployment list."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            compose = registry.get("compose")
+            bindings = {a.route: key for a, key in screen._entity_bindings(compose) if key}
+            assert bindings["deployment.allByCompose"] == "d"
+            contextual = dict(screen.contextual_bindings())
+            assert any("deployment.allByCompose" in label for label in contextual.values())
+            await pilot.press(bindings["deployment.allByCompose"])
+            await _wait_for_label(app, pilot, "media-torrents-abc123")
+            assert screen._selected_kind() == "deployment"
+            deploy = registry.get("deployment")
+            assert "deployment.readLogs" in {a.route for a, _ in screen._entity_bindings(deploy)}
+
+    _run(main())
+
+
+
+def test_drill_into_service_lists_containers_first(mocker):
+    """We expect drilling into a service record to list containers before children."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="compose",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            assert screen.current.kind == "categories"
+            assert {"Containers", "Deployments", "Domain", "Mount"} <= {item["label"] for item in screen.current.items}
+            containers_idx = next(
+                i for i, item in enumerate(screen.current.items) if item.get("_category") == "containers"
+            )
+            screen.current.index = containers_idx
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            items = screen.current.items
+            assert items and items[0]["_kind"] == "docker"
+            kinds = [item["_kind"] for item in items]
+            assert "docker" in kinds
+            docker = registry.get("docker")
+            assert "docker.restartContainer" in {a.route for a, _ in screen._entity_bindings(docker)}
+
+    _run(main())
+
+
+def test_container_contextual_logs(mocker):
+    """We expect a docker container to expose the parent service's readLogs."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="compose",
+                    items=[{"_kind": "compose", "composeId": "c1", "name": "torrents"}],
+                    entity="compose",
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            containers_idx = next(
+                i for i, item in enumerate(screen.current.items) if item.get("_category") == "containers"
+            )
+            screen.current.index = containers_idx
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            screen.current.index = 0
+            await pilot.pause()
+            docker = registry.get("docker")
+            bindings = {a.route: key for a, key in screen._entity_bindings(docker) if key}
+            assert bindings["compose.readLogs"] == "L"
+            await pilot.press(bindings["compose.readLogs"])
+            await pilot.pause()
+            calls = [c for c in screen.client.request.call_args_list if c[0][1] == "compose.readLogs"]
+            assert calls
+            params = calls[-1][0][2]
+            assert params.get("containerId") == "cc1"
+            assert params.get("composeId") == "c1"
+
+    _run(main())
+
+
+def test_record_categories_counts(mocker):
+    """We expect nested child arrays to carry free counts and lazy ones not."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            record = {
+                "_kind": "compose",
+                "composeId": "c1",
+                "name": "torrents",
+                "domains": [{"domainId": "d1"}, {"domainId": "d2"}],
+                "mounts": [{"mountId": "m1"}],
+            }
+            screen.path = [Level(kind="compose", items=[record], entity="compose")]
+            screen.current.index = 0
+            await pilot.pause()
+            cats = {category["label"]: category for category in screen._record_categories(record)}
+            assert cats["Containers"]["count"] is None
+            assert cats["Deployments"]["count"] is None
+            assert cats["Domain"]["count"] == 2
+            assert cats["Mount"]["count"] == 1
+
+    _run(main())
+
+
+def test_mount_title_uses_path():
+    """We expect mounts to be titled by their host file path, not their id."""
+    from dokli.tui.engine import record_title
+
+    assert record_title({"mountId": "m1", "mountPath": "/", "filePath": "/srv/data"}) == "/srv/data"
+    assert record_title({"mountId": "m2", "mountPath": "/", "volumeName": "myvol"}) == "myvol"
+
+
+def test_create_form_prefills_parent(mocker):
+    """We expect a create form opened from a service category to prefill the parent."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="domains",
+                    items=[],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            await pilot.pause()
+            domain = registry.get("domain")
+            await screen._open_form(domain.get("create"))
+            await pilot.pause()
+            form_screen = app.screen
+            assert isinstance(form_screen, ActionFormScreen)
+            assert form_screen.form.fields["composeId"].value == "c1"
+            assert str(form_screen.form.fields["domainType"].value) == "compose"
+
+    _run(main())
+
+
+def test_empty_child_category_allows_create(mocker):
+    """We expect an empty nested array to still yield a category so the first
+    child record can be created (e.g. a compose with no domains yet)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            record = {"_kind": "compose", "composeId": "c1", "name": "torrents", "domains": []}
+            screen.path = [Level(kind="compose", items=[record], entity="compose")]
+            screen.current.index = 0
+            await pilot.pause()
+            cats = {category["label"]: category for category in screen._record_categories(record)}
+            assert cats["Domain"]["count"] == 0
+            await screen._open_category(cats["Domain"], record)
+            await pilot.pause()
+            assert screen.current.kind == "domain"
+            assert screen.current.items == []
+            domain = registry.get("domain")
+            assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
+
+    _run(main())
+
+
+def test_category_picker_uses_child_entity(mocker):
+    """We expect selecting a category to expose that child entity's actions
+    (e.g. 'create domain'), not the parent service's."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            record = {"_kind": "compose", "composeId": "c1", "name": "torrents", "domains": []}
+            screen.path = [Level(kind="compose", items=[record], entity="compose")]
+            screen.current.index = 0
+            await pilot.pause()
+            await screen.action_right()
+            await pilot.pause()
+            assert screen.current.kind == "categories"
+            domain_idx = next(i for i, item in enumerate(screen.current.items) if item.get("child_entity") == "domain")
+            screen.current.index = domain_idx
+            await pilot.pause()
+            assert screen._selected_kind() == "domain"
+            domain = registry.get("domain")
+            assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
 
     _run(main())
 

@@ -213,10 +213,11 @@ def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[]
     selected = screen.selected or {}
     title = record_title(selected) if selected else (kind or "record")
     for action, key in screen._entity_bindings(entity):
-        help_text = _with_key(f"{action.verb} · {kind} ({action.method})", key)
+        display_verb = screen._action_verb_label(action)
+        help_text = _with_key(f"{display_verb} · {kind} ({action.method})", key)
         commands.append(
             (
-                f"Run {action.verb} on {title}",
+                f"Run {display_verb} on {title}",
                 help_text,
                 partial(screen._run_action, action),
             )

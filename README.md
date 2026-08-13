@@ -304,6 +304,22 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 - **Yazi-style 3-column browser**: parent | current | detail, with `j`/`k` navigate, `h`/`l` drill in/out, `/` filter, `F5` refresh, and auto-generated action keybindings per entity.
 - **Command palette** (`ctrl+p`): search across commands and the focused screen's available actions, with shortcuts shown in the help line.
 - **Help** (`?`): lists the app, screen and contextual keybindings.
+- **Related actions**: entities whose list action needs a parent (e.g.
+  `deployment.allByCompose`) are surfaced as a separate contextual action on
+  the parent record (`Deployments` on a compose/application/server, `d`),
+  opening a navigable list; entities whose `all` requires a parent are listed at
+  the top level via their canonical no-param action (e.g. `deployment.allCentralized`).
+- **Children by category**: drilling into a record shows an intermediate level
+  of child categories — e.g. `Containers`, `Deployments`, `Domains (N)`,
+  `Mounts (N)`, `Ports (N)` — with free counts for nested arrays and lazy
+  loading for containers/deployments. Selecting a category lists its records;
+  a single-category record drills straight through, and environments (a
+  per-project filter) go directly to their services.
+- **Containers**: selecting a container exposes docker actions
+  (restart/stop/start/...) and the parent service's logs
+  (`compose.readLogs`/`application.readLogs` with the container id); swarm-aware
+  for `stack` composes. `delete`/`remove` actions are bound to the Delete key,
+  `deploy` to `x`.
 - **Loading feedback**: a splash screen with the Dokploy logo shows while a
   connection's schema is fetched (off the event loop; `escape` cancels it), and
   loading spinners appear while the browser refreshes entities and results

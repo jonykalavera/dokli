@@ -20,13 +20,18 @@ from dokli.tui.engine import (
     collect_children,
     field_label,
     icon_label,
+    key_for_verb,
+    list_verb_override,
+    nested_child_entity,
     param_source,
     record_id,
     record_title,
+    related_action_spec,
     related_records,
     related_spec,
     state_indicator,
 )
+from dokli.tui.engine.related import PARENT_ACTIONS, RELATED_ACTIONS
 from dokli.tui.engine.spec import PRIORITY_ENTITIES
 from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
@@ -192,7 +197,7 @@ class BrowserScreen(Screen):
 
     async def _related_records(self, record: dict) -> list[dict]:
         """Related records of a selected record, cached by record identity."""
-        kind = self._selected_kind() or ""
+        kind = self.current.entity or self._selected_kind() or ""
         key = f"{kind}:{record_id(record, kind)}"
         if key not in self._related_cache:
             self._related_cache[key] = await asyncio.to_thread(
@@ -204,6 +209,11 @@ class BrowserScreen(Screen):
         title = record_title(item)
         if level.kind == "entities":
             return f"{icon_label(title)}  {title}"
+        if level.kind == "categories":
+            label = item.get("label") or title
+            count = item.get("count")
+            suffix = f" ({count})" if count else ""
+            return f"{icon_label(item.get('_kind') or '')}  {label}{suffix}"
         if level.kind == "children":
             return f"{icon_label(item.get('_kind') or '')}  {title}"
         return f"{icon_label(level.kind)}  {title}"
@@ -307,15 +317,37 @@ class BrowserScreen(Screen):
         At the top-level entity list the "selected" item is a synthetic record,
         so only actions that do not need an existing record are exposed:
         create/new and read-only GET queries. Once inside a real record, all
-        actions (update, remove, ...) are available.
+        actions (update, remove, ...) are available, plus the contextual
+        related-entity actions declared in ``RELATED_ACTIONS``.
         """
         keybindings = getattr(self.app, "tui_keybindings", lambda: {})()
         bindings = action_bindings(entity, **keybindings)
-        if self.current.kind == "entities":
-            bindings = [
-                (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
-            ]
-        return bindings
+        if self.current.kind == "categories":
+            # At the category picker, only the parent record's own actions apply.
+            return bindings
+        if self.current.kind != "entities":
+            taken = {key for _, key in bindings if key}
+            for spec in RELATED_ACTIONS.get(self._selected_kind() or "", []):
+                rel_entity = self.registry.get(spec["entity"])
+                rel_action = rel_entity.get(spec["verb"]) if rel_entity else None
+                if rel_action is None:
+                    continue
+                key = spec.get("key") or key_for_verb(spec["verb"], frozenset(taken), **keybindings)
+                if key:
+                    taken.add(key)
+                bindings.append((rel_action, key))
+            for spec in PARENT_ACTIONS.get(self._selected_kind() or "", []):
+                parent_action = self._parent_action(spec)
+                if parent_action is None:
+                    continue
+                key = spec.get("key") or key_for_verb(spec["verb"], frozenset(taken), **keybindings)
+                if key:
+                    taken.add(key)
+                bindings.append((parent_action, key))
+            return bindings
+        return [
+            (action, key) for action, key in bindings if action.verb in ("create", "new") or action.method == "GET"
+        ]
 
     def contextual_bindings(self) -> list[tuple[str, str]]:
         """The current selection's action keybindings, for the help screen."""
@@ -327,7 +359,9 @@ class BrowserScreen(Screen):
         title = record_title(selected) if selected else ""
         for action, key in self._entity_bindings(entity):
             if key:
-                label = action.verb if not title else f"{action.verb} {title}"
+                label = self._action_verb_label(action)
+                if title:
+                    label = f"{label} {title}"
                 entries.append((key, label))
         return entries
 
@@ -381,36 +415,142 @@ class BrowserScreen(Screen):
         if entity is None:
             return
         if self.current.kind == "entities":
-            action = entity.get("all")
-            if action is None:
-                self.notify(f"'{entity_name}' has no 'all' action.", severity="warning")
-                return
-            data = await self._api_get(action, {})
-            if data is None:
-                return
-            records = data if isinstance(data, list) else data.get("items", [])
-            items = [{"_kind": entity_name, **record} for record in records]
-            self.path.append(Level(kind=entity_name, items=items, entity=entity_name))
+            await self._drill_entity(entity_name, entity)
+        elif self.current.kind == "categories":
+            await self._open_category(selected, self.current.record or {})
+            self._reset_filter()
+            self._rerender()
+            return
         else:
-            one_action = entity.get("one")
-            record = selected
-            if one_action is not None:
-                params = {
-                    param: selected.get(param) or record_id(selected, entity_name) for param in one_action.param_names
-                }
-                params = {key: value for key, value in params.items() if value}
-                if params:
-                    enriched = await self._api_get(one_action, params)
-                    if enriched:
-                        record = enriched
+            await self._drill_record(selected, entity_name, entity)
+        self._reset_filter()
+        self._rerender()
+
+    async def _drill_entity(self, entity_name: str, entity) -> None:
+        """List the records of a top-level entity."""
+        list_verb = list_verb_override(entity_name) or "all"
+        action = entity.get(list_verb)
+        if action is None:
+            self.notify(f"'{entity_name}' has no '{list_verb}' action.", severity="warning")
+            return
+        data = await self._api_get(action, {})
+        if data is None:
+            return
+        records = data if isinstance(data, list) else data.get("items", [])
+        items = [{"_kind": entity_name, **record} for record in records]
+        self.path.append(Level(kind=entity_name, items=items, entity=entity_name))
+
+    async def _drill_record(self, selected: dict, entity_name: str, entity) -> None:
+        """Drill into a record: environments show services, others show categories."""
+        one_action = entity.get("one")
+        record = selected
+        if one_action is not None:
+            params = {
+                param: selected.get(param) or record_id(selected, entity_name) for param in one_action.param_names
+            }
+            params = {key: value for key, value in params.items() if value}
+            if params:
+                enriched = await self._api_get(one_action, params)
+                if enriched:
+                    record = enriched
+        if entity_name == "environment":
+            # Environments are a per-project filter: drill straight to services.
             children = collect_children(record)
             if not children:
                 self.notify(f"'{entity_name}' has no children.", severity="warning")
                 return
             items = [{"_kind": child_entity, **child} for child_entity, child in children]
             self.path.append(Level(kind="children", items=items, entity=entity_name, record=record))
-        self._reset_filter()
-        self._rerender()
+            return
+        categories = self._record_categories(record)
+        if not categories:
+            self.notify(f"'{entity_name}' has no children.", severity="warning")
+            return
+        if len(categories) == 1:
+            await self._open_category(categories[0], record)
+        else:
+            self.path.append(Level(kind="categories", items=categories, entity=entity_name, record=record))
+
+    def _record_categories(self, record: dict) -> list[dict]:
+        """The child categories of a record.
+
+        Containers and related lists (e.g. deployments) are fetched lazily, so
+        they carry no count; nested child arrays are already in the record and
+        show their free count.
+        """
+        kind = self._selected_kind() or ""
+        categories: list[dict] = []
+        if related_spec(kind) is not None:
+            categories.append({"_kind": "docker", "_category": "containers", "label": "Containers", "count": None})
+        for spec in RELATED_ACTIONS.get(kind, []):
+            categories.append(
+                {
+                    "_kind": spec["entity"],
+                    "_category": "related",
+                    "related_spec": spec,
+                    "label": spec["label"],
+                    "count": None,
+                }
+            )
+        # Include nested child-array keys even when empty, so you can create the
+        # first record of a category (e.g. a compose with no domains yet).
+        for key, value in record.items():
+            child_entity = nested_child_entity(key)
+            if not child_entity or not isinstance(value, list):
+                continue
+            categories.append(
+                {
+                    "_kind": child_entity,
+                    "_category": "nested",
+                    "child_entity": child_entity,
+                    "label": child_entity.title(),
+                    "count": len(value),
+                }
+            )
+        return categories
+
+    async def _open_category(self, category: dict, record: dict) -> None:
+        """Open a child category, fetching its records on demand."""
+        parent_kind = self.current.entity or ""
+        cat = category["_category"]
+        if cat == "containers":
+            containers = await self._related_records(record)
+            items = [{"_kind": "docker", **container} for container in containers]
+            self.path.append(Level(kind="containers", items=items, entity=parent_kind, record=record))
+            return
+        if cat == "related":
+            await self._open_related(category["related_spec"], record, parent_kind)
+            return
+        child_entity = category["child_entity"]
+        children = [child for entity, child in collect_children(record) if entity == child_entity]
+        items = [{"_kind": child_entity, **child} for child in children]
+        self.path.append(Level(kind=child_entity, items=items, entity=parent_kind, record=record))
+
+    async def _open_related(self, spec: dict, record: dict, parent_kind: str) -> None:
+        """Open a RELATED_ACTIONS category (e.g. deployments of a service)."""
+        rel_entity = self.registry.get(spec["entity"])
+        action = rel_entity.get(spec["verb"]) if rel_entity else None
+        if action is None:
+            self.notify(f"'{spec['entity']}' has no '{spec['verb']}' action.", severity="warning")
+            return
+        params = {}
+        for param, field in spec["fill"].items():
+            value = record.get(field)
+            if value:
+                params[param] = value
+        missing = [param for param in action.required_params if not params.get(param)]
+        if missing:
+            await self._resolve_missing(action, params, missing)
+            return
+        data = await self._api_get(action, params)
+        if data is None:
+            return
+        records = data if isinstance(data, list) else data.get("items", [])
+        items = [{"_kind": spec["entity"], **item} for item in records if isinstance(item, dict)]
+        if not items:
+            self.notify(f"No {spec['label'].lower()} found.", severity="warning")
+            return
+        self.path.append(Level(kind=spec["entity"], items=items, entity=parent_kind, record=record))
 
     async def action_refresh(self) -> None:
         """Reload the current level (re-probing entity usability at the top)."""
@@ -514,13 +654,13 @@ class BrowserScreen(Screen):
             self.run_worker(self.action_right, exclusive=True)  # type: ignore[arg-type]
             event.stop()
             return
-        if not event.character:
+        if not event.character and not event.key:
             return
         entity = self.registry.get(self._selected_kind() or "")
         if entity is None:
             return
         for action, key in self._entity_bindings(entity):
-            if key and key == event.character:
+            if key and key in (event.character, event.key):
                 self._run_action(action)
                 event.stop()
                 return
@@ -530,7 +670,12 @@ class BrowserScreen(Screen):
             self.run_worker(self._open_form(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         if action.method == "GET":
-            self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
+            if self._related_action_spec(action.route) is not None:
+                self.run_worker(self._show_related_list(action), exclusive=True, group="action")  # type: ignore[arg-type]
+            elif self._parent_action_spec(action.route) is not None:
+                self.run_worker(self._show_parent_action(action), exclusive=True, group="action")  # type: ignore[arg-type]
+            else:
+                self.run_worker(self._show_result(action), exclusive=True, group="action")  # type: ignore[arg-type]
             return
         body = {}
         schema = action.request_schema
@@ -567,6 +712,85 @@ class BrowserScreen(Screen):
     async def _show_result(self, action) -> None:
         """Run a read-only GET action and show its result."""
         params, missing = self._build_params(action)
+        if missing:
+            await self._resolve_missing(action, params, missing)
+            return
+        data = await self._api_get(action, params)
+        if data is not None:
+            self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
+
+    def _related_action_spec(self, route: str) -> dict | None:
+        """The RELATED_ACTIONS spec for the selected record matching ``route``, if any."""
+        return related_action_spec(self._selected_kind() or "", route)
+
+    def _parent_action(self, spec: dict):
+        """The parent service's action named by a PARENT_ACTIONS spec."""
+        parent_name = self.current.entity or ""
+        parent_entity = self.registry.get(parent_name)
+        return parent_entity.get(spec["verb"]) if parent_entity else None
+
+    def _parent_action_spec(self, route: str) -> dict | None:
+        """The PARENT_ACTIONS spec whose parent action route matches ``route``, if any."""
+        for spec in PARENT_ACTIONS.get(self._selected_kind() or "", []):
+            action = self._parent_action(spec)
+            if action is not None and action.route == route:
+                return spec
+        return None
+
+    def _action_verb_label(self, action) -> str:
+        """The display name for an action, prefixed with its entity when contextual."""
+        spec = self._related_action_spec(action.route)
+        if spec:
+            return f"{spec['entity']}.{action.verb}"
+        if self._parent_action_spec(action.route) is not None:
+            return f"{self.current.entity or ''}.{action.verb}"
+        return action.verb
+
+    async def _show_related_list(self, action) -> None:
+        """Run a contextual related list action into a navigable records list."""
+        spec = self._related_action_spec(action.route)
+        if spec is None:
+            await self._show_result(action)
+            return
+        params, missing = self._build_params(action)
+        if missing:
+            await self._resolve_missing(action, params, missing)
+            return
+        data = await self._api_get(action, params)
+        if data is None:
+            return
+        records = data if isinstance(data, list) else data.get("items", [])
+        items = [{"_kind": spec["entity"], **record} for record in records if isinstance(record, dict)]
+        if not items:
+            self.notify(f"No {spec['label'].lower()} found.", severity="warning")
+            return
+        self.path.append(
+            Level(kind=spec["entity"], items=items, entity=self.current.entity, record=self.selected or {})
+        )
+        self._reset_filter()
+        self._rerender()
+
+    async def _show_parent_action(self, action) -> None:
+        """Run a parent action (e.g. the service's readLogs).
+
+        Params are filled from the child record and the parent service record.
+        """
+        spec = self._parent_action_spec(action.route)
+        if spec is None:
+            await self._show_result(action)
+            return
+        parent_name = self.current.entity or ""
+        parent_record = self.current.record or {}
+        params = {}
+        for param, field in spec["fill"].items():
+            value = (self.selected or {}).get(field)
+            if value:
+                params[param] = value
+        parent_id = f"{parent_name}Id"
+        value = parent_record.get(parent_id)
+        if value:
+            params[parent_id] = value
+        missing = [param for param in action.required_params if not params.get(param)]
         if missing:
             await self._resolve_missing(action, params, missing)
             return
@@ -613,14 +837,36 @@ class BrowserScreen(Screen):
         if data is not None:
             self.app.push_screen(ResultScreen(self.connection, action, data, params=params, classes="Entities"))
 
+    def _create_prefill(self, action) -> dict:
+        """Prefill a create form with the parent service id.
+
+        When opened from a service's child category (e.g. a domain under a
+        compose) the parent id and any curated fields are prefilled.
+        """
+        parent_kind = self.current.entity or ""
+        parent_record = self.current.record or {}
+        prefill: dict = {}
+        if not parent_kind or not parent_record:
+            return prefill
+        parent_id = f"{parent_kind}Id"
+        value = parent_record.get(parent_id)
+        if value:
+            prefill[parent_id] = value
+        if action.route == "domain.create" and parent_kind == "compose":
+            prefill["domainType"] = "compose"
+        return prefill
+
     async def _open_form(self, action) -> None:
         """Open an action form.
 
-        Create actions start empty; update/save/edit actions are enriched with
-        the full record via ``one`` when available.
+        Create actions start with the parent service id prefilled (when opened
+        from a service's child category); update/save/edit actions are enriched
+        with the full record via ``one`` when available.
         """
         record: dict = {}
-        if action.verb not in ("create", "new"):
+        if action.verb in ("create", "new"):
+            record = self._create_prefill(action)
+        else:
             record = self.selected or {}
             entity = self.registry.get(self._selected_kind() or "")
             one_action = entity.get("one") if entity else None

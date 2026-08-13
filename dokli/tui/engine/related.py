@@ -24,6 +24,7 @@ RELATED_PROVIDERS: dict[str, dict] = {
     "compose": {
         "entity": "docker",
         "verb": "getContainersByAppNameMatch",
+        "stack_verb": "getStackContainersByAppName",
         "fill": {"appName": "appName", "appType": "composeType", "serverId": "serverId"},
         "label": "Containers",
     },
@@ -78,10 +79,74 @@ PARAM_SOURCES: dict[str, dict] = {
     "containerId": {"value_field": "containerId", "label_field": "name"},
 }
 
+# Contextual related-entity list actions, surfaced as a separate action on the
+# parent record. The schema does not express these relations (e.g. a compose's
+# deployments), so they are declared here.
+#   entity: related entity, verb: action to call, fill: {param: record field},
+#   label: section/action title in the UI.
+RELATED_ACTIONS: dict[str, list[dict]] = {
+    "compose": [
+        {
+            "entity": "deployment",
+            "verb": "allByCompose",
+            "fill": {"composeId": "composeId"},
+            "label": "Deployments",
+            "key": "d",
+        },
+    ],
+    "application": [
+        {
+            "entity": "deployment",
+            "verb": "all",
+            "fill": {"applicationId": "applicationId"},
+            "label": "Deployments",
+            "key": "d",
+        },
+    ],
+    "server": [
+        {
+            "entity": "deployment",
+            "verb": "allByServer",
+            "fill": {"serverId": "serverId"},
+            "label": "Deployments",
+            "key": "d",
+        },
+    ],
+}
+
+# Entities whose ``all`` requires a parent id: the canonical no-param list
+# action used when listing them at the top level.
+LIST_VERB_OVERRIDES: dict[str, str] = {
+    "deployment": "allCentralized",
+}
+
+# Actions of the parent service exposed on a child record (e.g. a docker
+# container's logs via the parent service's readLogs). ``fill`` maps params
+# taken from the child record; the parent's own id comes from the parent record.
+#   verb: parent action verb, fill: {param: child field}, label, key.
+PARENT_ACTIONS: dict[str, list[dict]] = {
+    "docker": [
+        {"verb": "readLogs", "fill": {"containerId": "containerId"}, "label": "Logs", "key": "L"},
+    ],
+}
+
 
 def related_spec(parent_entity: str) -> dict | None:
     """The related-provider spec for a parent entity, if any."""
     return RELATED_PROVIDERS.get(parent_entity)
+
+
+def related_action_spec(parent_entity: str, route: str) -> dict | None:
+    """The RELATED_ACTIONS spec whose entity.verb matches ``route``, if any."""
+    for spec in RELATED_ACTIONS.get(parent_entity, []):
+        if f"{spec['entity']}.{spec['verb']}" == route:
+            return spec
+    return None
+
+
+def list_verb_override(entity: str) -> str | None:
+    """The canonical no-param list verb for an entity, if its ``all`` needs a parent."""
+    return LIST_VERB_OVERRIDES.get(entity)
 
 
 def param_source(param: str) -> dict | None:
@@ -100,12 +165,20 @@ def related_records(client, registry: EntityRegistry, parent_entity: str, record
     spec = RELATED_PROVIDERS.get(parent_entity)
     if spec is None:
         return []
+    record = _enrich_record(client, registry, parent_entity, record, spec["fill"])
+    # Stack-type composes run on swarm: their containers come from a different
+    # endpoint that takes no ``appType``.
+    if spec.get("stack_verb") and record.get("composeType") == "stack":
+        verb = spec["stack_verb"]
+        fill = {key: value for key, value in spec["fill"].items() if key != "appType"}
+    else:
+        verb = spec["verb"]
+        fill = spec["fill"]
     entity = registry.get(spec["entity"])
-    action = entity.get(spec["verb"]) if entity else None
+    action = entity.get(verb) if entity else None
     if action is None:
         return []
-    record = _enrich_record(client, registry, parent_entity, record, spec["fill"])
-    params = _build_params(record, spec["fill"])
+    params = _build_params(record, fill)
     if not params:
         return []
     try:
