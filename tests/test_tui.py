@@ -159,6 +159,45 @@ FAKE_SCHEMA = {
                 }
             }
         },
+        "/domain.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "host": {"type": "string"},
+                                    "domainId": {"type": "string"},
+                                    "composeId": {"type": "string"},
+                                    "applicationId": {"type": "string"},
+                                },
+                                "required": ["host", "domainId"],
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/application.update": {
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "applicationId": {"type": "string"},
+                                    "environmentId": {"type": "string"},
+                                    "githubId": {"type": "string"},
+                                    "dockerImage": {"type": "string"},
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/deployment.all": {
             "get": {
                 "parameters": [
@@ -262,6 +301,7 @@ def _patch_api(mocker):
     client.request.side_effect = fake_request
     mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
     mocker.patch("dokli.tui.app.APIClient", return_value=client)
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient", return_value=client)
     return responses
 
 
@@ -1796,7 +1836,8 @@ def test_mount_title_uses_path():
 
 
 def test_create_form_prefills_parent(mocker):
-    """We expect a create form opened from a service category to prefill the parent."""
+    """We expect a create form opened from a service category to hide parent-id
+    fields and prefill derived ones."""
     _patch_api(mocker)
     registry = parse_spec(FAKE_SCHEMA)
 
@@ -1807,7 +1848,7 @@ def test_create_form_prefills_parent(mocker):
             screen = app.screen
             screen.path = [
                 Level(
-                    kind="domains",
+                    kind="domain",
                     items=[],
                     entity="compose",
                     record={"composeId": "c1", "name": "torrents"},
@@ -1819,10 +1860,68 @@ def test_create_form_prefills_parent(mocker):
             await pilot.pause()
             form_screen = app.screen
             assert isinstance(form_screen, ActionFormScreen)
-            assert form_screen.form.fields["composeId"].value == "c1"
+            assert "composeId" not in form_screen.form.fields
+            assert "applicationId" not in form_screen.form.fields
+            assert form_screen.inject == {"composeId": "c1"}
             assert str(form_screen.form.fields["domainType"].value) == "compose"
 
     _run(main())
+
+
+def test_create_form_injects_parent_on_submit(mocker):
+    """We expect the hidden parent id to be sent on submit."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="domain",
+                    items=[],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            await pilot.pause()
+            domain = registry.get("domain")
+            await screen._open_form(domain.get("create"))
+            await pilot.pause()
+            form_screen = app.screen
+            form_screen.form.fields["host"].value = "x.example.com"
+            form_screen.action_submit()
+            await pilot.pause()
+            await pilot.press("y")
+            await asyncio.sleep(0.2)
+            await pilot.pause()
+            await pilot.pause()
+            calls = [c for c in screen.client.request.call_args_list if c[0][1] == "domain.create"]
+            assert calls
+            body = calls[-1][0][2].get("body", {})
+            assert body.get("composeId") == "c1"
+            assert body.get("host") == "x.example.com"
+
+    _run(main())
+
+
+def test_form_parent_ids_visible_without_context():
+    """We expect parent-id fields to stay editable when there is no parent context."""
+    from dokli.tui.engine.schemas import build_form_model
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "host": {"type": "string"},
+            "composeId": {"type": "string"},
+            "applicationId": {"type": "string"},
+        },
+    }
+    model = build_form_model(schema)
+    assert "composeId" in model.model_fields
+    assert "applicationId" in model.model_fields
 
 
 def test_empty_child_category_allows_create(mocker):
@@ -1876,6 +1975,108 @@ def test_category_picker_uses_child_entity(mocker):
             assert screen._selected_kind() == "domain"
             domain = registry.get("domain")
             assert any(a.route == "domain.create" for a, _ in screen._entity_bindings(domain))
+
+    _run(main())
+
+
+def test_service_update_form_keeps_fk_fields(mocker):
+    """We expect service entities' own update forms to keep FK fields editable
+    (environmentId, githubId) even with a parent context."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="children",
+                    items=[{"_kind": "application", "applicationId": "a1", "name": "web"}],
+                    entity="application",
+                    record={"applicationId": "a1", "name": "web"},
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            entity = registry.get("application")
+            await screen._open_form(entity.get("update"))
+            await pilot.pause()
+            form_screen = app.screen
+            assert isinstance(form_screen, ActionFormScreen)
+            assert "environmentId" in form_screen.form.fields
+            assert "githubId" in form_screen.form.fields
+            assert "applicationId" not in form_screen.form.fields
+            assert form_screen.inject == {"applicationId": "a1"}
+
+    _run(main())
+
+
+def test_child_update_form_hides_own_and_parent_ids(mocker):
+    """We expect a child update form to hide its own primary key and the parent
+    id, injecting both from the record."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(
+                    kind="domain",
+                    items=[
+                        {
+                            "_kind": "domain",
+                            "domainId": "d1",
+                            "host": "x.example.com",
+                            "composeId": "c1",
+                        }
+                    ],
+                    entity="compose",
+                    record={"composeId": "c1", "name": "torrents"},
+                )
+            ]
+            screen.current.index = 0
+            await pilot.pause()
+            domain = registry.get("domain")
+            await screen._open_form(domain.get("update"))
+            await pilot.pause()
+            form_screen = app.screen
+            assert isinstance(form_screen, ActionFormScreen)
+            assert "domainId" not in form_screen.form.fields
+            assert "composeId" not in form_screen.form.fields
+            assert form_screen.inject == {"domainId": "d1", "composeId": "c1"}
+
+    _run(main())
+
+
+def test_result_refresh_keeps_single_label(mocker):
+    """We expect re-rendering the result to update a single persistent label
+    (no remove/mount churn that would destabilize the scrollbar)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, data="line1\nline2", params={})
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            screen._query = "line"
+            await screen._apply_search()
+            await pilot.pause()
+            container = screen.query_one("#result-scroll", VerticalScroll)
+            assert len(container.children) == 1
+            assert "line1" in str(screen.query_one("#result", Label).renderable)
+            screen._query = ""
+            await screen._apply_search()
+            await pilot.pause()
+            assert len(screen.query_one("#result-scroll", VerticalScroll).children) == 1
 
     _run(main())
 

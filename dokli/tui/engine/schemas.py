@@ -27,6 +27,46 @@ READ_ONLY_FIELDS = {
     "refreshToken",
 }
 
+# Id fields that are NOT parent references (ambient/server-managed) and should
+# stay editable in forms. Other ``*Id`` properties are treated as parent-id
+# candidates: mutually-exclusive, hidden from child forms and injected from
+# context instead (see BrowserScreen._parent_id_candidates).
+AMBIENT_ID_FIELDS = frozenset(
+    {
+        "serverId",
+        "destinationId",
+        "registryId",
+        "certificateId",
+        "providerId",
+        "nodeId",
+        "keyId",
+        "sshKeyId",
+        "buildServerId",
+        "buildRegistryId",
+        "rollbackRegistryId",
+        "userId",
+    }
+)
+
+# Leaf entities that hang off a service/project as children. Only for these do
+# ``*Id`` properties act as mutually-exclusive parent references; the service
+# entities' own forms (application.update, compose.update, ...) keep their FK
+# fields editable (environmentId, githubId, ...).
+CHILD_ENTITIES = frozenset(
+    {
+        "domain",
+        "port",
+        "mount",
+        "backup",
+        "schedule",
+        "security",
+        "redirects",
+        "patch",
+        "previewDeployment",
+        "environment",
+    }
+)
+
 # String fields that are expected to hold multi-line content.
 MULTILINE_FIELDS = {
     "description",
@@ -41,17 +81,21 @@ MULTILINE_FIELDS = {
 }
 
 
-def build_form_model(schema: dict, name: str = "ActionForm") -> type[BaseModel]:
+def build_form_model(
+    schema: dict, name: str = "ActionForm", excluded: set[str] | None = None
+) -> type[BaseModel]:
     """Build a pydantic model from an OpenAPI request body schema.
 
     Used to reuse the existing generic :class:`~dokli.tui.forms.Form` widget,
     which derives controls and validation from a pydantic model. All fields are
     optional (default ``None``); requiredness is enforced by the form screen
-    from the schema's ``required`` list.
+    from the schema's ``required`` list. ``excluded`` fields are dropped from
+    the form (e.g. parent-id fields injected from context).
     """
+    excluded = excluded or set()
     fields: dict[str, Any] = {}
     for field_name, prop in schema.get("properties", {}).items():
-        if field_name in READ_ONLY_FIELDS:
+        if field_name in READ_ONLY_FIELDS or field_name in excluded:
             continue
         annotation = _annotation_for(field_name, prop)
         label = _label_for(field_name)
