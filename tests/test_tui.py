@@ -21,7 +21,7 @@ from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
-from dokli.tui.screens.generic.result import ResultScreen
+from dokli.tui.screens.generic.result import ResultScreen, _log_line_text, _timestamp_of
 from dokli.tui.screens.generic.wizard import WizardScreen
 from dokli.tui.screens.splash import SPINNER_FRAMES, SplashScreen
 
@@ -302,6 +302,7 @@ def _patch_api(mocker):
     mocker.patch("dokli.tui.screens.generic.browser.APIClient", return_value=client)
     mocker.patch("dokli.tui.app.APIClient", return_value=client)
     mocker.patch("dokli.tui.screens.generic.execute.APIClient", return_value=client)
+    mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
     return responses
 
 
@@ -1408,6 +1409,114 @@ def test_result_search_escape_clears(mocker):
             await pilot.pause()
             assert str(screen.query_one("#match-status", Label).renderable) == ""
             assert isinstance(app.screen, ResultScreen)
+
+    _run(main())
+
+
+def test_logs_merge_incremental_no_duplicates(mocker):
+    """We expect follow-mode merges to append only newer lines."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+
+    screen = ResultScreen(_connection(), action, "", params={"composeId": "c1", "containerId": "cc1"})
+    screen._lines = ["2026-08-05T19:55:54Z line a", "2026-08-05T19:55:55Z line b"]
+    screen._merge_log_lines(["2026-08-05T19:55:55Z line b", "", "2026-08-05T19:56:00Z line c", ""])
+    assert screen._lines == [
+        "2026-08-05T19:55:54Z line a",
+        "2026-08-05T19:55:55Z line b",
+        "2026-08-05T19:56:00Z line c",
+    ]
+    screen._merge_log_lines(["2026-08-05T19:55:54Z line a", "2026-08-05T19:55:55Z line b", ""])
+    assert screen._lines[-1] == "2026-08-05T19:56:00Z line c"
+    assert len(screen._lines) == 3
+
+
+def test_logs_follow_defaults_and_toggle(mocker):
+    """We expect logs to follow by default and ``f`` to toggle it."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    logs_action = registry.get("compose").get("readLogs")
+    plain_action = registry.get("project").get("all")
+
+    logs_screen = ResultScreen(_connection(), logs_action, "")
+    assert logs_screen._is_logs is True
+    assert logs_screen._follow is True
+    plain_screen = ResultScreen(_connection(), plain_action, "")
+    assert plain_screen._is_logs is False
+    assert plain_screen._follow is False
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(
+                _connection(),
+                logs_action,
+                "2026-08-05T19:55:54Z start",
+                params={"composeId": "c1", "containerId": "cc1"},
+            )
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            status = screen.query_one("#match-status", Label)
+            assert "live" in str(status.renderable)
+            assert screen._follow_worker is not None
+            await pilot.press("f")
+            await pilot.pause()
+            assert screen._follow is False
+            assert "follow off" in str(status.renderable)
+            await pilot.press("f")
+            await pilot.pause()
+            assert screen._follow is True
+            assert screen._follow_worker is not None
+
+    _run(main())
+
+
+def test_logs_timestamps_are_dimmed():
+    """We expect docker log lines to render with their timestamp dimmed."""
+    text = _log_line_text("2026-08-05T19:55:54Z frigate started")
+    assert text.plain == "2026-08-05T19:55:54Z frigate started"
+    assert text.spans and text.spans[0].style == "dim"
+    assert text.plain.split()[-1] == "started"
+    assert _timestamp_of("2026-08-05T19:55:54Z frigate started") is not None
+    assert _timestamp_of("2026-08-05T19:55:54.123456Z x") is not None
+    assert _timestamp_of("plain line") is None
+
+
+def test_logs_fetch_follow_appends_and_pins(mocker):
+    """We expect a follow poll to append newer lines and keep pinning the tail."""
+    client = mocker.Mock()
+    batches = iter(
+        [
+            FakeResponse("2026-08-05T19:55:55Z line 2\n2026-08-05T19:56:00Z line 3"),
+        ]
+    )
+    client.request.side_effect = lambda method, path, params: next(batches)
+    mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(
+                _connection(),
+                action,
+                "2026-08-05T19:55:54Z line 1\n2026-08-05T19:55:55Z line 2",
+                params={"composeId": "c1", "containerId": "cc1"},
+            )
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await pilot.pause()
+            assert screen._lines[-1] == "2026-08-05T19:55:55Z line 2"
+            await screen._fetch_follow()
+            await pilot.pause()
+            assert screen._lines[-1] == "2026-08-05T19:56:00Z line 3"
+            assert screen._auto_scroll is True
+            assert "live" in str(screen.query_one("#match-status", Label).renderable)
 
     _run(main())
 

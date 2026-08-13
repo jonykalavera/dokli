@@ -2,7 +2,10 @@
 
 import asyncio
 import contextlib
-from typing import TYPE_CHECKING, Any
+import re
+from collections import deque
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from rich.text import Text
@@ -17,6 +20,13 @@ from dokli.tui.engine import EntityAction, field_label
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
+
+    from dokli.tui.app import DokliApp
+
+#: Lines kept in the follow-mode buffer (bounded memory).
+MAX_LOG_LINES = 5000
+#: Leading docker timestamp (``2026-08-13T23:21:05.610653897Z`` or ``...Z ``).
+_TIMESTAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z) ")
 
 
 class ResultScreen(Screen):
@@ -41,6 +51,8 @@ class ResultScreen(Screen):
         Binding("/", "search", "Search"),
         Binding("n", "next_match", "Next match"),
         Binding("N", "prev_match", "Prev match"),
+        Binding("f", "toggle_follow", "Follow"),
+        Binding("end", "tail", "Tail"),
     ]
 
     def __init__(
@@ -62,6 +74,11 @@ class ResultScreen(Screen):
         self._query = ""
         self._matches: list[int] = []
         self._match_index = 0
+        self._is_logs = action.verb == "readLogs"
+        self._follow = self._is_logs
+        self._auto_scroll = self._is_logs
+        self._last_ts: datetime | None = None
+        self._follow_worker = None
         self.search_input = Input(placeholder="Search...", id="search-input")
         self.search_input.display = False
         self.search_input.can_focus = False
@@ -81,6 +98,111 @@ class ResultScreen(Screen):
         self.app.sub_title = f"{self.connection.name} - {self.action.route} result"
         if not self._lines:
             self._lines = _plain_lines(self.data)
+            if self._is_logs:
+                self._lines = [line for line in self._lines if line]
+            self._last_ts = _latest_timestamp(self._lines)
+            if self._is_logs:
+                self._rerender_logs()
+        self._render_status()
+        if self._follow:
+            self._start_follow()
+
+    def on_screen_suspend(self, event) -> None:
+        """Stop polling while another screen is on top."""
+        if self._follow_worker is not None:
+            self._follow_worker.cancel()
+            self._follow_worker = None
+
+    def _start_follow(self) -> None:
+        """Start the follow-mode polling loop (logs only)."""
+        if self._follow_worker is not None and not self._follow_worker.is_cancelled:
+            return
+        self._follow_worker = self.run_worker(  # type: ignore[arg-type]
+            self._poll_follow(), group="follow"
+        )
+
+    async def _poll_follow(self) -> None:
+        """Periodically fetch newer log lines and append them to the view."""
+        interval = cast("DokliApp", self.app).config.tui.logs_interval_seconds
+        while True:
+            await asyncio.sleep(interval)
+            await self._fetch_follow()
+
+    async def _fetch_follow(self) -> None:
+        """Fetch one batch of log lines, merge, and pin to the tail if wanted."""
+        container = self.query_one("#result-scroll", VerticalScroll)
+        at_bottom = self._auto_scroll and container.scroll_y >= container.max_scroll_y - 1
+        params = {**self.params, "tail": cast("DokliApp", self.app).config.tui.logs_tail_lines}
+        try:
+            response = await asyncio.to_thread(
+                lambda: APIClient(self.connection).request("GET", self.action.route, params)
+            )
+        except httpx.HTTPError as err:
+            self.notify(f"API error: {err}", severity="error", timeout=10)
+            return
+        new_lines = _plain_lines(response.json())
+        if self._is_logs:
+            new_lines = [line for line in new_lines if line]
+        self._merge_log_lines(new_lines)
+        if self._query:
+            return
+        self._rerender_logs()
+        if at_bottom:
+            container.scroll_end(animate=False)
+        elif self._auto_scroll:
+            self._auto_scroll = False
+        self._render_status()
+
+    def _merge_log_lines(self, incoming: list[str]) -> None:
+        """Append incoming log lines to the buffer, de-duplicating by timestamp."""
+        if not self._lines:
+            self._lines = incoming[:MAX_LOG_LINES]
+            self._last_ts = _latest_timestamp(self._lines)
+            return
+        buffer = deque(self._lines)
+        last_ts = self._last_ts or _latest_timestamp(self._lines)
+        for line in incoming:
+            if not line:
+                continue
+            ts = _timestamp_of(line)
+            if ts is not None:
+                if last_ts is not None and ts <= last_ts:
+                    continue
+                last_ts = ts
+                buffer.append(line)
+                continue
+            if last_ts is None or line == buffer[-1]:
+                buffer.append(line)
+        self._lines = list(buffer)[-MAX_LOG_LINES:]
+        self._last_ts = last_ts
+
+    def _rerender_logs(self) -> None:
+        """Re-render the log lines with dimmed timestamps."""
+        label = self.query_one("#result", Label)
+        text = Text()
+        for i, line in enumerate(self._lines):
+            if i:
+                text.append("\n")
+            text.append(_log_line_text(line))
+        label.update(text)
+
+    def action_toggle_follow(self) -> None:
+        """Toggle follow mode on/off."""
+        self._follow = not self._follow
+        if self._follow:
+            self._auto_scroll = True
+            self._start_follow()
+            self.query_one("#result-scroll", VerticalScroll).scroll_end(animate=False)
+        elif self._follow_worker is not None:
+            self._follow_worker.cancel()
+            self._follow_worker = None
+        self._render_status()
+
+    def action_tail(self) -> None:
+        """Scroll to the tail and resume auto-scroll."""
+        self._auto_scroll = True
+        self.query_one("#result-scroll", VerticalScroll).scroll_end(animate=False)
+        self._render_status()
 
     def on_key(self, event) -> None:
         """Intercept enter/escape while the search input is focused."""
@@ -109,6 +231,9 @@ class ResultScreen(Screen):
             )
             self.data = response.json()
             self._lines = _plain_lines(self.data)
+            if self._is_logs:
+                self._lines = [line for line in self._lines if line]
+            self._last_ts = _latest_timestamp(self._lines)
             self._recompute_matches()
             await self._apply_search()
             if not self._query:
@@ -181,7 +306,10 @@ class ResultScreen(Screen):
         self._recompute_matches()
         label = self.query_one("#result", Label)
         if not self._query:
-            label.update(_render_data(self.data))
+            if self._is_logs:
+                self._rerender_logs()
+            else:
+                label.update(_render_data(self.data))
             self._render_status()
             return
         text = Text()
@@ -220,14 +348,20 @@ class ResultScreen(Screen):
         container.scroll_to(y=line_index, animate=False)
 
     def _render_status(self) -> None:
-        """Update the match counter label."""
+        """Update the match counter and follow-mode indicator."""
         status = self.query_one("#match-status", Label)
-        if not self._query:
-            status.update("")
-        elif not self._matches:
-            status.update("No matches")
-        else:
-            status.update(f"{self._match_index + 1}/{len(self._matches)} matches")
+        parts: list[str] = []
+        if self._is_logs:
+            if self._follow:
+                parts.append("[bold green]●[/] live" if self._auto_scroll else "[dim]⏸[/] paused")
+            else:
+                parts.append("[dim]○[/] follow off")
+        if self._query:
+            if not self._matches:
+                parts.append("No matches")
+            else:
+                parts.append(f"{self._match_index + 1}/{len(self._matches)} matches")
+        status.update("   ".join(parts))
 
     def _clear_search(self) -> None:
         """Hide the search input and restore the plain result."""
@@ -263,6 +397,38 @@ def _render_data(data: Any, indent: int = 0) -> str:
                 lines.append(f"{pad}- {item}")
         return "\n".join(lines)
     return f"{pad}{data}"
+
+
+def _timestamp_of(line: str) -> datetime | None:
+    """The parsed leading docker timestamp of a log line, if any."""
+    match = _TIMESTAMP_RE.match(line)
+    if match is None:
+        return None
+    try:
+        return datetime.fromisoformat(match.group(1).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _latest_timestamp(lines: list[str]) -> datetime | None:
+    """The newest docker timestamp across a list of log lines."""
+    latest: datetime | None = None
+    for line in lines:
+        ts = _timestamp_of(line)
+        if ts is not None and (latest is None or ts > latest):
+            latest = ts
+    return latest
+
+
+def _log_line_text(line: str) -> Text:
+    """A log line with its leading docker timestamp dimmed."""
+    match = _TIMESTAMP_RE.match(line)
+    if match is None:
+        return Text(line)
+    text = Text()
+    text.append(match.group(1) + " ", style="dim")
+    text.append(line[match.end() :])
+    return text
 
 
 def _plain_lines(data: Any, indent: int = 0) -> list[str]:
