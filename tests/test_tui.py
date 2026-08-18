@@ -1070,7 +1070,145 @@ def test_browser_context_finds_project_id(mocker):
     _run(main())
 
 
-def test_textarea_typing_is_not_reversed(mocker):
+def _patch_service_tree(mocker, composes=None, dbs=None):
+    """Mock the project tree enumeration used by service FK sources."""
+    composes = composes or []
+    dbs = dbs or {}
+    client = mocker.Mock()
+
+    def fake_request(method, route, params):
+        if route == "project.all":
+            return FakeResponse([{"projectId": "p1"}])
+        if route == "project.one":
+            environment = {"compose": composes}
+            for kind, items in dbs.items():
+                environment[kind] = items
+            return FakeResponse({"environments": [environment]})
+        return FakeResponse([])
+
+    client.request.side_effect = fake_request
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    return client
+
+
+def test_service_candidates_enumerated_and_cached(mocker):
+    """We expect service FK sources to walk the project tree and cache."""
+    from dokli.tui.engine.fk import fk_source, load_fk_candidates
+
+    client = _patch_service_tree(
+        mocker, composes=[{"composeId": "c1", "name": "torrents"}, {"composeId": "c2", "name": "media"}]
+    )
+    cache: dict = {}
+    source = fk_source("composeId")
+    records = _run(asyncio.to_thread(load_fk_candidates, _connection(), source, None, cache))
+    assert [r["composeId"] for r in records] == ["c1", "c2"]
+    assert client.request.call_count == 2  # project.all + project.one
+    _run(asyncio.to_thread(load_fk_candidates, _connection(), source, None, cache))
+    assert client.request.call_count == 2  # served from cache
+
+
+def test_service_parent_picker_without_context(mocker):
+    """We expect a child form without parent context to offer a service dropdown."""
+    _patch_service_tree(mocker, composes=[{"composeId": "c1", "name": "torrents"}])
+    schema = {
+        "paths": {
+            "/domain.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "host": {"type": "string"},
+                                        "composeId": {"type": "string"},
+                                        "applicationId": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    registry = parse_spec(schema)
+    action = registry.get("domain").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            compose = screen.form.fields["composeId"]
+            assert isinstance(compose, FkSelectControl)
+            assert isinstance(compose.query_one("#composeId-input"), Select)
+            assert compose._options == [("torrents", "c1")]
+            application = screen.form.fields["applicationId"]
+            assert isinstance(application, FkSelectControl)
+            assert isinstance(application.query_one("#applicationId-input"), Input)
+
+    _run(main())
+
+
+def test_backup_create_offers_db_parent_pickers(mocker):
+    """We expect backup.create db parent ids to enumerate their service kind."""
+    _patch_service_tree(mocker, dbs={"postgres": [{"postgresId": "pg1", "name": "main-db"}]})
+    schema = {
+        "paths": {
+            "/backup.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "schedule": {"type": "string"},
+                                        "prefix": {"type": "string"},
+                                        "destinationId": {"type": "string"},
+                                        "database": {"type": "string"},
+                                        "databaseType": {
+                                            "type": "string",
+                                            "enum": ["postgres", "mariadb", "mysql", "mongo", "web-server", "libsql"],
+                                        },
+                                        "postgresId": {"type": "string"},
+                                        "mysqlId": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    registry = parse_spec(schema)
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            postgres = screen.form.fields["postgresId"]
+            assert isinstance(postgres, FkSelectControl)
+            assert isinstance(postgres.query_one("#postgresId-input"), Select)
+            assert postgres._options == [("main-db", "pg1")]
+            mysql = screen.form.fields["mysqlId"]
+            assert isinstance(mysql, FkSelectControl)
+            assert isinstance(mysql.query_one("#mysqlId-input"), Input)
+
+    _run(main())
+
     """We expect typing into a text area to keep the natural character order."""
     mocker.patch("dokli.tui.app.APIClient")
     mocker.patch("dokli.tui.screens.generic.execute.APIClient")

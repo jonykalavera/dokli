@@ -45,6 +45,7 @@ class WizardScreen(Screen):
         self.record = record or {}
         self.inject = inject or {}
         self.context = context or {}
+        self._fk_cache: dict = {}
         self.model = build_form_model(action.request_schema, name=f"{action.route}Wizard", excluded=excluded or set())
         self.fields = list(self.model.model_fields.items())
         self.controls = {
@@ -53,7 +54,7 @@ class WizardScreen(Screen):
         for control in self.controls.values():
             if isinstance(control, FkSelectControl):
                 control.fetch = lambda c=control: asyncio.to_thread(
-                    load_fk_candidates, self.connection, c.fk_source, self._fk_params(c.fk_source)
+                    load_fk_candidates, self.connection, c.fk_source, self._fk_params(c.fk_source), self._fk_cache
                 )
         self.index = 0
 
