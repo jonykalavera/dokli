@@ -1209,6 +1209,106 @@ def test_backup_create_offers_db_parent_pickers(mocker):
 
     _run(main())
 
+
+def _mounts_create_schema():
+    return {
+        "paths": {
+            "/mounts.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {"type": "string"},
+                                        "mountPath": {"type": "string"},
+                                        "serviceType": {
+                                            "type": "string",
+                                            "enum": [
+                                                "application",
+                                                "postgres",
+                                                "mysql",
+                                                "mariadb",
+                                                "mongo",
+                                                "redis",
+                                                "compose",
+                                                "libsql",
+                                            ],
+                                        },
+                                        "serviceId": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def test_service_id_picker_follows_service_type(mocker):
+    """We expect serviceId to list the service kind selected by serviceType."""
+    from dokli.tui.engine.fk import resolve_service_source
+
+    source = {"service": "dynamic", "service_type_field": "serviceType",
+              "service_types": {"postgres": "postgres", "compose": "compose"}}
+    assert resolve_service_source(source, "postgres") == {"service": "postgres", "value_field": "postgresId"}
+    assert resolve_service_source(source, "compose") == {"service": "compose", "value_field": "composeId"}
+    assert resolve_service_source(source, "") is None
+    assert resolve_service_source(source, "redis") is None
+
+    _patch_service_tree(
+        mocker,
+        composes=[{"composeId": "c1", "name": "torrents"}],
+        dbs={"postgres": [{"postgresId": "pg1", "name": "main-db"}]},
+    )
+    registry = parse_spec(_mounts_create_schema())
+    action = registry.get("mounts").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action, record={"serviceType": "postgres"})
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["serviceId"]
+            assert isinstance(control, FkSelectControl)
+            assert isinstance(control.query_one("#serviceId-input"), Select)
+            assert control._options == [("main-db", "pg1")]
+            select = _switch_select(screen, "serviceType")
+            select.value = "compose"
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(control.query_one("#serviceId-input"), Select)
+            assert control._options == [("torrents", "c1")]
+
+    _run(main())
+
+
+def test_service_id_falls_back_without_service_type(mocker):
+    """We expect serviceId to fall back to free text when serviceType is unset."""
+    _patch_service_tree(mocker, composes=[{"composeId": "c1", "name": "torrents"}])
+    registry = parse_spec(_mounts_create_schema())
+    action = registry.get("mounts").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["serviceId"]
+            assert isinstance(control, FkSelectControl)
+            assert isinstance(control.query_one("#serviceId-input"), Input)
+
+    _run(main())
+
     """We expect typing into a text area to keep the natural character order."""
     mocker.patch("dokli.tui.app.APIClient")
     mocker.patch("dokli.tui.screens.generic.execute.APIClient")
