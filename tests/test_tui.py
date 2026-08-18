@@ -1320,6 +1320,68 @@ def test_wizard_steps_through_fields(mocker):
     _run(main())
 
 
+def test_build_type_hidden_when_docker(mocker):
+    """We expect the buildType switch to hide when sourceType=docker."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_application_update_schema())
+    action = registry.get("application").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(),
+                action,
+                record={"applicationId": "a1", "sourceType": "docker", "buildType": "static"},
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.fields["buildType"].display is False
+            assert form.fields["publishDirectory"].display is False
+            assert form.fields["dockerImage"].display is True
+            select = _switch_select(screen, "sourceType")
+            select.value = "raw"
+            await pilot.pause()
+            assert form.fields["buildType"].display is True
+            assert form.fields["dockerImage"].display is False
+
+    _run(main())
+
+
+def test_wizard_skips_conditionally_hidden_fields(mocker):
+    """We expect the wizard to skip hidden fields and re-evaluate on switch change."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_application_update_schema())
+    action = registry.get("application").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = WizardScreen(_connection(), action, record={"applicationId": "a1", "sourceType": "docker"})
+            app.install_screen(screen, name="wizard")
+            app.push_screen("wizard")
+            await pilot.pause()
+            assert screen._order == ["applicationId", "name", "sourceType", "dockerImage"]
+            assert "1/4" in str(app.screen.query_one("#prompt").renderable)
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            await pilot.press("ctrl+n")
+            await pilot.pause()
+            assert "3/4" in str(app.screen.query_one("#prompt").renderable)
+            select = screen.controls["sourceType"].query_one("#sourceType-input")
+            assert isinstance(select, Select)
+            select.value = "raw"
+            await pilot.pause()
+            assert screen._order == ["applicationId", "name", "sourceType", "buildType"]
+            assert "dockerImage" not in screen._order
+
+    _run(main())
+
+
 # -- browser --------------------------------------------------------------
 
 
