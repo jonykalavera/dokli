@@ -32,6 +32,9 @@ from tests.test_tui import (  # noqa: E402
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 SIZE = (110, 32)
+# The splash logo is 33 lines tall plus header/footer/status box, so it needs
+# more rows than the default screenshot size to avoid clipping the art.
+SIZE_SPLASH = (110, 40)
 
 LOG_DATA = (
     "2026-08-05T19:55:54Z frigate started\n"
@@ -81,7 +84,7 @@ async def _wait_for_browser(app: DokliApp, pilot) -> None:
 async def shot_splash() -> str:
     """Render the splash screen."""
     app = DokliApp(config=_config())
-    async with app.run_test(size=SIZE) as pilot:
+    async with app.run_test(size=SIZE_SPLASH) as pilot:
         app.install_screen(SplashScreen(), name="splash")
         app.push_screen("splash")
         await _settle(pilot)
