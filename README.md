@@ -356,11 +356,6 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 
 ![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.png)
 
-Screenshots are **PNGs** generated headless from anonymized mock data — they never
-show real instances, and are rasterized from the terminal's cell grid with a real
-Nerd Font, so they render the same for every reader. Regenerate them with
-`make screenshots` (requires Pillow and the Agave Nerd Font Mono).
-
 ### TUI customization
 
 A `tui:` section in the config customizes the appearance and behavior (defaults

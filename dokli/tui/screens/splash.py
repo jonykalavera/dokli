@@ -21,16 +21,6 @@ _SPINNER_INTERVAL = 0.12
 class SplashScreen(Screen):
     """A splash screen with the Dokploy logo as backdrop and a centered status box."""
 
-    # The box floats over the logo's empty text band (between the "D" and the
-    # swoosh) instead of the dead center, where it collides with the art.
-    # (The app CSS already centers the overlay panel; these margins nudge it.)
-    CSS = """
-    #status-panel {
-        margin-left: -4;
-        margin-top: -2;
-    }
-    """
-
     BINDINGS = [
         Binding("escape", "cancel_connection", "Cancel"),
     ]
@@ -67,7 +57,7 @@ class SplashScreen(Screen):
 
     def action_cancel_connection(self) -> None:
         """Abort the connection attempt and go back."""
-        cast(Any, self.app).cancel_connection()
+        cast("Any", self.app).cancel_connection()
 
     def set_status(self, text: str, error: bool = False) -> None:
         """Update the splash status line (no-op once unmounted)."""
