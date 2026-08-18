@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING
 from textual.binding import Binding
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Label
+from textual.widgets import Button, Footer, Header, Label, Select
 
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, build_form_model
+from dokli.tui.engine.conditionals import conditional_switches
 from dokli.tui.engine.fk import load_fk_candidates
-from dokli.tui.forms import FkSelectControl, FormControl
+from dokli.tui.forms import FkSelectControl, FormControl, compute_conditional_hidden
 from dokli.tui.screens.generic.execute import build_body, confirm_and_run
 
 if TYPE_CHECKING:
@@ -56,7 +57,12 @@ class WizardScreen(Screen):
                 control.fetch = lambda c=control: asyncio.to_thread(
                     load_fk_candidates, self.connection, c.fk_source, self._fk_params(c.fk_source), self._fk_cache
                 )
+        self.conditional = conditional_switches(action.route.split(".")[0])
+        self._hidden: set[str] = set()
+        self._order: list[str] = []
+        self._current = ""
         self.index = 0
+        self._recompute_visible()
 
     def _fk_params(self, source: dict) -> dict:
         """Resolve an FK source's query params from the navigation context."""
@@ -66,6 +72,16 @@ class WizardScreen(Screen):
             if value:
                 params[param] = value
         return params
+
+    def _recompute_visible(self) -> None:
+        """Rebuild the ordered list of currently visible fields."""
+        values = {
+            spec["switch"]: str(self.controls[spec["switch"]].value)
+            for spec in self.conditional
+            if spec.get("switch") in self.controls
+        }
+        self._hidden = compute_conditional_hidden(self.conditional, values)
+        self._order = [name for name, _ in self.fields if name not in self._hidden]
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""
@@ -94,25 +110,42 @@ class WizardScreen(Screen):
         elif event.button.id == "cancel":
             self.action_cancel()
 
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """Re-evaluate visibility when a conditional switch changes."""
+        if any(f"{spec.get('switch')}-input" == event.select.id for spec in self.conditional):
+            self._recompute_visible()
+            if self._current in self._order:
+                self.query_one("#prompt", Label).update(
+                    f"({self.index + 1}/{len(self._order)}) {self.controls[self._current].label}"
+                )
+            else:
+                self.index = min(self.index, len(self._order) - 1)
+                self._show()
+
     def _show(self) -> None:
-        name, field = self.fields[self.index]
+        if not self._order:
+            self._finish()
+            return
+        self.index = min(max(self.index, 0), len(self._order) - 1)
+        name = self._order[self.index]
         control = self.controls[name]
         container = self.query_one("#control", Container)
         container.remove_children()
         container.mount(control)
-        self.query_one("#prompt", Label).update(f"({self.index + 1}/{len(self.fields)}) {field.title or name}")
+        self.query_one("#prompt", Label).update(f"({self.index + 1}/{len(self._order)}) {control.label}")
         control.focus()
+        self._current = name
 
     def action_next(self) -> None:
-        """Advance to the next field, or finish on the last one."""
-        if self.index < len(self.fields) - 1:
+        """Advance to the next visible field, or finish on the last one."""
+        if self.index < len(self._order) - 1:
             self.index += 1
             self._show()
         else:
             self._finish()
 
     def action_back(self) -> None:
-        """Go back to the previous field."""
+        """Go back to the previous visible field."""
         if self.index > 0:
             self.index -= 1
             self._show()
@@ -122,8 +155,8 @@ class WizardScreen(Screen):
         self.dismiss(None)
 
     def _finish(self) -> None:
-        data = {name: self.controls[name].get_data() for name, _ in self.fields}
-        required = [name for name in self.action.request_schema.get("required", []) if name in self.controls]
+        data = {name: self.controls[name].get_data() for name in self._order}
+        required = [name for name in self.action.request_schema.get("required", []) if name in self._order]
         missing = [name for name in required if not data.get(name)]
         if missing:
             self.notify(f"Missing required: {', '.join(missing)}", severity="error", timeout=10)

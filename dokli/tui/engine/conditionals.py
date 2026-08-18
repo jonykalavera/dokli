@@ -72,6 +72,9 @@ CONDITIONAL_FIELDS: dict[str, dict] = {
             },
             {
                 "switch": "buildType",
+                # Docker images are not built: hide the buildType switch and its
+                # groups when the source is a docker image.
+                "hide_when": {"sourceType": ["docker"]},
                 "groups": {
                     "dockerfile": ["dockerfile", "dockerContextPath", "dockerBuildStage"],
                     "heroku_buildpacks": ["herokuVersion"],

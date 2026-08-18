@@ -56,6 +56,38 @@ def _apply_field_defaults(model: type[BaseModel], data: dict[str, Any]) -> dict[
     return resolved
 
 
+def compute_conditional_hidden(conditional: list[dict], values: dict[str, str]) -> set[str]:
+    """The fields to hide given the current switch ``values``.
+
+    Shared by the form and the wizard. ``values`` maps switch field name → its
+    current value (only for switches present in the form). A switch spec may
+    carry ``hide_when`` (e.g. ``{"sourceType": ["docker"]}``): when the
+    controlling switch matches, the dependent switch and its groups are hidden.
+    """
+    deactivated: set[str] = set()
+    for spec in conditional:
+        for controller, matching in (spec.get("hide_when") or {}).items():
+            if values.get(controller) in matching:
+                deactivated.add(spec["switch"])
+    hidden: set[str] = set()
+    for spec in conditional:
+        switch = spec["switch"]
+        if switch not in values:
+            continue
+        if switch in deactivated:
+            hidden.add(switch)
+            hidden |= {field for group in spec.get("groups", {}).values() for field in group}
+            continue
+        groups = spec.get("groups", {})
+        grouped = {field for group in groups.values() for field in group}
+        active = groups.get(str(values[switch]))
+        if active is None:
+            hidden |= grouped
+        else:
+            hidden |= grouped - set(active)
+    return hidden
+
+
 class FormControl(Static):
     """Base form control widget."""
 
@@ -415,21 +447,14 @@ class Form(Generic[M], Container):
         (nothing chosen yet) hides all of its groups. Switches that are not part
         of the form (e.g. ``compose.create`` has no ``sourceType``) gate nothing.
         """
-        hidden: set[str] = set()
-        for spec in self.conditional:
-            control = self.fields.get(spec.get("switch", ""))
-            if control is None:
-                continue
-            groups = spec.get("groups", {})
-            grouped = {field for group in groups.values() for field in group}
-            active = groups.get(str(control.value))
-            if active is None:
-                hidden |= grouped
-            else:
-                hidden |= grouped - set(active)
-        self._hidden = hidden
+        values = {
+            spec["switch"]: str(self.fields[spec["switch"]].value)
+            for spec in self.conditional
+            if spec.get("switch") in self.fields
+        }
+        self._hidden = compute_conditional_hidden(self.conditional, values)
         for field_id, control in self.fields.items():
-            control.display = field_id not in hidden
+            control.display = field_id not in self._hidden
 
     async def on_mount(self) -> None:
         """On mount, add the form-level error label."""
