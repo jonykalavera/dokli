@@ -312,6 +312,48 @@ class TestResourceManager:
         create = next(c for c in client.calls if c[1] == "schedule.create")
         assert create[2]["body"]["applicationId"] == "a1"
 
+    def test_schedule_update_merges_live_fields(self):
+        """We expect schedule updates to preserve fields the manifest omits."""
+        client = FakeClient(
+            {
+                "application.one": {"applicationId": "a1"},
+                "schedule.list": [
+                    {
+                        "scheduleId": "s1",
+                        "name": "reorder-stalled",
+                        "cronExpression": "*/5 * * * *",
+                        "command": "bash /watcher/stalled-reorder.sh",
+                        "enabled": True,
+                        "serviceName": "qbittorrent",
+                        "shellType": "bash",
+                        "scheduleType": "compose",
+                        "appName": "media-torrents",
+                    }
+                ],
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="schedule",
+                    name="reorder-stalled",
+                    in_="application:api",
+                    data={"name": "reorder-stalled", "cronExpression": "*/5 * * * *", "command": "echo changed"},
+                )
+            ),
+            client,
+            [_service("application", "api", "a1")],
+        )
+        manager.run()
+        update = next(c for c in client.calls if c[1] == "schedule.update")
+        body = update[2]["body"]
+        assert body["scheduleId"] == "s1"
+        assert body["command"] == "echo changed"
+        assert body["serviceName"] == "qbittorrent"
+        assert body["shellType"] == "bash"
+        assert body["scheduleType"] == "compose"
+        assert manager.report.actions[0].action == "update"
+
     def test_dry_run_plans_create(self):
         """We expect dry-run to record the action without calling the API."""
         client = FakeClient({"compose.one": {"composeId": "c1", "domains": []}})

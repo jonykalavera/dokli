@@ -88,6 +88,46 @@ class TestExportResources:
         assert kinds["schedule"].data["cronExpression"] == "0 3 * * *"
         assert any("Secret fields" in w for w in warnings)
 
+    def test_exports_compose_schedule_fields(self, mocker):
+        """We expect a compose schedule to export its target service and shell."""
+        mocker.patch(
+            "dokli.export.APIClient",
+            return_value=_FakeClient(
+                {
+                    "schedule.list": [
+                        {
+                            "scheduleId": "sc1",
+                            "name": "reorder-stalled",
+                            "cronExpression": "*/5 * * * *",
+                            "command": "bash /watcher/stalled-reorder.sh",
+                            "enabled": True,
+                            "serviceName": "qbittorrent",
+                            "shellType": "bash",
+                            "scheduleType": "compose",
+                        }
+                    ],
+                    "destination.all": [],
+                }
+            ),
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[_project_live("app", [_live_service("compose", "torrents")])],
+            ),
+        )
+
+        manifest, _ = export_manifest(_connection())
+
+        schedule = manifest.resources[0]
+        assert schedule.kind == "schedule"
+        assert schedule.name == "reorder-stalled"
+        assert schedule.data["serviceName"] == "qbittorrent"
+        assert schedule.data["shellType"] == "bash"
+        assert schedule.data["scheduleType"] == "compose"
+        assert schedule.data["cronExpression"] == "*/5 * * * *"
+
     def test_exports_backup_with_destination_name(self, mocker):
         """We expect backup destinations to be exported by name."""
         mocker.patch(
