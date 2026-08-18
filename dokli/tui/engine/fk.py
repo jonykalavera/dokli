@@ -13,6 +13,18 @@ from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.tui.engine.introspect import record_title
 
+# ``mounts.create``'s ``serviceType`` enum -> service kind.
+SERVICE_TYPE_KINDS: dict[str, str] = {
+    "application": "application",
+    "postgres": "postgres",
+    "mysql": "mysql",
+    "mariadb": "mariadb",
+    "mongo": "mongo",
+    "redis": "redis",
+    "compose": "compose",
+    "libsql": "libsql",
+}
+
 # FK field name -> source spec. ``entity``+``verb`` form the list route (e.g.
 # ``server.all``); ``value_field`` is the candidate's id key; ``filter_field``
 # optionally narrows candidates (e.g. git providers by ``providerType``);
@@ -72,6 +84,13 @@ FK_SOURCES: dict[str, dict] = {
     "mongoId": {"service": "mongo", "value_field": "mongoId"},
     "redisId": {"service": "redis", "value_field": "redisId"},
     "libsqlId": {"service": "libsql", "value_field": "libsqlId"},
+    # Generic service reference (mounts.create): the candidate kind is selected
+    # by the ``serviceType`` switch, so the source is resolved dynamically.
+    "serviceId": {
+        "service": "dynamic",
+        "service_type_field": "serviceType",
+        "service_types": SERVICE_TYPE_KINDS,
+    },
 }
 
 # Nested environment array that holds each service kind (``project.one`` ->
@@ -86,6 +105,20 @@ SERVICE_ARRAY_KEYS: dict[str, str] = {
     "redis": "redis",
     "libsql": "libsql",
 }
+
+
+def resolve_service_source(source: dict, service_type: str | None) -> dict | None:
+    """Resolve a dynamic ``serviceId`` source to a concrete service source.
+
+    Returns ``None`` when ``service_type`` is unset or unknown (no candidates,
+    so the control falls back to free text). Other sources are returned as-is.
+    """
+    if "service_type_field" not in source:
+        return source
+    kind = source.get("service_types", {}).get(service_type or "")
+    if not kind:
+        return None
+    return {"service": kind, "value_field": f"{kind}Id"}
 
 
 def fk_source(field_name: str) -> dict | None:

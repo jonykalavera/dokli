@@ -12,7 +12,7 @@ from textual.widgets import Button, Footer, Header
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, build_form_model
 from dokli.tui.engine.conditionals import conditional_switches
-from dokli.tui.engine.fk import load_fk_candidates
+from dokli.tui.engine.fk import load_fk_candidates, resolve_service_source
 from dokli.tui.forms import FkSelectControl, Form
 from dokli.tui.screens.generic.execute import build_body, confirm_and_run
 from dokli.tui.screens.generic.wizard import WizardScreen
@@ -75,7 +75,27 @@ class ActionFormScreen(Screen):
         """A fetcher that loads the FK control's candidates off the event loop."""
         source = control.fk_source
         params = self._fk_params(source)
+        if "service_type_field" in source:
+            control.resolve_source = lambda c=control: self._resolve_fk_source(c)
+            return lambda c=control, p=params: asyncio.to_thread(self._load_dynamic_fk, c, p)
         return lambda: asyncio.to_thread(load_fk_candidates, self.connection, source, params, self._fk_cache)
+
+    def _resolve_fk_source(self, control: FkSelectControl) -> dict | None:
+        """The effective service source for a dynamic ``serviceId`` control."""
+        source = control.fk_source
+        switch = source["service_type_field"]
+        field = self.form.fields.get(switch)
+        value = str(field.value) if field else ""
+        return resolve_service_source(source, value)
+
+    def _load_dynamic_fk(self, control: FkSelectControl, params: dict) -> list[dict]:
+        """Load a dynamic FK control's candidates for the current serviceType."""
+        if control.resolve_source is None:
+            return []
+        effective = control.resolve_source()
+        if effective is None:
+            return []
+        return load_fk_candidates(self.connection, effective, params, self._fk_cache)
 
     def _fk_params(self, source: dict) -> dict:
         """Resolve an FK source's query params from the navigation context."""

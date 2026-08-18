@@ -11,7 +11,7 @@ from textual.widgets import Button, Footer, Header, Label, Select
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, build_form_model
 from dokli.tui.engine.conditionals import conditional_switches
-from dokli.tui.engine.fk import load_fk_candidates
+from dokli.tui.engine.fk import load_fk_candidates, resolve_service_source
 from dokli.tui.forms import FkSelectControl, FormControl, compute_conditional_hidden
 from dokli.tui.screens.generic.execute import build_body, confirm_and_run
 
@@ -54,9 +54,17 @@ class WizardScreen(Screen):
         }
         for control in self.controls.values():
             if isinstance(control, FkSelectControl):
-                control.fetch = lambda c=control: asyncio.to_thread(
-                    load_fk_candidates, self.connection, c.fk_source, self._fk_params(c.fk_source), self._fk_cache
-                )
+                if "service_type_field" in control.fk_source:
+                    control.resolve_source = lambda c=control: self._resolve_fk_source(c)
+                    control.fetch = lambda c=control: asyncio.to_thread(self._load_dynamic_fk, c)
+                else:
+                    control.fetch = lambda c=control: asyncio.to_thread(
+                        load_fk_candidates,
+                        self.connection,
+                        c.fk_source,
+                        self._fk_params(c.fk_source),
+                        self._fk_cache,
+                    )
         self.conditional = conditional_switches(action.route.split(".")[0])
         self._hidden: set[str] = set()
         self._order: list[str] = []
@@ -72,6 +80,23 @@ class WizardScreen(Screen):
             if value:
                 params[param] = value
         return params
+
+    def _resolve_fk_source(self, control: FkSelectControl) -> dict | None:
+        """The effective service source for a dynamic ``serviceId`` control."""
+        source = control.fk_source
+        switch = source["service_type_field"]
+        field = self.controls.get(switch)
+        value = str(field.value) if field else ""
+        return resolve_service_source(source, value)
+
+    def _load_dynamic_fk(self, control: FkSelectControl) -> list[dict]:
+        """Load a dynamic FK control's candidates for the current serviceType."""
+        if control.resolve_source is None:
+            return []
+        effective = control.resolve_source()
+        if effective is None:
+            return []
+        return load_fk_candidates(self.connection, effective, self._fk_params(effective), self._fk_cache)
 
     def _recompute_visible(self) -> None:
         """Rebuild the ordered list of currently visible fields."""
@@ -121,6 +146,9 @@ class WizardScreen(Screen):
             else:
                 self.index = min(self.index, len(self._order) - 1)
                 self._show()
+        for control in self.controls.values():
+            if isinstance(control, FkSelectControl) and control.service_type_input == event.select.id:
+                self.run_worker(control.reload(), exclusive=True, group="fk")  # type: ignore[arg-type]
 
     def _show(self) -> None:
         if not self._order:

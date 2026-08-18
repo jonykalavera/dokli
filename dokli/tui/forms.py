@@ -17,6 +17,8 @@ from textual.widgets import Input, Label, Select, Static, Switch, TextArea
 from dokli.tui.engine.fk import candidate_options
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from textual.app import ComposeResult
     from textual.timer import Timer
 
@@ -259,7 +261,11 @@ class FkSelectControl(FormControl):
         super().__init__(id=id, value=value, **kwargs)
         self.fk_source = fk_source
         self.fetch = None
+        self.resolve_source: Callable[[], dict | None] | None = None
         self._options: list[tuple[str, str]] = []
+        self.service_type_input = (
+            f"{fk_source['service_type_field']}-input" if "service_type_field" in fk_source else None
+        )
 
     def compose(self) -> "ComposeResult":
         """Yield the label, error, and a container for the live control."""
@@ -268,30 +274,45 @@ class FkSelectControl(FormControl):
 
     async def on_mount(self) -> None:
         """Fetch candidates and render a Select or a free-text fallback."""
+        await self._populate()
+
+    async def _populate(self) -> None:
+        """Fetch candidates and render a Select or a free-text fallback."""
         if self.fetch is None:
-            self._mount_text()
+            await self._mount_text()
+            return
+        source = self.resolve_source() if self.resolve_source is not None else self.fk_source
+        if source is None:
+            await self._mount_text()
             return
         try:
             records = await self.fetch()
         except httpx.HTTPError:
-            self._mount_text()
+            await self._mount_text()
             return
-        self._options = candidate_options(records, self.fk_source)
+        self._options = candidate_options(records, source)
         if not self._options or (self.value and self.value not in [v for _, v in self._options]):
-            self._mount_text()
+            await self._mount_text()
             return
-        self._mount_select()
+        await self._mount_select()
 
-    def _mount_select(self) -> None:
+    async def reload(self) -> None:
+        """Re-fetch candidates after a dependent switch (e.g. serviceType) changed."""
+        wrap = self.query_one(f"#{self.id}-wrap", Container)
+        await wrap.remove_children()
+        self._options = []
+        await self._populate()
+
+    async def _mount_select(self) -> None:
         """Render the dropdown with the current value preselected when present."""
         wrap = self.query_one(f"#{self.id}-wrap", Container)
         current = self.value if self.value in [v for _, v in self._options] else Select.BLANK
-        wrap.mount(Select(self._options, value=current, prompt="Select...", id=f"{self.id}-input"))
+        await wrap.mount(Select(self._options, value=current, prompt="Select...", id=f"{self.id}-input"))
 
-    def _mount_text(self) -> None:
+    async def _mount_text(self) -> None:
         """Render a free-text input (fallback when there are no candidates)."""
         wrap = self.query_one(f"#{self.id}-wrap", Container)
-        wrap.mount(
+        await wrap.mount(
             Input(
                 "" if self.value in ("", None) else str(self.value),
                 id=f"{self.id}-input",
@@ -516,6 +537,9 @@ class Form(Generic[M], Container):
         self._validate_on_input()
         if any(f"{spec.get('switch')}-input" == event.select.id for spec in self.conditional):
             self._recompute_visible()
+        for control in self.fields.values():
+            if isinstance(control, FkSelectControl) and control.service_type_input == event.select.id:
+                self.run_worker(control.reload(), exclusive=True, group="fk")  # type: ignore[arg-type]
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
         """On switch changed."""
