@@ -17,15 +17,20 @@ MAGIC_FILE = "%file:"
 
 
 def _parse_params(params: dict[str, str]) -> dict[str, str]:
-    """Parse CLI params."""
+    """Parse CLI params.
+
+    The magic prefixes (``%json:`` / ``%file:``) only apply to ``str`` values;
+    schema-typed params (int, bool, ...) pass through untouched.
+    """
     kwargs = {}
     for key, value in params.items():
         _value = value
-        if value.startswith(MAGIC_JSON):
-            _value = json.loads(value[len(MAGIC_JSON) :])
-        if value.startswith(MAGIC_FILE):
-            with open(value[len(MAGIC_FILE) :]) as f:
-                _value = json.load(f)
+        if isinstance(value, str):
+            if value.startswith(MAGIC_JSON):
+                _value = json.loads(value[len(MAGIC_JSON) :])
+            elif value.startswith(MAGIC_FILE):
+                with open(value[len(MAGIC_FILE) :]) as f:
+                    _value = json.load(f)
         kwargs[key] = _value
     return kwargs
 

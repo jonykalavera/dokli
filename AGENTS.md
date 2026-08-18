@@ -2,6 +2,10 @@
 
 Python CLI/TUI for [Dokploy](https://github.com/Dokploy/dokploy), generated from the OpenAPI document (auto-generating philosophy: CLI commands, TUI screens, and — planned — the as-code manifest).
 
+## Language
+
+All collaboration content must be in **English** to ease contributions from anyone: commit messages, PR descriptions, issues/tickets, code comments and docstrings, README/docs, and config samples. No Spanish (or other languages) in code or GitHub content.
+
 ## Commands
 
 Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
