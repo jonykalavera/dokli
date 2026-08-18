@@ -335,14 +335,16 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 | | |
 |---|---|
 | Connections | Yazi-style browser |
-| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.svg) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.svg) |
+| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png) |
 | Compose detail | Command palette |
-| ![Compose detail](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser-detail.svg) | ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.svg) |
+| ![Compose detail](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser-detail.png) | ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) |
 | Result view (logs + search) | Splash |
-| ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.svg) | ![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.svg) |
+| ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) | ![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.png) |
 
-Screenshots are generated headless from anonymized mock data — regenerate them
-with `make screenshots` (they never show real instances).
+Screenshots are **PNGs** generated headless from anonymized mock data — they never
+show real instances, and rasterizing at generation time means they render the
+same for every reader (no font/Nerd Font dependency). Regenerate them with
+`make screenshots` (requires `rsvg-convert`; the Nerd Fonts for the icons).
 
 ### TUI customization
 

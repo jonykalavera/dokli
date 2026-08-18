@@ -1,8 +1,15 @@
 """Generate README screenshots from the TUI.
 
 Runs the app headless against the fake, anonymized test data (``FAKE_SCHEMA`` +
-mocked responses from ``tests/test_tui.py``) — never against a real connection
-— and exports each screen as an SVG into ``assets/``.
+mocked responses from ``tests/test_tui.py``) — never against a real connection —
+exports each screen as an SVG, post-processes it (crisp logo blocks, centered
+Nerd Font icons), and rasterizes it to a PNG in ``assets/``.
+
+PNGs are committed instead of SVGs because the SVG rendering depends on fonts
+(Fira Code via ``@font-face``, Nerd Font icons) that end users may not have;
+rendering at generation time guarantees the README images always look right.
+
+Requires ``rsvg-convert`` and the Nerd Fonts for the icon glyphs.
 
 Usage:
     uv run python tools/screenshots.py
@@ -11,7 +18,9 @@ Usage:
 import asyncio
 import html
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -63,13 +72,52 @@ def _patch_api() -> list[mock._patch]:
     ]
 
 
+def _write_png(name: str, svg: str) -> str:
+    """Rasterize a (post-processed) SVG into ``assets/tui-<name>.png``."""
+    png_path = ASSETS / f"tui-{name}.png"
+    with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as handle:
+        handle.write(svg.encode())
+        svg_path = Path(handle.name)
+    try:
+        subprocess.run(["rsvg-convert", "-o", str(png_path), str(svg_path)], check=True)
+    finally:
+        svg_path.unlink(missing_ok=True)
+    return str(png_path)
+
+
 def _save(app: DokliApp, name: str) -> str:
-    path = ASSETS / f"tui-{name}.svg"
-    app.save_screenshot(str(path))
-    return str(path)
+    svg = _center_icon_glyphs(app.export_screenshot())
+    return _write_png(name, svg)
 
 
 _TEXT_ELEMENT = re.compile(r"<text(?P<attrs>[^>]*)>(?P<body>[^<]*)</text>")
+
+
+def _center_icon_glyphs(svg: str) -> str:
+    r"""Center Nerd Font icon glyphs in their colored cells.
+
+    Textual emits icons as ``<text>\xa0<glyph>\xa0</text>`` with a
+    ``textLength`` that forces 3 cells, but the glyph's natural advance
+    width depends on the viewer's font. Rewriting each as a single
+    ``text-anchor="middle"`` glyph at the cell center makes the position
+    font-independent.
+    """
+
+    def replace(match: re.Match) -> str:
+        attrs, body = match.group("attrs"), match.group("body")
+        text = html.unescape(body)
+        if len(text) != 3 or text[0] not in " \xa0" or text[2] not in " \xa0" or text[1].isascii():
+            return match.group(0)
+        x = float(re.search(r'x="([\d.]+)"', attrs).group(1))
+        total = float(re.search(r'textLength="([\d.]+)"', attrs).group(1))
+        # Nerd Font icon ink is not centered in its advance box; Pango offsets
+        # it a few px right of a text-anchor=middle, so nudge the anchor left.
+        center = x + total / 2 - 3
+        attrs = re.sub(r'x="[\d.]+"', f'x="{center:.1f}"', attrs)
+        attrs = re.sub(r'textLength="[\d.]+"', "", attrs)
+        return f'<text{attrs} text-anchor="middle">{text[1]}</text>'
+
+    return _TEXT_ELEMENT.sub(replace, svg)
 
 
 def _rectify_logo_blocks(svg: str) -> str:
@@ -128,16 +176,10 @@ async def shot_splash() -> str:
         app.install_screen(SplashScreen(), name="splash")
         app.push_screen("splash")
         await _settle(pilot)
-        splash = app.screen
         app.sub_title = ""
-        # The floating status box collides with the logo art in the centered
-        # layout; it is transient anyway, so hide it for a clean logo shot.
-        splash.query_one("#status-panel").display = False
         await _settle(pilot)
-        svg = _rectify_logo_blocks(app.export_screenshot())
-        path = ASSETS / "tui-splash.svg"
-        path.write_text(svg)
-        return str(path)
+        svg = _center_icon_glyphs(_rectify_logo_blocks(app.export_screenshot()))
+        return _write_png("splash", svg)
 
 
 async def shot_connections() -> str:
