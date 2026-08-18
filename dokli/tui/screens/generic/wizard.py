@@ -1,5 +1,6 @@
 """Step-by-step wizard form (one field at a time)."""
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from textual.binding import Binding
@@ -9,7 +10,8 @@ from textual.widgets import Button, Footer, Header, Label
 
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, build_form_model
-from dokli.tui.forms import FormControl
+from dokli.tui.engine.fk import load_fk_candidates
+from dokli.tui.forms import FkSelectControl, FormControl
 from dokli.tui.screens.generic.execute import build_body, confirm_and_run
 
 if TYPE_CHECKING:
@@ -46,6 +48,11 @@ class WizardScreen(Screen):
         self.controls = {
             name: FormControl.from_field(name, field, value=self.record.get(name)) for name, field in self.fields
         }
+        for control in self.controls.values():
+            if isinstance(control, FkSelectControl):
+                control.fetch = lambda c=control: asyncio.to_thread(
+                    load_fk_candidates, self.connection, c.fk_source
+                )
         self.index = 0
 
     def compose(self) -> "ComposeResult":

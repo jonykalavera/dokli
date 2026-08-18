@@ -7,13 +7,13 @@ import time
 import httpx
 from textual.command import CommandPalette
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Label, Static, Switch
+from textual.widgets import Input, Label, Select, Static, Switch
 
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
 from dokli.tui.engine import build_form_model, parse_spec, record_title
 from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb, sort_entities
-from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
+from dokli.tui.forms import FkSelectControl, Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.connection import ConnectionScreen
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
@@ -531,6 +531,439 @@ def test_multiline_string_fields():
     assert isinstance(form.fields["description"], TextAreaControl)
     assert form.fields["description"].get_data() == "line1\nline2"
     assert not isinstance(form.fields["name"], TextAreaControl)
+
+
+def test_build_form_model_marks_fk_fields():
+    """We expect curated FK fields to be tagged with their candidate source."""
+    from dokli.tui.engine.schemas import build_form_model
+
+    model = build_form_model({"properties": {"serverId": {"type": "string"}, "name": {"type": "string"}}})
+    extra = model.model_fields["serverId"].json_schema_extra
+    assert extra["fk"]["entity"] == "server"
+    assert (model.model_fields["name"].json_schema_extra or {}).get("fk") is None
+
+
+def test_from_field_creates_fk_select_control():
+    """We expect a tagged FK field to map to an FkSelectControl."""
+    model = build_form_model({"properties": {"serverId": {"type": "string"}}})
+    form = Form.from_model(model)
+    control = form.fields["serverId"]
+    assert isinstance(control, FkSelectControl)
+    assert control.fk_source["value_field"] == "serverId"
+    assert control.fk_source["entity"] == "server"
+
+
+def test_fk_candidate_options_filter_by_provider(mocker):
+    """We expect git provider variants to be filtered by providerType and
+    resolved from their nested config (github.githubId, not gitProviderId)."""
+    from dokli.tui.engine.fk import candidate_options, load_fk_candidates
+
+    client = mocker.Mock()
+    client.request.return_value = FakeResponse(
+        [
+            {
+                "gitProviderId": "g1",
+                "name": "gh",
+                "providerType": "github",
+                "github": {"githubId": "gh-1"},
+                "gitlab": None,
+            },
+            {
+                "gitProviderId": "g2",
+                "name": "gl",
+                "providerType": "gitlab",
+                "github": None,
+                "gitlab": {"gitlabId": "gl-2"},
+            },
+        ]
+    )
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    source = {
+        "entity": "gitProvider",
+        "verb": "getAll",
+        "value_field": "github.githubId",
+        "filter_field": "providerType",
+        "filter_value": "github",
+    }
+    records = load_fk_candidates(_connection(), source)
+    assert [r["gitProviderId"] for r in records] == ["g1"]
+    assert candidate_options(records, source) == [("gh", "gh-1")]
+    assert client.request.call_args[0][1] == "gitProvider.getAll"
+
+
+def _fk_form_schema():
+    return {
+        "paths": {
+            "/backup.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "destinationId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def _patch_fk_client(mocker, payload):
+    client = mocker.Mock()
+    client.request.return_value = FakeResponse(payload)
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    return client
+
+
+def test_fk_select_shows_candidates_and_submits_id(mocker):
+    """We expect a dropdown of candidates that submits the selected id."""
+    _patch_fk_client(
+        mocker,
+        [{"destinationId": "d1", "name": "local"}, {"destinationId": "d2", "name": "s3"}],
+    )
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            assert isinstance(control, FkSelectControl)
+            assert control._options == [("local", "d1"), ("s3", "d2")]
+            select = control.query_one("#destinationId-input")
+            assert isinstance(select, Select)
+            control.value = "d2"
+            await pilot.pause()
+            assert control.get_data() == "d2"
+            assert screen.form.validate() is True
+            assert screen.form.cleaned_data["destinationId"] == "d2"
+
+    _run(main())
+
+
+def test_fk_select_preselects_current_value(mocker):
+    """We expect update forms to preselect the record's current id."""
+    _patch_fk_client(mocker, [{"destinationId": "d1", "name": "local"}])
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action, record={"destinationId": "d1", "name": "x"})
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            select = control.query_one("#destinationId-input")
+            assert isinstance(select, Select)
+            assert select.value == "d1"
+            assert control.get_data() == "d1"
+
+    _run(main())
+
+
+def test_fk_select_falls_back_to_text_when_empty(mocker):
+    """We expect an FK field to become a free-text input when there are no candidates."""
+    _patch_fk_client(mocker, [])
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            assert isinstance(control, FkSelectControl)
+            assert isinstance(control.query_one("#destinationId-input"), Input)
+            control.value = "raw-id-123"
+            await pilot.pause()
+            assert control.get_data() == "raw-id-123"
+
+    _run(main())
+
+
+def test_fk_select_falls_back_to_text_on_error(mocker):
+    """We expect an FK field to fall back to free text when the source fails."""
+    _patch_fk_client(mocker, [])
+    mocker.patch(
+        "dokli.tui.engine.fk.APIClient",
+        return_value=mocker.Mock(request=mocker.Mock(side_effect=httpx.HTTPError("boom"))),
+    )
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            assert isinstance(control.query_one("#destinationId-input"), Input)
+
+    _run(main())
+
+
+def test_wizard_builds_fk_control_with_fetcher(mocker):
+    """We expect the wizard to build FK controls wired to their candidate source."""
+    _patch_fk_client(mocker, [{"destinationId": "d1", "name": "local"}])
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    screen = WizardScreen(_connection(), action)
+    control = screen.controls["destinationId"]
+    assert isinstance(control, FkSelectControl)
+    assert control.fetch is not None
+
+
+def _compose_update_schema():
+    return {
+        "paths": {
+            "/compose.update": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "composeId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                        "composeFile": {"type": "string"},
+                                        "sourceType": {
+                                            "type": "string",
+                                            "enum": ["raw", "github", "bitbucket"],
+                                        },
+                                        "githubId": {"type": "string"},
+                                        "branch": {"type": "string"},
+                                        "bitbucketId": {"type": "string"},
+                                        "bitbucketBranch": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def _application_update_schema():
+    return {
+        "paths": {
+            "/application.update": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "applicationId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                        "sourceType": {"type": "string", "enum": ["raw", "docker"]},
+                                        "buildType": {
+                                            "type": "string",
+                                            "enum": ["dockerfile", "static"],
+                                        },
+                                        "dockerImage": {"type": "string"},
+                                        "dockerfile": {"type": "string"},
+                                        "publishDirectory": {"type": "string"},
+                                        "isStaticSpa": {"type": "boolean"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def _switch_select(screen, switch: str) -> Select:
+    control = screen.form.fields[switch]
+    select = control.query_one(f"#{switch}-input")
+    assert isinstance(select, Select)
+    return select
+
+
+def test_conditional_hides_groups_until_source_selected(mocker):
+    """We expect provider fields to stay hidden until a sourceType is chosen."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_compose_update_schema())
+    action = registry.get("compose").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.fields["githubId"].display is False
+            assert form.fields["composeFile"].display is False
+            select = _switch_select(screen, "sourceType")
+            select.value = "github"
+            await pilot.pause()
+            assert form.fields["githubId"].display is True
+            assert form.fields["bitbucketId"].display is False
+            assert form.fields["composeFile"].display is False
+            select.value = "bitbucket"
+            await pilot.pause()
+            assert form.fields["bitbucketId"].display is True
+            assert form.fields["githubId"].display is False
+            assert form.fields["branch"].display is False
+            select.value = "raw"
+            await pilot.pause()
+            assert form.fields["composeFile"].display is True
+            assert form.fields["githubId"].display is False
+
+    _run(main())
+
+
+def test_conditional_compose_create_keeps_compose_file(mocker):
+    """We expect compose.create (no sourceType switch) not to gate any fields."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    schema = {
+        "paths": {
+            "/compose.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "composeFile": {"type": "string"},
+                                        "githubId": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    registry = parse_spec(schema)
+    action = registry.get("compose").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            assert screen.form.fields["composeFile"].display is True
+            assert screen.form.fields["githubId"].display is True
+            assert screen.form._hidden == set()
+
+    _run(main())
+
+
+def test_conditional_preselects_source_group_on_update(mocker):
+    """We expect an update form to show the record's sourceType group."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_compose_update_schema())
+    action = registry.get("compose").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(), action, record={"composeId": "c1", "sourceType": "github"}
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            assert screen.form.fields["githubId"].display is True
+            assert screen.form.fields["bitbucketId"].display is False
+
+    _run(main())
+
+
+def test_conditional_hidden_fields_not_submitted(mocker):
+    """We expect hidden group fields to be left out of the submitted data."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_compose_update_schema())
+    action = registry.get("compose").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(), action, record={"composeId": "c1", "sourceType": "bitbucket"}
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.validate() is True
+            form_data = form._get_form_data()
+            assert "githubId" not in form_data
+            assert "branch" not in form_data
+            assert "composeId" in form_data
+
+    _run(main())
+
+
+def test_conditional_build_type_gates_build_fields(mocker):
+    """We expect application buildType to gate its own fields."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_application_update_schema())
+    action = registry.get("application").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(), action, record={"applicationId": "a1", "buildType": "static"}
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.fields["publishDirectory"].display is True
+            assert form.fields["dockerfile"].display is False
+            select = _switch_select(screen, "buildType")
+            select.value = "dockerfile"
+            await pilot.pause()
+            assert form.fields["dockerfile"].display is True
+            assert form.fields["publishDirectory"].display is False
+
+    _run(main())
 
 
 def test_textarea_typing_is_not_reversed(mocker):
