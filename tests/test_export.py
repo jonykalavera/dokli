@@ -128,6 +128,79 @@ class TestExportResources:
         assert schedule.data["scheduleType"] == "compose"
         assert schedule.data["cronExpression"] == "*/5 * * * *"
 
+    def test_mount_content_redacted_by_default(self, mocker):
+        """We expect file-mount content to be omitted unless --include-secrets."""
+        mocker.patch(
+            "dokli.export.APIClient",
+            return_value=_FakeClient(
+                {
+                    "compose.one": {
+                        "composeId": "c1",
+                        "mounts": [
+                            {
+                                "mountId": "m1",
+                                "type": "file",
+                                "mountPath": "/",
+                                "filePath": "rclone.conf",
+                                "content": "[r2]\naccess_key_id = secret",
+                            }
+                        ],
+                    }
+                }
+            ),
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[_project_live("app", [_live_service("compose", "backend")])],
+            ),
+        )
+
+        manifest, warnings = export_manifest(_connection())
+
+        mount = manifest.resources[0]
+        assert mount.kind == "mount"
+        assert mount.data["filePath"] == "rclone.conf"
+        assert mount.data["type"] == "file"
+        assert "content" not in mount.data
+        assert any("content" in w and "include-secrets" in w for w in warnings)
+
+    def test_mount_content_exported_with_include_secrets(self, mocker):
+        """We expect file-mount content to be exported with --include-secrets."""
+        mocker.patch(
+            "dokli.export.APIClient",
+            return_value=_FakeClient(
+                {
+                    "compose.one": {
+                        "composeId": "c1",
+                        "mounts": [
+                            {
+                                "mountId": "m1",
+                                "type": "file",
+                                "mountPath": "/",
+                                "filePath": "rclone.conf",
+                                "content": "[r2]\naccess_key_id = secret",
+                            }
+                        ],
+                    }
+                }
+            ),
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[_project_live("app", [_live_service("compose", "backend")])],
+            ),
+        )
+
+        manifest, warnings = export_manifest(_connection(), include_secrets=True)
+
+        mount = manifest.resources[0]
+        assert mount.data["content"] == "[r2]\naccess_key_id = secret"
+        assert not any("include-secrets" in w for w in warnings)
+
     def test_exports_backup_with_destination_name(self, mocker):
         """We expect backup destinations to be exported by name."""
         mocker.patch(

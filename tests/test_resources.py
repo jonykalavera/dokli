@@ -186,6 +186,62 @@ class TestResourceManager:
         assert body["serviceId"] == "c1"
         assert body["serviceType"] == "compose"
 
+    def test_mount_update_uses_mount_id(self):
+        """We expect an updated mount to carry its own mountId, not mountsId."""
+        client = FakeClient(
+            {
+                "compose.one": {
+                    "composeId": "c1",
+                    "mounts": [{"mountId": "m1", "type": "file", "filePath": "rclone.conf", "mountPath": "/", "content": "old"}],
+                }
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="mount",
+                    name="rclone.conf",
+                    in_="compose:web",
+                    data={"filePath": "rclone.conf", "mountPath": "/", "content": "new"},
+                )
+            ),
+            client,
+            [_service("compose", "web", "c1")],
+        )
+        manager.run()
+        update = next(c for c in client.calls if c[1] == "mounts.update")
+        assert update[2]["body"]["mountId"] == "m1"
+        assert update[2]["body"]["content"] == "new"
+        assert manager.report.actions[0].action == "update"
+
+    def test_redirects_update_uses_redirect_id(self):
+        """We expect an updated redirect to carry its own redirectId."""
+        client = FakeClient(
+            {
+                "application.one": {
+                    "applicationId": "a1",
+                    "redirects": [{"redirectId": "r1", "regex": "/old", "replacement": "/new", "permanent": False}],
+                }
+            }
+        )
+        manager = _manager(
+            _manifest(
+                Resource(
+                    kind="redirects",
+                    name="/old",
+                    in_="application:api",
+                    data={"regex": "/old", "replacement": "/changed", "permanent": False},
+                )
+            ),
+            client,
+            [_service("application", "api", "a1")],
+        )
+        manager.run()
+        update = next(c for c in client.calls if c[1] == "redirects.update")
+        assert update[2]["body"]["redirectId"] == "r1"
+        assert update[2]["body"]["replacement"] == "/changed"
+        assert manager.report.actions[0].action == "update"
+
     def test_port_parent_uses_application_id(self):
         """We expect ports to address their parent with applicationId."""
         client = FakeClient({"application.one": {"applicationId": "a1", "ports": []}})

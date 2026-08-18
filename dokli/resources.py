@@ -34,6 +34,17 @@ ENTITY_NAMES: dict[str, str] = {
     "mount": "mounts",
 }
 
+# Child kind -> the id field on its record (defaults to f"{kind}Id").
+ID_FIELDS: dict[str, str] = {
+    "mount": "mountId",
+    "redirects": "redirectId",
+    "domain": "domainId",
+    "port": "portId",
+    "security": "securityId",
+    "backup": "backupId",
+    "schedule": "scheduleId",
+}
+
 # Kinds that address their parent with a specific id field (default <parent>Id).
 PARENT_ID_FIELDS: dict[str, str] = {
     "mount": "serviceId",
@@ -73,7 +84,7 @@ EXPORT_FIELDS: dict[str, set[str]] = {
     "port": {"publishedPort", "targetPort", "protocol", "publishMode"},
     "security": {"username"},
     "redirects": {"regex", "replacement", "permanent"},
-    "mount": {"type", "mountPath", "filePath"},
+    "mount": {"type", "mountPath", "filePath", "content"},
     "schedule": {"name", "cronExpression", "command", "enabled", "serviceName", "shellType", "scheduleType"},
     "backup": {"schedule", "prefix", "database", "databaseType", "enabled", "keepLatestCount", "backupType"},
 }
@@ -82,6 +93,11 @@ EXPORT_FIELDS: dict[str, set[str]] = {
 SECRET_FIELDS: dict[str, set[str]] = {
     "security": {"password"},
     "backup": {"metadata"},
+}
+
+# Fields only exported with --include-secrets (redacted by default).
+SECRET_OPT_FIELDS: dict[str, set[str]] = {
+    "mount": {"content"},
 }
 
 # Extra required fields for delete routes that have no schema default.
@@ -156,6 +172,11 @@ def child_array_key(kind: str) -> str:
 def entity_name(kind: str) -> str:
     """The API entity name for a manifest kind."""
     return ENTITY_NAMES.get(kind, kind)
+
+
+def id_field(kind: str) -> str:
+    """The id field of a resource kind's record."""
+    return ID_FIELDS.get(kind, f"{kind}Id")
 
 
 def parse_in(path: str | None) -> list[tuple[str, str]]:
@@ -290,7 +311,7 @@ class ResourceManager:
         elif self._changed(child, body):
             action = "update"
             if not dry_run:
-                update_body = self._update_body(resource, child, body, entity)
+                update_body = self._update_body(resource, child, body)
                 self.client.request("POST", f"{entity}.update", {"body": update_body})
         else:
             action = "skip"
@@ -349,15 +370,15 @@ class ResourceManager:
                     filled[field] = prop["default"]
         return filled
 
-    def _update_body(self, resource: Resource, child: dict, body: dict, entity: str) -> dict:
+    def _update_body(self, resource: Resource, child: dict, body: dict) -> dict:
         """Build an update payload, merging the live child for full-object kinds.
 
         Kinds in ``UPDATE_MERGE_KINDS`` have required update fields that the
         create may not set; the live record supplies them (body wins, ids are
-        re-added from the entity).
+        re-added from the record).
         """
-        entity_id = child[f"{entity}Id"]
-        merged = {**body, f"{entity}Id": entity_id}
+        entity_id = child[id_field(resource.kind)]
+        merged = {**body, id_field(resource.kind): entity_id}
         if resource.kind not in UPDATE_MERGE_KINDS:
             return merged
         live = {
@@ -365,7 +386,7 @@ class ResourceManager:
             for key, value in child.items()
             if not key.endswith(("Id", "At"))
         }
-        return {**live, **body, f"{entity}Id": entity_id}
+        return {**live, **body, id_field(resource.kind): entity_id}
 
     def _resolve_named(self, entity: str, name: str) -> str:
         """Resolve a named reference (e.g. ``destination``) to its id."""
