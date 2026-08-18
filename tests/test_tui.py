@@ -554,21 +554,40 @@ def test_from_field_creates_fk_select_control():
 
 
 def test_fk_candidate_options_filter_by_provider(mocker):
-    """We expect git provider variants to be filtered by providerType."""
-    from dokli.tui.engine.fk import load_fk_candidates
+    """We expect git provider variants to be filtered by providerType and
+    resolved from their nested config (github.githubId, not gitProviderId)."""
+    from dokli.tui.engine.fk import candidate_options, load_fk_candidates
 
     client = mocker.Mock()
     client.request.return_value = FakeResponse(
         [
-            {"gitProviderId": "g1", "name": "gh", "providerType": "github"},
-            {"gitProviderId": "g2", "name": "gl", "providerType": "gitlab"},
+            {
+                "gitProviderId": "g1",
+                "name": "gh",
+                "providerType": "github",
+                "github": {"githubId": "gh-1"},
+                "gitlab": None,
+            },
+            {
+                "gitProviderId": "g2",
+                "name": "gl",
+                "providerType": "gitlab",
+                "github": None,
+                "gitlab": {"gitlabId": "gl-2"},
+            },
         ]
     )
     mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
-    source = {"entity": "gitProvider", "verb": "getAll", "value_field": "gitProviderId",
-              "filter_field": "providerType", "filter_value": "github"}
+    source = {
+        "entity": "gitProvider",
+        "verb": "getAll",
+        "value_field": "github.githubId",
+        "filter_field": "providerType",
+        "filter_value": "github",
+    }
     records = load_fk_candidates(_connection(), source)
     assert [r["gitProviderId"] for r in records] == ["g1"]
+    assert candidate_options(records, source) == [("gh", "gh-1")]
     assert client.request.call_args[0][1] == "gitProvider.getAll"
 
 

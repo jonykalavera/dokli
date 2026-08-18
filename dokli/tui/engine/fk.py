@@ -25,28 +25,28 @@ FK_SOURCES: dict[str, dict] = {
     "githubId": {
         "entity": "gitProvider",
         "verb": "getAll",
-        "value_field": "gitProviderId",
+        "value_field": "github.githubId",
         "filter_field": "providerType",
         "filter_value": "github",
     },
     "gitlabId": {
         "entity": "gitProvider",
         "verb": "getAll",
-        "value_field": "gitProviderId",
+        "value_field": "gitlab.gitlabId",
         "filter_field": "providerType",
         "filter_value": "gitlab",
     },
     "bitbucketId": {
         "entity": "gitProvider",
         "verb": "getAll",
-        "value_field": "gitProviderId",
+        "value_field": "bitbucket.bitbucketId",
         "filter_field": "providerType",
         "filter_value": "bitbucket",
     },
     "giteaId": {
         "entity": "gitProvider",
         "verb": "getAll",
-        "value_field": "gitProviderId",
+        "value_field": "gitea.giteaId",
         "filter_field": "providerType",
         "filter_value": "gitea",
     },
@@ -81,12 +81,22 @@ def load_fk_candidates(connection: ConnectionConfig, source: dict) -> list[dict]
     return records
 
 
+def _record_value(record: dict, path: str):
+    """Resolve a (possibly dotted) field path in a record, e.g. ``github.githubId``."""
+    value = record
+    for part in path.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
 def candidate_options(records: list[dict], source: dict) -> list[tuple[str, str]]:
     """Map candidate records to ``(label, id)`` options for the dropdown."""
     value_field = source["value_field"]
     options = []
     for record in records:
-        value = record.get(value_field)
+        value = _record_value(record, value_field)
         if value:
             options.append((record_title(record), str(value)))
     return options
