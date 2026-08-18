@@ -51,6 +51,14 @@ FK_SOURCES: dict[str, dict] = {
         "filter_value": "gitea",
     },
     "gitProviderId": {"entity": "gitProvider", "verb": "getAll", "value_field": "gitProviderId"},
+    "environmentId": {
+        "entity": "environment",
+        "verb": "byProjectId",
+        "value_field": "environmentId",
+        # ``params`` map query params to context keys; the form resolves them
+        # from its navigation context (e.g. the current project) before fetching.
+        "params": {"projectId": "projectId"},
+    },
 }
 
 
@@ -64,13 +72,15 @@ def fk_route(source: dict) -> str:
     return f"{source['entity']}.{source['verb']}"
 
 
-def load_fk_candidates(connection: ConnectionConfig, source: dict) -> list[dict]:
+def load_fk_candidates(connection: ConnectionConfig, source: dict, params: dict | None = None) -> list[dict]:
     """Fetch the candidates of an FK source as a list of records.
 
-    Runs off the event loop (the caller wraps it in ``asyncio.to_thread``).
-    Raises :class:`httpx.HTTPError` when the source is unreachable.
+    ``params`` are extra query params (e.g. ``projectId`` for
+    ``environment.byProjectId``). Runs off the event loop (the caller wraps it
+    in ``asyncio.to_thread``). Raises :class:`httpx.HTTPError` when the source
+    is unreachable or a required param is missing.
     """
-    response = APIClient(connection).request("GET", fk_route(source), {})
+    response = APIClient(connection).request("GET", fk_route(source), params or {})
     data = response.json()
     records = data if isinstance(data, list) else data.get("items", [])
     records = [item for item in records if isinstance(item, dict)]

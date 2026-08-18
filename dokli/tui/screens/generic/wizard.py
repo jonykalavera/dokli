@@ -34,6 +34,7 @@ class WizardScreen(Screen):
         record: dict | None = None,
         excluded: set[str] | None = None,
         inject: dict | None = None,
+        context: dict | None = None,
         *args,
         **kwargs,
     ) -> None:
@@ -43,6 +44,7 @@ class WizardScreen(Screen):
         self.action = action
         self.record = record or {}
         self.inject = inject or {}
+        self.context = context or {}
         self.model = build_form_model(action.request_schema, name=f"{action.route}Wizard", excluded=excluded or set())
         self.fields = list(self.model.model_fields.items())
         self.controls = {
@@ -51,9 +53,18 @@ class WizardScreen(Screen):
         for control in self.controls.values():
             if isinstance(control, FkSelectControl):
                 control.fetch = lambda c=control: asyncio.to_thread(
-                    load_fk_candidates, self.connection, c.fk_source
+                    load_fk_candidates, self.connection, c.fk_source, self._fk_params(c.fk_source)
                 )
         self.index = 0
+
+    def _fk_params(self, source: dict) -> dict:
+        """Resolve an FK source's query params from the navigation context."""
+        params: dict = {}
+        for param, context_key in (source.get("params") or {}).items():
+            value = self.context.get(context_key) or self.record.get(context_key)
+            if value:
+                params[param] = value
+        return params
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""
