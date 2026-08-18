@@ -41,6 +41,7 @@ class ResultScreen(Screen):
     CSS = """
     #search-input { margin: 0 1; }
     #match-status { margin: 0 1; }
+    #result { width: 100%; }
     """
 
     BINDINGS = [
@@ -103,6 +104,8 @@ class ResultScreen(Screen):
             self._last_ts = _latest_timestamp(self._lines)
             if self._is_logs:
                 self._rerender_logs()
+                if self._follow:
+                    self.query_one("#result-scroll", VerticalScroll).scroll_end(animate=False)
         self._render_status()
         if self._follow:
             self._start_follow()
@@ -154,16 +157,21 @@ class ResultScreen(Screen):
         self._render_status()
 
     def _merge_log_lines(self, incoming: list[str]) -> None:
-        """Append incoming log lines to the buffer, de-duplicating by timestamp."""
+        """Append incoming log lines to the buffer, de-duplicating by timestamp.
+
+        Lines without a docker timestamp (e.g. deployment build logs) cannot be
+        de-duplicated per-line, so the batch is matched against the buffer tail
+        first: a re-fetched tail that is already present is skipped entirely.
+        """
+        incoming = [line for line in incoming if line]
         if not self._lines:
             self._lines = incoming[:MAX_LOG_LINES]
             self._last_ts = _latest_timestamp(self._lines)
             return
         buffer = deque(self._lines)
         last_ts = self._last_ts or _latest_timestamp(self._lines)
-        for line in incoming:
-            if not line:
-                continue
+        skip = _tail_overlap(list(buffer), incoming)
+        for line in incoming[skip:]:
             ts = _timestamp_of(line)
             if ts is not None:
                 if last_ts is not None and ts <= last_ts:
@@ -171,8 +179,9 @@ class ResultScreen(Screen):
                 last_ts = ts
                 buffer.append(line)
                 continue
-            if last_ts is None or line == buffer[-1]:
-                buffer.append(line)
+            if line == buffer[-1]:
+                continue
+            buffer.append(line)
         self._lines = list(buffer)[-MAX_LOG_LINES:]
         self._last_ts = last_ts
 
@@ -345,7 +354,7 @@ class ResultScreen(Screen):
             return
         container = self.query_one("#result-scroll", VerticalScroll)
         line_index = self._matches[self._match_index]
-        container.scroll_to(y=line_index, animate=False)
+        container.scroll_to(y=_display_row(self._lines, line_index, container.size.width), animate=False)
 
     def _render_status(self) -> None:
         """Update the match counter and follow-mode indicator."""
@@ -410,6 +419,28 @@ def _timestamp_of(line: str) -> datetime | None:
         return None
 
 
+def _tail_overlap(buffer: list[str], incoming: list[str]) -> int:
+    """How many leading ``incoming`` lines are already the buffer's tail.
+
+    Follow-mode polls re-fetch the last ``logs_tail_lines`` lines; the largest
+    ``k`` such that ``incoming[:k] == buffer[-k:]`` are duplicates already on
+    screen (handles log lines without docker timestamps, e.g. deployments).
+    """
+    for k in range(min(len(buffer), len(incoming)), 0, -1):
+        if incoming[:k] == buffer[-k:]:
+            return k
+    return 0
+
+
+def _display_row(lines: list[str], index: int, width: int) -> int:
+    """The rendered row of ``lines[index]`` when wrapped at ``width`` columns."""
+    width = max(1, width)
+    rows = 0
+    for line in lines[:index]:
+        rows += max(1, (len(line) + width - 1) // width)
+    return rows
+
+
 def _latest_timestamp(lines: list[str]) -> datetime | None:
     """The newest docker timestamp across a list of log lines."""
     latest: datetime | None = None
@@ -421,12 +452,14 @@ def _latest_timestamp(lines: list[str]) -> datetime | None:
 
 
 def _log_line_text(line: str) -> Text:
-    """A log line with its leading docker timestamp dimmed."""
+    """A log line with its leading docker timestamp dimmed, in local time."""
     match = _TIMESTAMP_RE.match(line)
     if match is None:
         return Text(line)
     text = Text()
-    text.append(match.group(1) + " ", style="dim")
+    ts = _timestamp_of(line)
+    stamp = ts.astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts else match.group(1)
+    text.append(f"{stamp} ", style="dim")
     text.append(line[match.end() :])
     return text
 

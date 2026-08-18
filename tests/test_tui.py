@@ -21,7 +21,12 @@ from dokli.tui.screens.generic.confirm import ConfirmScreen
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.generic.picker import PickerScreen
-from dokli.tui.screens.generic.result import ResultScreen, _log_line_text, _timestamp_of
+from dokli.tui.screens.generic.result import (
+    ResultScreen,
+    _display_row,
+    _log_line_text,
+    _timestamp_of,
+)
 from dokli.tui.screens.generic.wizard import WizardScreen
 from dokli.tui.screens.splash import SPINNER_FRAMES, SplashScreen
 
@@ -1432,6 +1437,29 @@ def test_logs_merge_incremental_no_duplicates(mocker):
     assert len(screen._lines) == 3
 
 
+def test_logs_merge_no_timestamps_no_duplicates(mocker):
+    """We expect non-timestamped (deployment-style) logs to not duplicate on polls."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("deployment").get("readLogs")
+
+    screen = ResultScreen(_connection(), action, "", params={"deploymentId": "d1"})
+    screen._lines = [
+        " Container qbittorrent Recreate ",
+        " Container qbittorrent Recreated ",
+        " Container qbittorrent Starting ",
+        " Container qbittorrent Started ",
+        "Docker Compose Deployed: ✅",
+    ]
+    tail = screen._lines[:]
+    screen._merge_log_lines(tail)
+    screen._merge_log_lines(tail)
+    assert screen._lines == tail
+    screen._merge_log_lines([*tail[-2:], " New line one ", " New line two "])
+    assert screen._lines == [*tail, " New line one ", " New line two "]
+
+
+
 def test_logs_follow_defaults_and_toggle(mocker):
     """We expect logs to follow by default and ``f`` to toggle it."""
     _patch_api(mocker)
@@ -1474,15 +1502,52 @@ def test_logs_follow_defaults_and_toggle(mocker):
     _run(main())
 
 
-def test_logs_timestamps_are_dimmed():
-    """We expect docker log lines to render with their timestamp dimmed."""
-    text = _log_line_text("2026-08-05T19:55:54Z frigate started")
-    assert text.plain == "2026-08-05T19:55:54Z frigate started"
+def test_logs_timestamps_are_dimmed_local_time():
+    """We expect docker log lines to render with a dimmed, local-time timestamp."""
+    line = "2026-08-05T19:55:54Z frigate started"
+    text = _log_line_text(line)
+    ts = _timestamp_of(line)
+    assert ts is not None
+    local = ts.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    assert text.plain == f"{local} frigate started"
     assert text.spans and text.spans[0].style == "dim"
     assert text.plain.split()[-1] == "started"
-    assert _timestamp_of("2026-08-05T19:55:54Z frigate started") is not None
     assert _timestamp_of("2026-08-05T19:55:54.123456Z x") is not None
     assert _timestamp_of("plain line") is None
+
+
+def test_logs_open_scrolls_to_tail(mocker):
+    """We expect logs screens to open pinned to the tail (follow is on by default)."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+    lines = "\n".join(f"2026-08-05T19:55:54Z line {i}" for i in range(80))
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test(size=(100, 30)) as pilot:
+            screen = ResultScreen(
+                _connection(), action, lines, params={"composeId": "c1", "containerId": "cc1"}
+            )
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            for _ in range(10):
+                await pilot.pause()
+            container = screen.query_one("#result-scroll", VerticalScroll)
+            assert container.scroll_y >= container.max_scroll_y - 1
+            assert screen._auto_scroll is True
+
+    _run(main())
+
+
+def test_display_row_wrapped():
+    """We expect _display_row to account for lines wrapped at the container width."""
+    lines = ["a" * 98, "b" * 99, "c", "d" * 200]
+    assert _display_row(lines, 0, 98) == 0
+    assert _display_row(lines, 1, 98) == 1
+    assert _display_row(lines, 2, 98) == 3
+    assert _display_row(lines, 3, 98) == 4
+    assert _display_row(lines, 4, 98) == 7
 
 
 def test_logs_fetch_follow_appends_and_pins(mocker):
