@@ -11,6 +11,7 @@ from textual.widgets import Button, Footer, Header
 
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, build_form_model
+from dokli.tui.engine.conditionals import conditional_switches
 from dokli.tui.engine.fk import load_fk_candidates
 from dokli.tui.forms import FkSelectControl, Form
 from dokli.tui.screens.generic.execute import build_body, confirm_and_run
@@ -55,7 +56,13 @@ class ActionFormScreen(Screen):
         self.inject = inject or {}
         model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=self.excluded)
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
-        self.form = Form.from_model(model, data=prefill, classes="action-form")
+        entity = self.action.route.split(".")[0]
+        self.form = Form.from_model(
+            model,
+            data=prefill,
+            classes="action-form",
+            conditional=conditional_switches(entity),
+        )
         for control in self.form.fields.values():
             if isinstance(control, FkSelectControl):
                 control.fetch = self._fk_fetcher(control)

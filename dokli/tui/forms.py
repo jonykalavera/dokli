@@ -387,9 +387,15 @@ class Form(Generic[M], Container):
         instance: M | None = None,
         model: type[M] | None = None,
         validate_on_input: bool = True,
+        conditional: list[dict] | None = None,
         **kwargs,
     ) -> None:
-        """Construct a form widget."""
+        """Construct a form widget.
+
+        ``conditional`` is a list of switch specs (``{"switch": field,
+        "groups": {value: [fields]}}``): fields that belong to a group other
+        than the switch's current value are hidden.
+        """
         super().__init__(*controls, **kwargs)
         self.fields = {c.id: c for c in controls if isinstance(c, FormControl)}
         self.instance = instance
@@ -398,6 +404,32 @@ class Form(Generic[M], Container):
         self.cleaned_data = None
         self.validate_on_input = validate_on_input
         self._validate_timer: Timer | None = None
+        self.conditional = conditional or []
+        self._hidden: set[str] = set()
+        self._recompute_visible()
+
+    def _recompute_visible(self) -> None:
+        """Hide the conditional groups that do not match the switch values.
+
+        Fields outside every group are always visible; a blank switch value
+        (nothing chosen yet) hides all of its groups. Switches that are not part
+        of the form (e.g. ``compose.create`` has no ``sourceType``) gate nothing.
+        """
+        hidden: set[str] = set()
+        for spec in self.conditional:
+            control = self.fields.get(spec.get("switch", ""))
+            if control is None:
+                continue
+            groups = spec.get("groups", {})
+            grouped = {field for group in groups.values() for field in group}
+            active = groups.get(str(control.value))
+            if active is None:
+                hidden |= grouped
+            else:
+                hidden |= grouped - set(active)
+        self._hidden = hidden
+        for field_id, control in self.fields.items():
+            control.display = field_id not in hidden
 
     async def on_mount(self) -> None:
         """On mount, add the form-level error label."""
@@ -457,6 +489,8 @@ class Form(Generic[M], Container):
     def on_select_changed(self, event: Select.Changed) -> None:
         """On select changed."""
         self._validate_on_input()
+        if any(f"{spec.get('switch')}-input" == event.select.id for spec in self.conditional):
+            self._recompute_visible()
 
     def on_switch_changed(self, event: Switch.Changed) -> None:
         """On switch changed."""
@@ -505,6 +539,8 @@ class Form(Generic[M], Container):
             if not isinstance(child, FormControl):
                 continue
             child.reset(reset_value=reset_value, reset_classes=reset_classes)
+        if reset_value:
+            self._recompute_visible()
 
     def _set_errors(self, errors: list[ErrorDetails]) -> None:
         for error in errors:
@@ -519,5 +555,9 @@ class Form(Generic[M], Container):
             field.error = error
 
     def _get_form_data(self) -> dict[str, Any]:
-        data = {child.id: child.get_data() for child in self.children if child.id and isinstance(child, FormControl)}
+        data = {
+            child.id: child.get_data()
+            for child in self.children
+            if child.id and isinstance(child, FormControl) and child.id not in self._hidden
+        }
         return data

@@ -719,6 +719,234 @@ def test_wizard_builds_fk_control_with_fetcher(mocker):
     assert control.fetch is not None
 
 
+def _compose_update_schema():
+    return {
+        "paths": {
+            "/compose.update": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "composeId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                        "composeFile": {"type": "string"},
+                                        "sourceType": {
+                                            "type": "string",
+                                            "enum": ["raw", "github", "bitbucket"],
+                                        },
+                                        "githubId": {"type": "string"},
+                                        "branch": {"type": "string"},
+                                        "bitbucketId": {"type": "string"},
+                                        "bitbucketBranch": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def _application_update_schema():
+    return {
+        "paths": {
+            "/application.update": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "applicationId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                        "sourceType": {"type": "string", "enum": ["raw", "docker"]},
+                                        "buildType": {
+                                            "type": "string",
+                                            "enum": ["dockerfile", "static"],
+                                        },
+                                        "dockerImage": {"type": "string"},
+                                        "dockerfile": {"type": "string"},
+                                        "publishDirectory": {"type": "string"},
+                                        "isStaticSpa": {"type": "boolean"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def _switch_select(screen, switch: str) -> Select:
+    control = screen.form.fields[switch]
+    select = control.query_one(f"#{switch}-input")
+    assert isinstance(select, Select)
+    return select
+
+
+def test_conditional_hides_groups_until_source_selected(mocker):
+    """We expect provider fields to stay hidden until a sourceType is chosen."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_compose_update_schema())
+    action = registry.get("compose").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.fields["githubId"].display is False
+            assert form.fields["composeFile"].display is False
+            select = _switch_select(screen, "sourceType")
+            select.value = "github"
+            await pilot.pause()
+            assert form.fields["githubId"].display is True
+            assert form.fields["bitbucketId"].display is False
+            assert form.fields["composeFile"].display is False
+            select.value = "bitbucket"
+            await pilot.pause()
+            assert form.fields["bitbucketId"].display is True
+            assert form.fields["githubId"].display is False
+            assert form.fields["branch"].display is False
+            select.value = "raw"
+            await pilot.pause()
+            assert form.fields["composeFile"].display is True
+            assert form.fields["githubId"].display is False
+
+    _run(main())
+
+
+def test_conditional_compose_create_keeps_compose_file(mocker):
+    """We expect compose.create (no sourceType switch) not to gate any fields."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    schema = {
+        "paths": {
+            "/compose.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "composeFile": {"type": "string"},
+                                        "githubId": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    registry = parse_spec(schema)
+    action = registry.get("compose").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            assert screen.form.fields["composeFile"].display is True
+            assert screen.form.fields["githubId"].display is True
+            assert screen.form._hidden == set()
+
+    _run(main())
+
+
+def test_conditional_preselects_source_group_on_update(mocker):
+    """We expect an update form to show the record's sourceType group."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_compose_update_schema())
+    action = registry.get("compose").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(), action, record={"composeId": "c1", "sourceType": "github"}
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            assert screen.form.fields["githubId"].display is True
+            assert screen.form.fields["bitbucketId"].display is False
+
+    _run(main())
+
+
+def test_conditional_hidden_fields_not_submitted(mocker):
+    """We expect hidden group fields to be left out of the submitted data."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_compose_update_schema())
+    action = registry.get("compose").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(), action, record={"composeId": "c1", "sourceType": "bitbucket"}
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.validate() is True
+            form_data = form._get_form_data()
+            assert "githubId" not in form_data
+            assert "branch" not in form_data
+            assert "composeId" in form_data
+
+    _run(main())
+
+
+def test_conditional_build_type_gates_build_fields(mocker):
+    """We expect application buildType to gate its own fields."""
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_application_update_schema())
+    action = registry.get("application").get("update")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(
+                _connection(), action, record={"applicationId": "a1", "buildType": "static"}
+            )
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            await pilot.pause()
+            form = screen.form
+            assert form.fields["publishDirectory"].display is True
+            assert form.fields["dockerfile"].display is False
+            select = _switch_select(screen, "buildType")
+            select.value = "dockerfile"
+            await pilot.pause()
+            assert form.fields["dockerfile"].display is True
+            assert form.fields["publishDirectory"].display is False
+
+    _run(main())
+
+
 def test_textarea_typing_is_not_reversed(mocker):
     """We expect typing into a text area to keep the natural character order."""
     mocker.patch("dokli.tui.app.APIClient")
