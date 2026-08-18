@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import NoneType, UnionType
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, Union, get_args, get_origin
 
+import httpx
 from pydantic import BaseModel, SecretBytes, SecretStr, ValidationError
 from pydantic_core import ErrorDetails
 from textual.containers import Container
@@ -12,6 +13,8 @@ from textual.css.query import NoMatches
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import Input, Label, Select, Static, Switch, TextArea
+
+from dokli.tui.engine.fk import candidate_options
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -112,6 +115,8 @@ class FormControl(Static):
             return SwitchControl(id=name, **base)  # ty: ignore[invalid-argument-type]
         if get_origin(annotation) is Literal:
             return SelectControl(id=name, options=list(get_args(annotation)), **base)
+        if extra.get("fk"):
+            return FkSelectControl(id=name, fk_source=extra["fk"], **base)
         if annotation in (list, dict):
             return TextAreaControl(id=name, parse_json=True, **base)
         if annotation is str and (extra.get("multiline") or (isinstance(value, str) and "\n" in value)):
@@ -207,6 +212,81 @@ class SelectControl(FormControl):
     def on_select_changed(self, event: Select.Changed) -> None:
         """On select changed."""
         self.value = "" if event.value is Select.BLANK else event.value
+
+
+class FkSelectControl(FormControl):
+    """A dropdown of candidates for a foreign-key id field.
+
+    Candidates come from the curated ``fk_source`` route (e.g. ``serverId`` →
+    ``server.all``). The dropdown is populated lazily on mount; when the source
+    is unreachable or empty the control falls back to a free-text input.
+    """
+
+    def __init__(self, id: str, fk_source: dict, value: Any = "", **kwargs) -> None:
+        """Construct an FK select control."""
+        super().__init__(id=id, value=value, **kwargs)
+        self.fk_source = fk_source
+        self.fetch = None
+        self._options: list[tuple[str, str]] = []
+
+    def compose(self) -> "ComposeResult":
+        """Yield the label, error, and a container for the live control."""
+        yield from super().compose()
+        yield Container(id=f"{self.id}-wrap")
+
+    async def on_mount(self) -> None:
+        """Fetch candidates and render a Select or a free-text fallback."""
+        if self.fetch is None:
+            self._mount_text()
+            return
+        try:
+            records = await self.fetch()
+        except httpx.HTTPError:
+            self._mount_text()
+            return
+        self._options = candidate_options(records, self.fk_source)
+        if not self._options or (self.value and self.value not in [v for _, v in self._options]):
+            self._mount_text()
+            return
+        self._mount_select()
+
+    def _mount_select(self) -> None:
+        """Render the dropdown with the current value preselected when present."""
+        wrap = self.query_one(f"#{self.id}-wrap", Container)
+        current = self.value if self.value in [v for _, v in self._options] else Select.BLANK
+        wrap.mount(Select(self._options, value=current, prompt="Select...", id=f"{self.id}-input"))
+
+    def _mount_text(self) -> None:
+        """Render a free-text input (fallback when there are no candidates)."""
+        wrap = self.query_one(f"#{self.id}-wrap", Container)
+        wrap.mount(
+            Input(
+                "" if self.value in ("", None) else str(self.value),
+                id=f"{self.id}-input",
+                placeholder=self.placeholder,
+            )
+        )
+
+    def watch_value(self, old_value: Any, new_value: Any) -> None:
+        """Sync the mounted widget with programmatic value changes."""
+        try:
+            widget = self.query_one(f"#{self.id}-input")
+        except NoMatches:
+            return
+        if isinstance(widget, Select):
+            widget.value = new_value if new_value in [v for _, v in self._options] else Select.BLANK
+        elif isinstance(widget, Input):
+            text = "" if new_value in ("", None) else str(new_value)
+            if widget.value != text:
+                widget.value = text
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        """On select changed."""
+        self.value = "" if event.value is Select.BLANK else event.value
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """On input changed."""
+        self.value = event.value
 
 
 class SwitchControl(FormControl):

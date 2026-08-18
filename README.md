@@ -327,6 +327,7 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
   unreachable instance never freezes the UI; a live connectivity check warns
   when the instance is unreachable but a cached schema was used.
 - **Results**: read-only queries open a result screen with search (`/`, `n`/`N` to jump) and `F5` to re-fetch — handy for logs.
+- **Forms**: foreign-key id fields (`serverId`, `destinationId`, `registryId`, `certificateId`, `sshKeyId`, git provider ids) render as a dropdown of live candidates instead of a raw id; when the source is empty or unreachable they fall back to free text. Parent-id fields of child records are hidden and injected from the navigation context.
 - Entity icons are color-coded (Catppuccin palette), and container states show as a traffic-light dot.
 - Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.
 - Mask secret-like fields in forms and results.

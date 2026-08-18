@@ -7,13 +7,13 @@ import time
 import httpx
 from textual.command import CommandPalette
 from textual.containers import VerticalScroll
-from textual.widgets import Input, Label, Static, Switch
+from textual.widgets import Input, Label, Select, Static, Switch
 
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
 from dokli.tui.app import DokliApp, DokliCommands
 from dokli.tui.engine import build_form_model, parse_spec, record_title
 from dokli.tui.engine.spec import Entity, EntityAction, key_for_verb, sort_entities
-from dokli.tui.forms import Form, SelectControl, SwitchControl, TextAreaControl
+from dokli.tui.forms import FkSelectControl, Form, SelectControl, SwitchControl, TextAreaControl
 from dokli.tui.screens.connections import ConnectionsScreen
 from dokli.tui.screens.connection import ConnectionScreen
 from dokli.tui.screens.generic.browser import BrowserScreen, Level
@@ -531,6 +531,192 @@ def test_multiline_string_fields():
     assert isinstance(form.fields["description"], TextAreaControl)
     assert form.fields["description"].get_data() == "line1\nline2"
     assert not isinstance(form.fields["name"], TextAreaControl)
+
+
+def test_build_form_model_marks_fk_fields():
+    """We expect curated FK fields to be tagged with their candidate source."""
+    from dokli.tui.engine.schemas import build_form_model
+
+    model = build_form_model({"properties": {"serverId": {"type": "string"}, "name": {"type": "string"}}})
+    extra = model.model_fields["serverId"].json_schema_extra
+    assert extra["fk"]["entity"] == "server"
+    assert (model.model_fields["name"].json_schema_extra or {}).get("fk") is None
+
+
+def test_from_field_creates_fk_select_control():
+    """We expect a tagged FK field to map to an FkSelectControl."""
+    model = build_form_model({"properties": {"serverId": {"type": "string"}}})
+    form = Form.from_model(model)
+    control = form.fields["serverId"]
+    assert isinstance(control, FkSelectControl)
+    assert control.fk_source["value_field"] == "serverId"
+    assert control.fk_source["entity"] == "server"
+
+
+def test_fk_candidate_options_filter_by_provider(mocker):
+    """We expect git provider variants to be filtered by providerType."""
+    from dokli.tui.engine.fk import load_fk_candidates
+
+    client = mocker.Mock()
+    client.request.return_value = FakeResponse(
+        [
+            {"gitProviderId": "g1", "name": "gh", "providerType": "github"},
+            {"gitProviderId": "g2", "name": "gl", "providerType": "gitlab"},
+        ]
+    )
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    source = {"entity": "gitProvider", "verb": "getAll", "value_field": "gitProviderId",
+              "filter_field": "providerType", "filter_value": "github"}
+    records = load_fk_candidates(_connection(), source)
+    assert [r["gitProviderId"] for r in records] == ["g1"]
+    assert client.request.call_args[0][1] == "gitProvider.getAll"
+
+
+def _fk_form_schema():
+    return {
+        "paths": {
+            "/backup.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "destinationId": {"type": "string"},
+                                        "name": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def _patch_fk_client(mocker, payload):
+    client = mocker.Mock()
+    client.request.return_value = FakeResponse(payload)
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    return client
+
+
+def test_fk_select_shows_candidates_and_submits_id(mocker):
+    """We expect a dropdown of candidates that submits the selected id."""
+    _patch_fk_client(
+        mocker,
+        [{"destinationId": "d1", "name": "local"}, {"destinationId": "d2", "name": "s3"}],
+    )
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            assert isinstance(control, FkSelectControl)
+            assert control._options == [("local", "d1"), ("s3", "d2")]
+            select = control.query_one("#destinationId-input")
+            assert isinstance(select, Select)
+            control.value = "d2"
+            await pilot.pause()
+            assert control.get_data() == "d2"
+            assert screen.form.validate() is True
+            assert screen.form.cleaned_data["destinationId"] == "d2"
+
+    _run(main())
+
+
+def test_fk_select_preselects_current_value(mocker):
+    """We expect update forms to preselect the record's current id."""
+    _patch_fk_client(mocker, [{"destinationId": "d1", "name": "local"}])
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action, record={"destinationId": "d1", "name": "x"})
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            select = control.query_one("#destinationId-input")
+            assert isinstance(select, Select)
+            assert select.value == "d1"
+            assert control.get_data() == "d1"
+
+    _run(main())
+
+
+def test_fk_select_falls_back_to_text_when_empty(mocker):
+    """We expect an FK field to become a free-text input when there are no candidates."""
+    _patch_fk_client(mocker, [])
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            assert isinstance(control, FkSelectControl)
+            assert isinstance(control.query_one("#destinationId-input"), Input)
+            control.value = "raw-id-123"
+            await pilot.pause()
+            assert control.get_data() == "raw-id-123"
+
+    _run(main())
+
+
+def test_fk_select_falls_back_to_text_on_error(mocker):
+    """We expect an FK field to fall back to free text when the source fails."""
+    _patch_fk_client(mocker, [])
+    mocker.patch(
+        "dokli.tui.engine.fk.APIClient",
+        return_value=mocker.Mock(request=mocker.Mock(side_effect=httpx.HTTPError("boom"))),
+    )
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["destinationId"]
+            assert isinstance(control.query_one("#destinationId-input"), Input)
+
+    _run(main())
+
+
+def test_wizard_builds_fk_control_with_fetcher(mocker):
+    """We expect the wizard to build FK controls wired to their candidate source."""
+    _patch_fk_client(mocker, [{"destinationId": "d1", "name": "local"}])
+    registry = parse_spec(_fk_form_schema())
+    action = registry.get("backup").get("create")
+
+    screen = WizardScreen(_connection(), action)
+    control = screen.controls["destinationId"]
+    assert isinstance(control, FkSelectControl)
+    assert control.fetch is not None
 
 
 def test_textarea_typing_is_not_reversed(mocker):

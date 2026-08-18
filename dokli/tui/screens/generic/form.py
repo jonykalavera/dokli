@@ -1,7 +1,8 @@
 """Generic action form (built from an OpenAPI request body schema)."""
 
+import asyncio
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -10,7 +11,8 @@ from textual.widgets import Button, Footer, Header
 
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, build_form_model
-from dokli.tui.forms import Form
+from dokli.tui.engine.fk import load_fk_candidates
+from dokli.tui.forms import FkSelectControl, Form
 from dokli.tui.screens.generic.execute import build_body, confirm_and_run
 from dokli.tui.screens.generic.wizard import WizardScreen
 
@@ -54,6 +56,13 @@ class ActionFormScreen(Screen):
         model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=self.excluded)
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
         self.form = Form.from_model(model, data=prefill, classes="action-form")
+        for control in self.form.fields.values():
+            if isinstance(control, FkSelectControl):
+                control.fetch = self._fk_fetcher(control)
+
+    def _fk_fetcher(self, control: FkSelectControl) -> Callable[[], Any]:
+        """A fetcher that loads the FK control's candidates off the event loop."""
+        return lambda: asyncio.to_thread(load_fk_candidates, self.connection, control.fk_source)
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""

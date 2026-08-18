@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr, create_model
 
+from dokli.tui.engine.fk import fk_source
+
 JSON_TO_ANNOTATION = {
     "string": str,
     "integer": int,
@@ -104,6 +106,9 @@ def build_form_model(
             options = ", ".join(str(value) for value in prop["enum"])
             description = f"{description} [{options}]" if description else f"Options: {options}"
         extra: dict[str, Any] | None = {"multiline": True} if field_name in MULTILINE_FIELDS else None
+        source = fk_source(field_name)
+        if source:
+            extra = {**(extra or {}), "fk": source}
         fields[field_name] = (
             annotation | None,
             Field(None, title=label, description=description, json_schema_extra=extra),
