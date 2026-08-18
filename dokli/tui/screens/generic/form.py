@@ -57,6 +57,7 @@ class ActionFormScreen(Screen):
         self.excluded = excluded or set()
         self.inject = inject or {}
         self.context = context or {}
+        self._fk_cache: dict = {}
         model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=self.excluded)
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
         entity = self.action.route.split(".")[0]
@@ -74,7 +75,7 @@ class ActionFormScreen(Screen):
         """A fetcher that loads the FK control's candidates off the event loop."""
         source = control.fk_source
         params = self._fk_params(source)
-        return lambda: asyncio.to_thread(load_fk_candidates, self.connection, source, params)
+        return lambda: asyncio.to_thread(load_fk_candidates, self.connection, source, params, self._fk_cache)
 
     def _fk_params(self, source: dict) -> dict:
         """Resolve an FK source's query params from the navigation context."""

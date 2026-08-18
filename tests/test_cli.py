@@ -102,14 +102,14 @@ def test_complete_connection_names_filters_by_prefix(mocker):
         "dokli.config.Config",
         return_value=Config(
             connections=[
-                ConnectionConfig(name="meche", url="https://meche.lan", api_key_cmd="echo key"),
-                ConnectionConfig(name="hot-test", url="https://test.lan", api_key_cmd="echo key"),
+                ConnectionConfig(name="alpha", url="https://alpha.lan", api_key_cmd="echo key"),
+                ConnectionConfig(name="beta", url="https://test.lan", api_key_cmd="echo key"),
             ]
         ),
     )
 
-    assert [item.value for item in complete_connection_names(None, None, "mech")] == ["meche"]
-    assert [item.value for item in complete_connection_names(None, None, "hot")] == ["hot-test"]
+    assert [item.value for item in complete_connection_names(None, None, "alph")] == ["alpha"]
+    assert [item.value for item in complete_connection_names(None, None, "bet")] == ["beta"]
     assert complete_connection_names(None, None, "zzz") == []
 
 

@@ -24,11 +24,11 @@ apiVersion: v1
 # credential at apply time via token_cmd (or DOKLI_* env vars).
 #
 # git_providers:
-#   - name: github-main
+#   - name: github
 #     provider: github
 #     url: https://github.com
 #     app_name: dokli
-#     token_cmd: "secret-tool lookup dokli github-main"
+#     token_cmd: "secret-tool lookup dokli github"
 
 projects: []
 

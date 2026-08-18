@@ -88,7 +88,7 @@ You can also manage connections with `dokli connections ls|add|update|remove|get
 
 API keys, git provider credentials and database passwords can be stored in your OS keychain instead of the YAML files:
 
-- `dokli secrets set|get|rm <account>` — manage keychain entries (accounts like `conn.meche`, `provider.github-main`, `db.backend`); `get` masks by default, `--show` prints in plain text.
+- `dokli secrets set|get|rm <account>` — manage keychain entries (accounts like `conn.<name>`, `provider.<name>`, `db.<name>`); `get` masks by default, `--show` prints in plain text.
 - `dokli connections add <name> --keyring` / `dokli connections update <name> --keyring` — store the API key in the keychain (`api_key_keyring: true`) so it never touches the config file.
 - In manifests, `token_keyring: true` (git providers) and `password_keyring: true` (databases) resolve those secrets from the keychain at apply time. Generic `resources:` fields resolve secrets with `{"keyring": "account"}` or `{"cmd": "..."}` in `data`.
 - Resolution order is: literal value → keychain → `*_cmd`.
@@ -199,9 +199,9 @@ apiVersion: v1
 connection: prod
 
 git_providers:
-  - name: github-main
+  - name: github
     provider: github
-    token_cmd: "secret-tool lookup dokli github-main"
+    token_cmd: "secret-tool lookup dokli github"
 
 projects:
   - name: myapp
@@ -209,8 +209,8 @@ projects:
       - type: compose
         name: backend
         source:
-          provider: github-main
-          repository: jonykalavera/backend
+          provider: github
+          repository: <owner>/backend
           branch: main
         compose_path: docker-compose.yml
       - type: application
@@ -288,7 +288,7 @@ resources:
 ### Workflow
 
 ```bash
-dokli export meche -o dokploy.yaml   # capture an existing instance
+dokli export <conn> -o dokploy.yaml   # capture an existing instance
 dokli plan                           # preview changes
 dokli apply --dry-run                # dry run
 dokli apply                          # configure the instance
@@ -327,7 +327,7 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
   unreachable instance never freezes the UI; a live connectivity check warns
   when the instance is unreachable but a cached schema was used.
 - **Results**: read-only queries open a result screen with search (`/`, `n`/`N` to jump) and `F5` to re-fetch — handy for logs.
-- **Forms**: foreign-key id fields (`serverId`, `destinationId`, `registryId`, `certificateId`, `sshKeyId`, git provider ids, and `environmentId` scoped to the current project) render as a dropdown of live candidates instead of a raw id; when the source is empty or unreachable they fall back to free text. Parent-id fields of child records are hidden and injected from the navigation context. Update forms hide provider-specific fields until a switch value is chosen (e.g. `sourceType=raw` shows the inline `composeFile` and hides the github/bitbucket/gitlab/gitea fields — git sources show their repo path instead; applications also gate build fields on `buildType`).
+- **Forms**: foreign-key id fields (`serverId`, `destinationId`, `registryId`, `certificateId`, `sshKeyId`, git provider ids, `environmentId` scoped to the current project, and service/db parents like `composeId`/`postgresId` enumerated across the project tree) render as a dropdown of live candidates instead of a raw id; when the source is empty or unreachable they fall back to free text. Parent-id fields of child records are hidden and injected from the navigation context. Update forms hide provider-specific fields until a switch value is chosen (e.g. `sourceType=raw` shows the inline `composeFile` and hides the github/bitbucket/gitlab/gitea fields — git sources show their repo path instead; applications also gate build fields on `buildType`).
 - Entity icons are color-coded (Catppuccin palette), and container states show as a traffic-light dot.
 - Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.
 - Mask secret-like fields in forms and results.

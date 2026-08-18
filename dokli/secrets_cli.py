@@ -15,7 +15,7 @@ def build_command() -> typer.Typer:
 
     @group.command("set")
     def set_secret_cmd(
-        account: str = typer.Argument(..., help="Account name, e.g. conn.meche."),
+        account: str = typer.Argument(..., help="Account name, e.g. conn.<name>."),
         stdin: bool = typer.Option(False, "--stdin", help="Read the value from stdin instead of prompting."),
     ) -> None:
         """Store a secret (value is prompted hidden, or read from stdin)."""
@@ -27,7 +27,7 @@ def build_command() -> typer.Typer:
 
     @group.command("get")
     def get_secret_cmd(
-        account: str = typer.Argument(..., help="Account name, e.g. conn.meche."),
+        account: str = typer.Argument(..., help="Account name, e.g. conn.<name>."),
         show: bool = typer.Option(False, "--show", help="Print the value in plain text."),
     ) -> None:
         """Show a stored secret (masked by default)."""
@@ -38,7 +38,7 @@ def build_command() -> typer.Typer:
         rprint(value if show else _mask(value))
 
     @group.command("rm")
-    def remove_secret_cmd(account: str = typer.Argument(..., help="Account name, e.g. conn.meche.")) -> None:
+    def remove_secret_cmd(account: str = typer.Argument(..., help="Account name, e.g. conn.<name>.")) -> None:
         """Remove a stored secret."""
         delete_secret(account)
         rprint(f"[green]Removed secret '{account}'.[/green]")
