@@ -8,6 +8,7 @@ historical exceptions (kinds without a stable ``name``, parents addressed via
 the manifest ``kind``).
 """
 
+import re
 import subprocess
 from typing import TYPE_CHECKING, Any
 
@@ -206,6 +207,31 @@ def match_value(resource: Resource, key: str) -> str:
 def resolve_data(data: dict[str, Any]) -> dict[str, Any]:
     """Resolve secret references (``{"cmd": ...}`` / ``{"keyring": ...}``) in data."""
     return {key: _resolve_secret(value) for key, value in data.items()}
+
+
+_ENV_REF = re.compile(r"^\{(cmd|keyring):\s*(.+)\}$", re.DOTALL)
+
+
+def resolve_env(env: str) -> str:
+    """Resolve ``{cmd: ...}`` / ``{keyring: ...}`` references in ``KEY=VALUE`` env lines.
+
+    A value that is exactly a single reference is resolved (same semantics as
+    ``resolve_data``); plain lines pass through untouched.
+    """
+    lines: list[str] = []
+    for line in env.splitlines():
+        if "=" not in line:
+            lines.append(line)
+            continue
+        key, _, value = line.partition("=")
+        match = _ENV_REF.match(value.strip())
+        if match is None:
+            lines.append(line)
+            continue
+        kind, payload = match.group(1), match.group(2).strip()
+        payload = payload.strip().strip('"').strip("'")
+        lines.append(f"{key}={_resolve_secret({kind: payload})}")
+    return "\n".join(lines)
 
 
 def _resolve_secret(value: Any) -> Any:

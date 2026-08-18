@@ -15,7 +15,7 @@ from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
 from dokli.prune import Pruner
 from dokli.report import ApplyAction, ApplyReport
-from dokli.resources import ResourceManager, build_registry
+from dokli.resources import ResourceManager, build_registry, resolve_env
 from dokli.secrets import db_account, get_secret
 from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
 
@@ -368,8 +368,10 @@ class Applier:
                 payload["sourceType"] = "raw"
         if service_def.command is not None and (live is None or (live.command or "") != service_def.command):
             payload["command"] = service_def.command
-        if service_def.env is not None and (live is None or (live.env or "") != service_def.env):
-            payload["env"] = service_def.env
+        if service_def.env is not None:
+            env = resolve_env(service_def.env)
+            if live is None or (live.env or "") != env:
+                payload["env"] = env
         return payload
 
     def _application_payload(self, service_def: ApplicationService, live: LiveService | None) -> dict[str, Any]:
@@ -401,8 +403,10 @@ class Applier:
             payload["dockerfileLocation"] = service_def.dockerfile_location
         if service_def.build_path and (live is None or live.build_path != service_def.build_path):
             payload["buildPath"] = service_def.build_path
-        if service_def.env is not None and (live is None or (live.env or "") != service_def.env):
-            payload["env"] = service_def.env
+        if service_def.env is not None:
+            env = resolve_env(service_def.env)
+            if live is None or (live.env or "") != env:
+                payload["env"] = env
         return payload
 
     def _database_payload(self, service_def: DatabaseService, live: LiveService | None) -> dict[str, Any]:
@@ -425,8 +429,10 @@ class Applier:
             password = self._resolve_database_password(service_def)
             if live is None or live.database_password != password:
                 payload["databasePassword"] = password
-        if service_def.env is not None and (live is None or (live.env or "") != service_def.env):
-            payload["env"] = service_def.env
+        if service_def.env is not None:
+            env = resolve_env(service_def.env)
+            if live is None or (live.env or "") != env:
+                payload["env"] = env
         return payload
 
     def _resolve_provider(self, name: str) -> tuple[str, str]:
