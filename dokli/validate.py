@@ -65,7 +65,6 @@ def _validate_resource(resource: Resource, registry: EntityRegistry) -> list[str
     allowed = PARENT_KINDS.get(resource.kind)
     if allowed is not None and parent_kind not in allowed:
         issues.append(
-            f"resource {label}: cannot hang off '{parent_kind}' "
-            f"(allowed: {', '.join(sorted(allowed))})."
+            f"resource {label}: cannot hang off '{parent_kind}' " f"(allowed: {', '.join(sorted(allowed))})."
         )
     return issues

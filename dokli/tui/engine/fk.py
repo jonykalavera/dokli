@@ -158,9 +158,7 @@ def load_fk_candidates(
     return records
 
 
-def _load_service_candidates(
-    connection: ConnectionConfig, service_kind: str, cache: dict | None = None
-) -> list[dict]:
+def _load_service_candidates(connection: ConnectionConfig, service_kind: str, cache: dict | None = None) -> list[dict]:
     """Enumerate every live ``service_kind`` service across the project tree.
 
     There is no per-kind list endpoint, so the tree is walked via

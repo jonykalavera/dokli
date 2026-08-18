@@ -83,9 +83,7 @@ MULTILINE_FIELDS = {
 }
 
 
-def build_form_model(
-    schema: dict, name: str = "ActionForm", excluded: set[str] | None = None
-) -> type[BaseModel]:
+def build_form_model(schema: dict, name: str = "ActionForm", excluded: set[str] | None = None) -> type[BaseModel]:
     """Build a pydantic model from an OpenAPI request body schema.
 
     Used to reuse the existing generic :class:`~dokli.tui.forms.Form` widget,

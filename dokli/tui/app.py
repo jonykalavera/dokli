@@ -43,6 +43,7 @@ def _build_connection_client(connection: ConnectionConfig) -> tuple[APIClient, d
     client = APIClient(connection)
     return client, client.schema
 
+
 # App-level action -> (default key, help text). Remappable via tui.keys.app.
 APP_ACTIONS: dict[str, tuple[str, str]] = {
     "toggle_dark": ("D", "Toggle dark mode"),
@@ -134,9 +135,7 @@ class DokliCommands(Provider):
     def _core_keys(self) -> dict[str, str | None]:
         """The effective keys for the core palette commands."""
         app = cast(DokliApp, self.app)
-        return {
-            name: app.app_keys.get(action) for name, action in self._CORE_KEY_ACTIONS.items()
-        }
+        return {name: app.app_keys.get(action) for name, action in self._CORE_KEY_ACTIONS.items()}
 
     def _commands(self) -> list[tuple[str, str, Callable[[], Any]]]:
         app = cast(DokliApp, self.app)
@@ -264,19 +263,14 @@ class DokliApp(App):
         # Replace the class-level bindings with the config-derived ones so the
         # Footer/help reflect any remapped app keys.
         self._bindings = _Bindings(
-            [
-                (self.app_keys[action], action, help_text)
-                for action, (_, help_text) in APP_ACTIONS.items()
-            ]
+            [(self.app_keys[action], action, help_text) for action, (_, help_text) in APP_ACTIONS.items()]
         )
 
     def tui_keybindings(self) -> dict:
         """Keybinding overrides for the entity registry (verb keys, reserved keys)."""
         return {
             "verb_keys": self.config.tui.keys.verbs or None,
-            "system_keys": frozenset(
-                key for key in self.app_keys.values() if len(key) == 1 and key.isalnum()
-            ),
+            "system_keys": frozenset(key for key in self.app_keys.values() if len(key) == 1 and key.isalnum()),
         }
 
     def on_mount(self) -> None:
@@ -340,9 +334,7 @@ class DokliApp(App):
             self._splash_status("Preparing browser…")
             browser = self._installed_screens.get("Browser")
             if isinstance(browser, BrowserScreen):
-                browser.reload(
-                    connection, registry, entity_order=self.config.tui.entity_order, client=client
-                )
+                browser.reload(connection, registry, entity_order=self.config.tui.entity_order, client=client)
             else:
                 browser = BrowserScreen(
                     name="Browser",
