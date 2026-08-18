@@ -161,6 +161,71 @@ class TestApplyUpdate:
         assert "composeFile" in body
         assert [a.action for a in report.actions] == ["update"]
 
+    def test_resolves_env_secret_refs_before_update(self, mocker):
+        """We expect env {cmd} refs to be resolved before compare/send."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "compose",
+                                "name": "backend",
+                                "compose_file": "version: '3'",
+                                "env": 'PASSWORD={cmd: "echo hunter2"}\nPLAIN=value',
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = State(
+            connection="test-env",
+            projects=[_project_live("app", [_compose_live("backend", "s1", env="PASSWORD=old\nPLAIN=value")])],
+        )
+        client = _applier(mocker, state)
+
+        report = Applier(manifest, _connection()).run()
+
+        update_calls = [call for call in client.request.call_args_list if call.args[1] == "compose.update"]
+        assert len(update_calls) == 1
+        body = update_calls[0].args[2]["body"]
+        assert body["env"] == "PASSWORD=hunter2\nPLAIN=value"
+        assert [a.action for a in report.actions] == ["update"]
+
+    def test_env_secret_ref_matching_skips_update(self, mocker):
+        """We expect no update when the resolved env equals the live env."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "compose",
+                                "name": "backend",
+                                "compose_file": "version: '3'",
+                                "env": 'PASSWORD={cmd: "echo hunter2"}\nPLAIN=value',
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = State(
+            connection="test-env",
+            projects=[_project_live("app", [_compose_live("backend", "s1", env="PASSWORD=hunter2\nPLAIN=value")])],
+        )
+        client = _applier(mocker, state)
+
+        report = Applier(manifest, _connection()).run()
+
+        assert not any(call.args[1] == "compose.update" for call in client.request.call_args_list)
+        assert [a.action for a in report.actions] == []
+
     def test_no_changes_skips_update(self, mocker):
         """We expect no update when the service already matches."""
         manifest = Manifest.model_validate(

@@ -8,6 +8,7 @@ historical exceptions (kinds without a stable ``name``, parents addressed via
 the manifest ``kind``).
 """
 
+import re
 import subprocess
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +35,17 @@ ENTITY_NAMES: dict[str, str] = {
     "mount": "mounts",
 }
 
+# Child kind -> the id field on its record (defaults to f"{kind}Id").
+ID_FIELDS: dict[str, str] = {
+    "mount": "mountId",
+    "redirects": "redirectId",
+    "domain": "domainId",
+    "port": "portId",
+    "security": "securityId",
+    "backup": "backupId",
+    "schedule": "scheduleId",
+}
+
 # Kinds that address their parent with a specific id field (default <parent>Id).
 PARENT_ID_FIELDS: dict[str, str] = {
     "mount": "serviceId",
@@ -55,7 +67,7 @@ PARENT_KINDS: dict[str, set[str] | None] = {
 
 # Kinds whose update requires fields the create may not set; the live child
 # record is merged into the update payload so those fields are preserved.
-UPDATE_MERGE_KINDS = frozenset({"backup"})
+UPDATE_MERGE_KINDS = frozenset({"backup", "schedule"})
 
 # Data fields that are resolved by name (never sent as-is), and how.
 NAMED_REFERENCES: dict[str, str] = {"backup": "destination"}
@@ -73,8 +85,8 @@ EXPORT_FIELDS: dict[str, set[str]] = {
     "port": {"publishedPort", "targetPort", "protocol", "publishMode"},
     "security": {"username"},
     "redirects": {"regex", "replacement", "permanent"},
-    "mount": {"type", "mountPath", "filePath"},
-    "schedule": {"name", "cronExpression", "command", "enabled"},
+    "mount": {"type", "mountPath", "filePath", "content"},
+    "schedule": {"name", "cronExpression", "command", "enabled", "serviceName", "shellType", "scheduleType"},
     "backup": {"schedule", "prefix", "database", "databaseType", "enabled", "keepLatestCount", "backupType"},
 }
 
@@ -82,6 +94,11 @@ EXPORT_FIELDS: dict[str, set[str]] = {
 SECRET_FIELDS: dict[str, set[str]] = {
     "security": {"password"},
     "backup": {"metadata"},
+}
+
+# Fields only exported with --include-secrets (redacted by default).
+SECRET_OPT_FIELDS: dict[str, set[str]] = {
+    "mount": {"content"},
 }
 
 # Extra required fields for delete routes that have no schema default.
@@ -158,6 +175,11 @@ def entity_name(kind: str) -> str:
     return ENTITY_NAMES.get(kind, kind)
 
 
+def id_field(kind: str) -> str:
+    """The id field of a resource kind's record."""
+    return ID_FIELDS.get(kind, f"{kind}Id")
+
+
 def parse_in(path: str | None) -> list[tuple[str, str]]:
     """Parse an ``in`` path into ``(kind, name)`` segments.
 
@@ -185,6 +207,31 @@ def match_value(resource: Resource, key: str) -> str:
 def resolve_data(data: dict[str, Any]) -> dict[str, Any]:
     """Resolve secret references (``{"cmd": ...}`` / ``{"keyring": ...}``) in data."""
     return {key: _resolve_secret(value) for key, value in data.items()}
+
+
+_ENV_REF = re.compile(r"^\{(cmd|keyring):\s*(.+)\}$", re.DOTALL)
+
+
+def resolve_env(env: str) -> str:
+    """Resolve ``{cmd: ...}`` / ``{keyring: ...}`` references in ``KEY=VALUE`` env lines.
+
+    A value that is exactly a single reference is resolved (same semantics as
+    ``resolve_data``); plain lines pass through untouched.
+    """
+    lines: list[str] = []
+    for line in env.splitlines():
+        if "=" not in line:
+            lines.append(line)
+            continue
+        key, _, value = line.partition("=")
+        match = _ENV_REF.match(value.strip())
+        if match is None:
+            lines.append(line)
+            continue
+        kind, payload = match.group(1), match.group(2).strip()
+        payload = payload.strip().strip('"').strip("'")
+        lines.append(f"{key}={_resolve_secret({kind: payload})}")
+    return "\n".join(lines)
 
 
 def _resolve_secret(value: Any) -> Any:
@@ -290,7 +337,7 @@ class ResourceManager:
         elif self._changed(child, body):
             action = "update"
             if not dry_run:
-                update_body = self._update_body(resource, child, body, entity)
+                update_body = self._update_body(resource, child, body)
                 self.client.request("POST", f"{entity}.update", {"body": update_body})
         else:
             action = "skip"
@@ -349,15 +396,15 @@ class ResourceManager:
                     filled[field] = prop["default"]
         return filled
 
-    def _update_body(self, resource: Resource, child: dict, body: dict, entity: str) -> dict:
+    def _update_body(self, resource: Resource, child: dict, body: dict) -> dict:
         """Build an update payload, merging the live child for full-object kinds.
 
         Kinds in ``UPDATE_MERGE_KINDS`` have required update fields that the
         create may not set; the live record supplies them (body wins, ids are
-        re-added from the entity).
+        re-added from the record).
         """
-        entity_id = child[f"{entity}Id"]
-        merged = {**body, f"{entity}Id": entity_id}
+        entity_id = child[id_field(resource.kind)]
+        merged = {**body, id_field(resource.kind): entity_id}
         if resource.kind not in UPDATE_MERGE_KINDS:
             return merged
         live = {
@@ -365,7 +412,7 @@ class ResourceManager:
             for key, value in child.items()
             if not key.endswith(("Id", "At"))
         }
-        return {**live, **body, f"{entity}Id": entity_id}
+        return {**live, **body, id_field(resource.kind): entity_id}
 
     def _resolve_named(self, entity: str, name: str) -> str:
         """Resolve a named reference (e.g. ``destination``) to its id."""

@@ -113,6 +113,61 @@ class TestBuildPlan:
         assert plan.items[0].action == "update"
         assert plan.items[0].changed == ["compose_file"]
 
+    def test_env_secret_ref_not_flagged_when_resolved_matches(self):
+        """We expect plan to resolve env refs before comparing against live."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "compose",
+                                "name": "backend",
+                                "compose_file": "version: '3'",
+                                "env": 'PASSWORD={cmd: "echo hunter2"}\nPLAIN=value',
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = _state(
+            projects=[_project_live("app", [_compose_live("backend", "s1", env="PASSWORD=hunter2\nPLAIN=value")])]
+        )
+
+        plan = build_plan(manifest, state)
+
+        assert not plan.has_changes
+
+    def test_env_secret_ref_flagged_when_resolved_differs(self):
+        """We expect plan to flag env when the resolved ref differs from live."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "compose",
+                                "name": "backend",
+                                "compose_file": "version: '3'",
+                                "env": 'PASSWORD={cmd: "echo hunter2"}',
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = _state(projects=[_project_live("app", [_compose_live("backend", "s1", env="PASSWORD=old")])])
+
+        plan = build_plan(manifest, state)
+
+        assert plan.items[0].action == "update"
+        assert plan.items[0].changed == ["env"]
+
     def test_git_provider_missing(self):
         """We expect a validate item when a git provider is missing."""
         manifest = Manifest.model_validate(
