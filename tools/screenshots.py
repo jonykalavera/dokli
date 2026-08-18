@@ -88,6 +88,12 @@ async def shot_splash() -> str:
         app.install_screen(SplashScreen(), name="splash")
         app.push_screen("splash")
         await _settle(pilot)
+        splash = app.screen
+        app.sub_title = ""
+        # The floating status box collides with the logo art in the centered
+        # layout; it is transient anyway, so hide it for a clean logo shot.
+        splash.query_one("#status-panel").display = False
+        await _settle(pilot)
         return _save(app, "splash")
 
 
