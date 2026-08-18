@@ -332,19 +332,34 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 - Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.
 - Mask secret-like fields in forms and results.
 
-| | |
-|---|---|
-| Connections | Yazi-style browser |
-| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png) |
-| Compose detail | Command palette |
-| ![Compose detail](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser-detail.png) | ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) |
-| Result view (logs + search) | Splash |
-| ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) | ![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.png) |
+### Connections
+
+![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png)
+
+### Yazi-style browser
+
+![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png)
+
+### Compose detail
+
+![Compose detail](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser-detail.png)
+
+### Command palette
+
+![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png)
+
+### Result view (logs + search)
+
+![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png)
+
+### Splash
+
+![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.png)
 
 Screenshots are **PNGs** generated headless from anonymized mock data — they never
-show real instances, and rasterizing at generation time means they render the
-same for every reader (no font/Nerd Font dependency). Regenerate them with
-`make screenshots` (requires `rsvg-convert`; the Nerd Fonts for the icons).
+show real instances, and are rasterized from the terminal's cell grid with a real
+Nerd Font, so they render the same for every reader. Regenerate them with
+`make screenshots` (requires Pillow and the Agave Nerd Font Mono).
 
 ### TUI customization
 

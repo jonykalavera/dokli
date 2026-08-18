@@ -1,28 +1,30 @@
 """Generate README screenshots from the TUI.
 
 Runs the app headless against the fake, anonymized test data (``FAKE_SCHEMA`` +
-mocked responses from ``tests/test_tui.py``) — never against a real connection —
-exports each screen as an SVG, post-processes it (crisp logo blocks, centered
-Nerd Font icons), and rasterizes it to a PNG in ``assets/``.
+mocked responses from ``tests/test_tui.py``) — never against a real connection
+— and rasterizes each screen directly from Textual's compositor cell grid into a
+PNG in ``assets/``.
 
-PNGs are committed instead of SVGs because the SVG rendering depends on fonts
-(Fira Code via ``@font-face``, Nerd Font icons) that end users may not have;
-rendering at generation time guarantees the README images always look right.
+Rasterizing the cell grid ourselves (instead of Textual's SVG export, which
+serializes text as ``<text textLength>`` and depends on the viewer honoring the
+metrics of Fira Code + Nerd Font glyphs) keeps the output faithful to a real
+terminal: every character — box-drawing borders, Nerd Font icons, and the
+icon↔text spacing — is drawn at its exact cell with a real Nerd Font, so the
+README images look right for everyone regardless of installed fonts.
 
-Requires ``rsvg-convert`` and the Nerd Fonts for the icon glyphs.
+Requires Pillow and the Agave Nerd Font Mono (regular + bold).
 
 Usage:
     uv run python tools/screenshots.py
 """
 
 import asyncio
-import html
-import re
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from unittest import mock
+
+from PIL import Image, ImageDraw, ImageFont
+from rich.console import Console
 
 from dokli.tui.app import DokliApp
 from dokli.tui.engine import parse_spec
@@ -46,6 +48,14 @@ SIZE = (110, 32)
 # The splash logo is 33 lines tall plus header/footer/status box, so it needs
 # more rows than the default screenshot size to avoid clipping the art.
 SIZE_SPLASH = (110, 40)
+
+FONT_REGULAR = "/usr/share/fonts/TTF/AgaveNerdFontMono-Regular.ttf"
+FONT_BOLD = "/usr/share/fonts/TTF/AgaveNerdFontMono-Bold.ttf"
+FONT_SIZE = 20
+
+# Fallbacks for cells without an explicit style (e.g. bare padding).
+DEFAULT_FG = (200, 200, 205)
+DEFAULT_BG = (49, 50, 68)
 
 LOG_DATA = (
     "2026-08-05T19:55:54Z frigate started\n"
@@ -72,87 +82,59 @@ def _patch_api() -> list[mock._patch]:
     ]
 
 
-def _write_png(name: str, svg: str) -> str:
-    """Rasterize a (post-processed) SVG into ``assets/tui-<name>.png``."""
-    png_path = ASSETS / f"tui-{name}.png"
-    with tempfile.NamedTemporaryFile(suffix=".svg", delete=False) as handle:
-        handle.write(svg.encode())
-        svg_path = Path(handle.name)
-    try:
-        subprocess.run(["rsvg-convert", "-o", str(png_path), str(svg_path)], check=True)
-    finally:
-        svg_path.unlink(missing_ok=True)
-    return str(png_path)
+def _triplet(color, fallback):
+    """A Rich color as an ``(r, g, b)`` tuple, falling back when unset/default."""
+    if color is None:
+        return fallback
+    triplet = color.triplet
+    if triplet is None:
+        return fallback
+    return (triplet.red, triplet.green, triplet.blue)
 
 
-def _save(app: DokliApp, name: str) -> str:
-    svg = _center_icon_glyphs(app.export_screenshot())
-    return _write_png(name, svg)
+def _render_png(app: DokliApp, name: str) -> str:
+    """Rasterize the screen's cell grid into ``assets/tui-<name>.png``."""
+    width, height = app.size
+    regular = ImageFont.truetype(FONT_REGULAR, FONT_SIZE)
+    bold = ImageFont.truetype(FONT_BOLD, FONT_SIZE)
+    cell_w = round(regular.getlength(" "))
+    ascent, descent = regular.getmetrics()
+    cell_h = ascent + descent
 
+    console = Console(width=width, height=height, force_terminal=True, color_system="truecolor")
+    renderable = app.screen._compositor.render_update(
+        full=True, screen_stack=app._background_screens, simplify=True
+    )
+    lines = console.render_lines(
+        renderable, console.options.update(width=width, height=height), style=None, pad=False
+    )
 
-_TEXT_ELEMENT = re.compile(r"<text(?P<attrs>[^>]*)>(?P<body>[^<]*)</text>")
-
-
-def _center_icon_glyphs(svg: str) -> str:
-    r"""Center Nerd Font icon glyphs in their colored cells.
-
-    Textual emits icons as ``<text>\xa0<glyph>\xa0</text>`` with a
-    ``textLength`` that forces 3 cells, but the glyph's natural advance
-    width depends on the viewer's font. Rewriting each as a single
-    ``text-anchor="middle"`` glyph at the cell center makes the position
-    font-independent.
-    """
-
-    def replace(match: re.Match) -> str:
-        attrs, body = match.group("attrs"), match.group("body")
-        text = html.unescape(body)
-        if len(text) != 3 or text[0] not in " \xa0" or text[2] not in " \xa0" or text[1].isascii():
-            return match.group(0)
-        x = float(re.search(r'x="([\d.]+)"', attrs).group(1))
-        total = float(re.search(r'textLength="([\d.]+)"', attrs).group(1))
-        # Nerd Font icon ink is not centered in its advance box; Pango offsets
-        # it a few px right of a text-anchor=middle, so nudge the anchor left.
-        center = x + total / 2 - 3
-        attrs = re.sub(r'x="[\d.]+"', f'x="{center:.1f}"', attrs)
-        attrs = re.sub(r'textLength="[\d.]+"', "", attrs)
-        return f'<text{attrs} text-anchor="middle">{text[1]}</text>'
-
-    return _TEXT_ELEMENT.sub(replace, svg)
-
-
-def _rectify_logo_blocks(svg: str) -> str:
-    """Render the splash logo's ``█`` glyphs as crisp ``<rect>`` cells.
-
-    The exported SVG positions every character at fixed cell coordinates, but
-    the actual rendering depends on the viewer honoring ``textLength`` and using
-    a monospaced font (Fira Code via ``@font-face``); fallback fonts or renderers
-    that ignore ``textLength`` compress the spaces and misalign the block art.
-    Drawing the blocks as rects removes that dependency entirely.
-    """
-    fills = {k: v.strip() for k, v in re.findall(r"\.terminal-\w+-r(\d+)\s*\{\s*fill:\s*([^;}]+)", svg)}
-
-    def replace(match: re.Match) -> str:
-        attrs, body = match.group("attrs"), match.group("body")
-        if "█" not in body:
-            return match.group(0)
-        text = html.unescape(body).replace("\u00a0", " ")
-        cls = re.search(r'class="[^"]*-r(\d+)"', attrs).group(1)
-        x = float(re.search(r'x="([\d.]+)"', attrs).group(1))
-        y = float(re.search(r'y="([\d.]+)"', attrs).group(1))
-        total = float(re.search(r'textLength="([\d.]+)"', attrs).group(1))
-        cell = total / len(text) if text else 12.2
-        fill = fills.get(cls, "#e4e4e6")
-        top = y - 18.5  # baseline -> cell top (font-size 20 / line-height 24.4)
-        rects = []
-        for index, char in enumerate(text):
-            if char == "█":
-                rects.append(
-                    f'<rect x="{x + index * cell:.1f}" y="{top:.1f}" '
-                    f'width="{cell:.1f}" height="24.65" fill="{fill}" />'
-                )
-        return "".join(rects)
-
-    return _TEXT_ELEMENT.sub(replace, svg)
+    image = Image.new("RGB", (width * cell_w, height * cell_h), DEFAULT_BG)
+    draw = ImageDraw.Draw(image)
+    for row, line in enumerate(lines):
+        col = 0
+        for segment in line:
+            if getattr(segment, "control", False):
+                continue
+            text = segment.text
+            if text.startswith("\x1b["):
+                continue
+            style = segment.style
+            fg = _triplet(style.color if style else None, DEFAULT_FG)
+            bg = _triplet(style.bgcolor if style else None, DEFAULT_BG)
+            font = bold if (style and style.bold) else regular
+            for char in text:
+                if char == "\n":
+                    continue
+                x0 = col * cell_w
+                y0 = row * cell_h
+                draw.rectangle([x0, y0, x0 + cell_w, y0 + cell_h], fill=bg)
+                if char != " ":
+                    draw.text((x0, y0 + ascent), char, font=font, fill=fg, anchor="ls")
+                col += 1
+    path = ASSETS / f"tui-{name}.png"
+    image.save(str(path))
+    return str(path)
 
 
 async def _settle(pilot) -> None:
@@ -178,8 +160,7 @@ async def shot_splash() -> str:
         await _settle(pilot)
         app.sub_title = ""
         await _settle(pilot)
-        svg = _center_icon_glyphs(_rectify_logo_blocks(app.export_screenshot()))
-        return _write_png("splash", svg)
+        return _render_png(app, "splash")
 
 
 async def shot_connections() -> str:
@@ -187,7 +168,7 @@ async def shot_connections() -> str:
     app = DokliApp(config=_config())
     async with app.run_test(size=SIZE) as pilot:
         await _settle(pilot)
-        return _save(app, "connections")
+        return _render_png(app, "connections")
 
 
 async def shot_browser() -> str:
@@ -196,7 +177,7 @@ async def shot_browser() -> str:
     async with app.run_test(size=SIZE) as pilot:
         app.set_connection(_connection())
         await _wait_for_browser(app, pilot)
-        return _save(app, "browser")
+        return _render_png(app, "browser")
 
 
 async def shot_browser_detail() -> str:
@@ -217,7 +198,7 @@ async def shot_browser_detail() -> str:
         _select(app, "torrents")
         await pilot.press("l")
         await _settle(pilot)
-        return _save(app, "browser-detail")
+        return _render_png(app, "browser-detail")
 
 
 async def shot_palette() -> str:
@@ -228,7 +209,7 @@ async def shot_palette() -> str:
         await _wait_for_browser(app, pilot)
         await pilot.press("ctrl+p")
         await _settle(pilot)
-        return _save(app, "palette")
+        return _render_png(app, "palette")
 
 
 async def shot_result() -> str:
@@ -247,7 +228,7 @@ async def shot_result() -> str:
         app.install_screen(screen, name="result")
         app.push_screen("result")
         await _settle(pilot)
-        return _save(app, "result")
+        return _render_png(app, "result")
 
 
 SHOTS = {

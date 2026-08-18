@@ -19,7 +19,7 @@ Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
 - Single test: `uv run pytest tests/test_tui.py::test_name -q`.
 - `make format` — `ruff format` + `ruff check --fix`.
 - `make dev-tui` — run the TUI in dev mode (`dokli.tui.app:DokliApp`). Needs a Nerd Font for the icons.
-- `make screenshots` — regenerate the README images (`tools/screenshots.py`, anonymous mock data only). Requires `rsvg-convert` and the Nerd Fonts; outputs PNGs to `assets/`.
+- `make screenshots` — regenerate the README images (`tools/screenshots.py`, anonymous mock data only). Rasterizes Textual's compositor cell grid with the Agave Nerd Font Mono (Pillow), outputting PNGs to `assets/`.
 
 ## Git workflow
 
