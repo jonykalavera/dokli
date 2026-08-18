@@ -24,6 +24,7 @@ from dokli.resources import (
     LIST_LOOKUP,
     PARENT_KINDS,
     SECRET_FIELDS,
+    SECRET_OPT_FIELDS,
     child_array_key,
     match_key,
 )
@@ -53,7 +54,7 @@ def export_manifest(connection: ConnectionConfig, include_secrets: bool = False)
         for environment in project.environments
         for service in environment.services
         for resource in _export_service_resources(
-            client, project, environment, service, destination_names, warnings
+            client, project, environment, service, destination_names, include_secrets, warnings
         )
     ]
 
@@ -77,6 +78,7 @@ def _export_service_resources(
     environment,
     service: LiveService,
     destination_names: dict[str, str],
+    include_secrets: bool,
     warnings: list[str],
 ) -> list[Resource]:
     """Export the child records of a service as generic resources."""
@@ -92,6 +94,14 @@ def _export_service_resources(
                 warnings.append(
                     f"Secret fields of '{service.name}' {kind} were not exported. "
                     "Re-add them to the manifest for apply."
+                )
+            secret_opt = SECRET_OPT_FIELDS.get(kind, ())
+            redacted = {field for field in secret_opt if field in child}
+            if redacted and not include_secrets:
+                data = {key: value for key, value in data.items() if key not in redacted}
+                warnings.append(
+                    f"Secret fields of '{service.name}' {kind} ({', '.join(sorted(redacted))}) "
+                    "were not exported. Re-run with --include-secrets to export them."
                 )
             if kind == "backup" and child.get("destinationId"):
                 name = destination_names.get(child["destinationId"])

@@ -84,7 +84,7 @@ EXPORT_FIELDS: dict[str, set[str]] = {
     "port": {"publishedPort", "targetPort", "protocol", "publishMode"},
     "security": {"username"},
     "redirects": {"regex", "replacement", "permanent"},
-    "mount": {"type", "mountPath", "filePath"},
+    "mount": {"type", "mountPath", "filePath", "content"},
     "schedule": {"name", "cronExpression", "command", "enabled"},
     "backup": {"schedule", "prefix", "database", "databaseType", "enabled", "keepLatestCount", "backupType"},
 }
@@ -93,6 +93,11 @@ EXPORT_FIELDS: dict[str, set[str]] = {
 SECRET_FIELDS: dict[str, set[str]] = {
     "security": {"password"},
     "backup": {"metadata"},
+}
+
+# Fields only exported with --include-secrets (redacted by default).
+SECRET_OPT_FIELDS: dict[str, set[str]] = {
+    "mount": {"content"},
 }
 
 # Extra required fields for delete routes that have no schema default.
