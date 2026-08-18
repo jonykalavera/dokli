@@ -332,12 +332,29 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 - Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.
 - Mask secret-like fields in forms and results.
 
-| | |
-|---|---|
-| Connections | Yazi-style browser |
-| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png) |
-| Command palette | Result view (logs + search) |
-| ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) | ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) |
+### Connections
+
+![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png)
+
+### Yazi-style browser
+
+![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png)
+
+### Compose detail
+
+![Compose detail](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser-detail.png)
+
+### Command palette
+
+![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png)
+
+### Result view (logs + search)
+
+![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png)
+
+### Splash
+
+![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.png)
 
 ### TUI customization
 

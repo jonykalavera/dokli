@@ -57,7 +57,7 @@ class SplashScreen(Screen):
 
     def action_cancel_connection(self) -> None:
         """Abort the connection attempt and go back."""
-        cast(Any, self.app).cancel_connection()
+        cast("Any", self.app).cancel_connection()
 
     def set_status(self, text: str, error: bool = False) -> None:
         """Update the splash status line (no-op once unmounted)."""

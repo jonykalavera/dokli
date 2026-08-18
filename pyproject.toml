@@ -111,6 +111,7 @@ dev = [
     "polyfactory>=2.19.0,<3.0.0",
     "pytest-blockage>=0.2.4,<0.3.0",
     "ty>=0.0.69",
+    "pillow>=12.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]

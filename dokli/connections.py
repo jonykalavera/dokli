@@ -42,9 +42,7 @@ def build_command(config: Config) -> typer.Typer:
         url: str | None = typer.Option(None, "--url", help="New URL."),
         api_key: str | None = typer.Option(None, "--api-key", help="New API key (64 chars)."),
         api_key_cmd: str | None = typer.Option(None, "--api-key-cmd", help="New command that outputs the API key."),
-        keyring: bool = typer.Option(
-            False, "--keyring", help="Move the API key to the system keychain."
-        ),
+        keyring: bool = typer.Option(False, "--keyring", help="Move the API key to the system keychain."),
         notes: str | None = typer.Option(None, "--notes", help="New notes."),
     ) -> None:
         """Update a connection (optionally renaming it)."""
@@ -52,21 +50,21 @@ def build_command(config: Config) -> typer.Typer:
 
     @group.command("remove")
     def remove_connection(
-        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names)
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names),
     ) -> None:
         """Remove a connection."""
         _remove_connection(config, name)
 
     @group.command("get")
     def get_connection(
-        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names)
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names),
     ) -> None:
         """Show a connection (key masked)."""
         _get_connection(config, name)
 
     @group.command("test")
     def test_connection(
-        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names)
+        name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names),
     ) -> None:
         """Validate a connection against the live instance."""
         _test_connection(config, name)
@@ -153,13 +151,7 @@ def _update_connection(
 ) -> None:
     current = _find(config, name)
     renaming = new_name is not None and new_name != name
-    has_fields = (
-        url is not None
-        or api_key is not None
-        or api_key_cmd is not None
-        or keyring
-        or notes is not None
-    )
+    has_fields = url is not None or api_key is not None or api_key_cmd is not None or keyring or notes is not None
     if new_name is not None and not renaming and has_fields:
         rprint(f"[yellow]'{name}' is already named '{new_name}' (rename skipped).[/yellow]")
     if not renaming and not has_fields:

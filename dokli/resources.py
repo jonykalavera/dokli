@@ -148,13 +148,12 @@ def delete_spec(registry, kind: str) -> tuple[str, str, dict] | None:
         return f"{entity}.{verb}", id_field, defaults
     return None
 
+
 # Child kind -> the nested array key on the parent service record.
 CHILD_ARRAY: dict[str, str] = {child: key for key, child in NESTED_CHILD_KEYS.items()}
 
 # Service kinds that can host leaf resources.
-SERVICE_KINDS = frozenset(
-    {"compose", "application", "postgres", "mysql", "mariadb", "mongo", "redis", "libsql"}
-)
+SERVICE_KINDS = frozenset({"compose", "application", "postgres", "mysql", "mariadb", "mongo", "redis", "libsql"})
 
 
 def match_key(kind: str) -> str:
@@ -341,9 +340,7 @@ class ResourceManager:
                 self.client.request("POST", f"{entity}.update", {"body": update_body})
         else:
             action = "skip"
-        self.report.actions.append(
-            ApplyAction(action=action, kind=resource.kind, name=resource.name)
-        )
+        self.report.actions.append(ApplyAction(action=action, kind=resource.kind, name=resource.name))
 
     def _find_live_service(self, kind: str, name: str, ancestors: list[tuple[str, str]]):
         """Find a live service by kind + name, honoring the ancestor path.
@@ -407,11 +404,7 @@ class ResourceManager:
         merged = {**body, id_field(resource.kind): entity_id}
         if resource.kind not in UPDATE_MERGE_KINDS:
             return merged
-        live = {
-            key: value
-            for key, value in child.items()
-            if not key.endswith(("Id", "At"))
-        }
+        live = {key: value for key, value in child.items() if not key.endswith(("Id", "At"))}
         return {**live, **body, id_field(resource.kind): entity_id}
 
     def _resolve_named(self, entity: str, name: str) -> str:
