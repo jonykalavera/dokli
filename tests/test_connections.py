@@ -22,7 +22,7 @@ def _app(config):
     return app
 
 
-def _conn(name="meche", url="https://a.example.com"):
+def _conn(name="alpha", url="https://a.example.com"):
     return ConnectionConfig(name=name, url=url, api_key="*" * 64)
 
 
@@ -67,12 +67,12 @@ def test_add_connection_with_keyring(tmp_path, monkeypatch, fake_keyring):
 def test_update_connection_with_keyring(tmp_path, monkeypatch, fake_keyring):
     """We expect --keyring on update to move the key to the keychain."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "update", "meche", "--keyring"])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha", "--keyring"])
     assert result.exit_code == 0
     updated = config.connections[0]
     assert updated.api_key is None
     assert updated.api_key_keyring is True
-    assert fake_keyring.store[("dokli", "conn.meche")] == "*" * 64
+    assert fake_keyring.store[("dokli", "conn.alpha")] == "*" * 64
 
 
 def test_add_prompts_for_missing_name_and_url(tmp_path, monkeypatch):
@@ -92,7 +92,7 @@ def test_add_duplicate_rejected(tmp_path, monkeypatch):
     """We expect adding an existing connection to fail."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     result = runner.invoke(
-        _app(config), ["connections", "add", "meche", "--url", "https://b.example.com", "--api-key", "*" * 64]
+        _app(config), ["connections", "add", "alpha", "--url", "https://b.example.com", "--api-key", "*" * 64]
     )
     assert result.exit_code == 2
     assert "already exists" in result.output
@@ -110,7 +110,7 @@ def test_add_invalid_name_rejected(tmp_path, monkeypatch):
 def test_update_no_fields_warns(tmp_path, monkeypatch):
     """We expect update without any field to warn instead of claiming success."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "update", "meche"])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha"])
     assert result.exit_code == 0
     assert "No fields provided" in result.output
     assert "Updated" not in result.output
@@ -120,7 +120,7 @@ def test_update_connection(tmp_path, monkeypatch):
     """We expect update to change only the given fields."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     result = runner.invoke(
-        _app(config), ["connections", "update", "meche", "--url", "https://b.example.com", "--notes", "prod"]
+        _app(config), ["connections", "update", "alpha", "--url", "https://b.example.com", "--notes", "prod"]
     )
     assert result.exit_code == 0
     assert config.connections[0].url.host == "b.example.com"
@@ -131,18 +131,18 @@ def test_update_api_key_cmd_replaces_key(tmp_path, monkeypatch):
     """We expect setting an api-key-cmd to drop the stored api key."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     result = runner.invoke(
-        _app(config), ["connections", "update", "meche", "--api-key-cmd", "secret-tool lookup dokli meche"]
+        _app(config), ["connections", "update", "alpha", "--api-key-cmd", "secret-tool lookup dokli alpha"]
     )
     assert result.exit_code == 0
     updated = config.connections[0]
     assert updated.api_key is None
-    assert updated.api_key_cmd == "secret-tool lookup dokli meche"
+    assert updated.api_key_cmd == "secret-tool lookup dokli alpha"
 
 
 def test_remove_connection(tmp_path, monkeypatch):
     """We expect remove to delete the connection from the config."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "remove", "meche"])
+    result = runner.invoke(_app(config), ["connections", "remove", "alpha"])
     assert result.exit_code == 0
     assert config.connections == []
 
@@ -150,16 +150,16 @@ def test_remove_connection(tmp_path, monkeypatch):
 def test_rename_connection(tmp_path, monkeypatch):
     """We expect update with a second positional to rename the connection."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "update", "meche", "media-main"])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha", "gamma"])
     assert result.exit_code == 0
-    assert [c.name for c in config.connections] == ["media-main"]
-    assert "meche" not in [c.name for c in config.connections]
+    assert [c.name for c in config.connections] == ["gamma"]
+    assert "alpha" not in [c.name for c in config.connections]
 
 
 def test_rename_duplicate_rejected(tmp_path, monkeypatch):
     """We expect renaming to an existing connection name to fail."""
-    config = _config(tmp_path, monkeypatch, connections=[_conn(), _conn(name="hot-test", url="https://b.example.com")])
-    result = runner.invoke(_app(config), ["connections", "update", "meche", "hot-test"])
+    config = _config(tmp_path, monkeypatch, connections=[_conn(), _conn(name="beta", url="https://b.example.com")])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha", "beta"])
     assert result.exit_code == 2
     assert "already exists" in result.output
 
@@ -167,27 +167,27 @@ def test_rename_duplicate_rejected(tmp_path, monkeypatch):
 def test_rename_invalid_name_rejected(tmp_path, monkeypatch):
     """We expect renaming to an invalid name to fail validation."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "update", "meche", "BAD NAME"])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha", "BAD NAME"])
     assert result.exit_code == 2
 
 
 def test_rename_same_name_noop(tmp_path, monkeypatch):
     """We expect renaming to the same name with no fields to warn and change nothing."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "update", "meche", "meche"])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha", "alpha"])
     assert result.exit_code == 0
     assert "No fields provided" in result.output
-    assert [c.name for c in config.connections] == ["meche"]
+    assert [c.name for c in config.connections] == ["alpha"]
 
 
 def test_rename_same_name_applies_fields(tmp_path, monkeypatch):
     """We expect same-name rename to still apply the other field updates."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "update", "meche", "meche", "--notes", "prod"])
+    result = runner.invoke(_app(config), ["connections", "update", "alpha", "alpha", "--notes", "prod"])
     assert result.exit_code == 0
     assert "rename skipped" in result.output
     updated = config.connections[0]
-    assert updated.name == "meche"
+    assert updated.name == "alpha"
     assert updated.notes == "prod"
 
 
@@ -195,18 +195,18 @@ def test_rename_with_fields(tmp_path, monkeypatch):
     """We expect rename to combine with other field updates."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     result = runner.invoke(
-        _app(config), ["connections", "update", "meche", "media-main", "--notes", "prod"]
+        _app(config), ["connections", "update", "alpha", "gamma", "--notes", "prod"]
     )
     assert result.exit_code == 0
     updated = config.connections[0]
-    assert updated.name == "media-main"
+    assert updated.name == "gamma"
     assert updated.notes == "prod"
 
 
 def test_get_masks_key(tmp_path, monkeypatch):
     """We expect get to show the connection with the key masked."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
-    result = runner.invoke(_app(config), ["connections", "get", "meche"])
+    result = runner.invoke(_app(config), ["connections", "get", "alpha"])
     assert result.exit_code == 0
     assert "***" in result.output
     assert "*" * 64 not in result.output
@@ -215,12 +215,12 @@ def test_get_masks_key(tmp_path, monkeypatch):
 def test_ls_lists_connections(tmp_path, monkeypatch):
     """We expect ls to list the configured connections."""
     connection = ConnectionConfig(
-        name="meche", url="https://a.example.com", api_key_cmd="secret-tool lookup dokli meche", notes="prod"
+        name="alpha", url="https://a.example.com", api_key_cmd="secret-tool lookup dokli alpha", notes="prod"
     )
     config = _config(tmp_path, monkeypatch, connections=[connection])
     result = runner.invoke(_app(config), ["connections", "ls"])
     assert result.exit_code == 0
-    assert "meche" in result.output
+    assert "alpha" in result.output
     assert "prod" in result.output
 
 
@@ -230,7 +230,7 @@ def test_test_connection_ok(tmp_path, monkeypatch, mocker):
     client = mocker.Mock()
     client.schema = {"info": {"version": "v0.29.13"}}
     api_client = mocker.patch("dokli.connections.APIClient", return_value=client)
-    result = runner.invoke(_app(config), ["connections", "test", "meche"])
+    result = runner.invoke(_app(config), ["connections", "test", "alpha"])
     assert result.exit_code == 0
     assert "v0.29.13" in result.output
     api_client.assert_called_once_with(config.connections[0], force_refresh=True)
@@ -240,6 +240,6 @@ def test_test_connection_unreachable(tmp_path, monkeypatch, mocker):
     """We expect test to fail with a non-zero exit when unreachable."""
     config = _config(tmp_path, monkeypatch, connections=[_conn()])
     mocker.patch("dokli.connections.APIClient", side_effect=RuntimeError("boom"))
-    result = runner.invoke(_app(config), ["connections", "test", "meche"])
+    result = runner.invoke(_app(config), ["connections", "test", "alpha"])
     assert result.exit_code == 1
     assert "unreachable" in result.output

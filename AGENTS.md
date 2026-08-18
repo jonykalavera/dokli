@@ -8,7 +8,7 @@ All collaboration content must be in **English** to ease contributions from anyo
 
 ## Environment data
 
-Never leak **environment-specific data** in collaboration content (PR descriptions, issues, comments, commit messages, README, examples): connection names, instance hostnames/URLs, real service/project/environment names, real ids, or instance-specific counts. Smoke-test notes must be anonymized (e.g. "a real connection", "a github-sourced compose", "a deployment log") or use placeholders like `<conn>`, `<id>`, `<compose>`. Only `meche`/`hot-test` connection *names* may appear in `~/.config` notes; never in public content.
+Never leak **environment-specific data** in collaboration content (PR descriptions, issues, comments, commit messages, README, examples, AGENTS.md): connection names, instance hostnames/URLs, api-key keyring labels, real service/project/environment names, real ids, or instance-specific counts. Smoke-test notes must be anonymized (e.g. "a real connection", "a github-sourced compose", "a deployment log") or use placeholders like `<conn>`, `<id>`, `<compose>`. This applies to every file in the repo, including this one.
 
 ## Commands
 
@@ -28,7 +28,7 @@ Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
 
 ## Testing gotchas
 
-- **`make test` needs the live config reachable.** `test_cli.py` collection imports `dokli.cli`, which calls `register_connections` and fetches the OpenAPI schema for every connection in `~/.config/dokli/dokli.yaml` at import time. An unreachable/polluted config breaks collection with a 404. Restore the real config (`connections: [meche]`) if tests overwrite it.
+- **`make test` needs the live config reachable.** `test_cli.py` collection imports `dokli.cli`, which calls `register_connections` and fetches the OpenAPI schema for every connection in `~/.config/dokli/dokli.yaml` at import time. An unreachable/polluted config breaks collection with a 404. Restore the real config (`connections: [<conn>]`) if tests overwrite it.
 - **Never let tests write the real config.** App persistence handlers call `Config.save()`; tests must `mocker.patch("dokli.config.Config.save")` (pydantic blocks `patch.object` on an instance — patch the class). A stray real save overwrites the user's `~/.config/dokli/dokli.yaml`.
 - TUI tests live in `tests/test_tui.py`: reuse `FAKE_SCHEMA`, `_patch_api(mocker)` (returns the responses dict + patches both APIClient sites), `FakeResponse`, and the pilot helpers `_mount_browser` / `_wait_for_label` / `_select`.
 
@@ -44,7 +44,7 @@ Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
 
 ## Live instance
 
-`meche` = https://dokploy.meche.lan (api key via `secret-tool lookup dokli meche`), configured in `~/.config/dokli/dokli.yaml`. The OpenAPI schema is cached per connection at `~/.config/dokli/cache/<conn>.openapi.json`; `dokli refresh [connection]` refetches it. Use this instance for manual CLI/TUI verification.
+One local connection (a self-hosted Dokploy on the LAN, api key in the system keyring) is configured in `~/.config/dokli/dokli.yaml`. The OpenAPI schema is cached per connection at `~/.config/dokli/cache/<conn>.openapi.json`; `dokli refresh [connection]` refetches it. Use a real connection for manual CLI/TUI verification.
 
 ## Layout
 

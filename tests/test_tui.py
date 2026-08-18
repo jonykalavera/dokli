@@ -380,7 +380,7 @@ def test_form_surfaces_model_level_errors():
                 "loc": (),
                 "msg": "Must provide api_key, api_key_keyring or api_key_cmd.",
                 "type": "value_error",
-                "input": {"name": "hot-test", "api_key": None, "api_key_cmd": None},
+                "input": {"name": "beta", "api_key": None, "api_key_cmd": None},
             }
         ]
     )
@@ -401,8 +401,8 @@ def test_connection_form_model_error_no_crash(mocker):
                 await pilot.pause()
             assert isinstance(app.screen, ConnectionScreen)
             form = app.screen.query_one(Form)
-            form.fields["name"].value = "hot-test"
-            form.fields["url"].value = "https://storm.example.dev"
+            form.fields["name"].value = "beta"
+            form.fields["url"].value = "https://beta.example.dev"
             form.fields["notes"].value = "H"
             # keychain is on by default for new connections; turn it off so the
             # form has no credential and the model-level error is exercised.
@@ -429,8 +429,8 @@ def test_connection_form_notes_optional(mocker):
             for _ in range(10):
                 await pilot.pause()
             form = app.screen.query_one(Form)
-            form.fields["name"].value = "hot-test"
-            form.fields["url"].value = "https://storm.example.dev"
+            form.fields["name"].value = "beta"
+            form.fields["url"].value = "https://beta.example.dev"
             form.fields["api_key"].value = "*" * 64
             assert form.validate() is True
             assert form.cleaned_data["notes"] == ""

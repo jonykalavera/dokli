@@ -20,10 +20,10 @@ class TestSecrets:
 
     def test_set_get_delete(self, fake_keyring):
         """We expect a secret to round-trip through the keychain."""
-        set_secret(conn_account("meche"), "*" * 64)
-        assert get_secret(conn_account("meche")) == "*" * 64
-        delete_secret(conn_account("meche"))
-        assert get_secret(conn_account("meche")) is None
+        set_secret(conn_account("alpha"), "*" * 64)
+        assert get_secret(conn_account("alpha")) == "*" * 64
+        delete_secret(conn_account("alpha"))
+        assert get_secret(conn_account("alpha")) is None
 
     def test_delete_missing_is_noop(self, fake_keyring):
         """We expect deleting an absent secret not to raise."""
@@ -31,7 +31,7 @@ class TestSecrets:
 
     def test_account_names(self):
         """We expect deterministic account names."""
-        assert conn_account("meche") == "conn.meche"
+        assert conn_account("alpha") == "conn.alpha"
         assert provider_account("github-main") == "provider.github-main"
         assert db_account("backend") == "db.backend"
 
@@ -42,23 +42,23 @@ class TestSecretsCLI:
     def test_set_get_rm(self, fake_keyring):
         """We expect the CLI to store, read and remove a secret."""
         result = runner.invoke(
-            _app(), ["secrets", "set", "conn.meche", "--stdin"], input="*" * 64 + "\n"
+            _app(), ["secrets", "set", "conn.alpha", "--stdin"], input="*" * 64 + "\n"
         )
         assert result.exit_code == 0
-        assert fake_keyring.store[("dokli", "conn.meche")] == "*" * 64
+        assert fake_keyring.store[("dokli", "conn.alpha")] == "*" * 64
 
-        result = runner.invoke(_app(), ["secrets", "get", "conn.meche"])
+        result = runner.invoke(_app(), ["secrets", "get", "conn.alpha"])
         assert result.exit_code == 0
         assert "*" * 64 not in result.output
         assert "***" in result.output or "…" in result.output
 
-        result = runner.invoke(_app(), ["secrets", "get", "conn.meche", "--show"])
+        result = runner.invoke(_app(), ["secrets", "get", "conn.alpha", "--show"])
         assert result.exit_code == 0
         assert "*" * 64 in result.output
 
-        result = runner.invoke(_app(), ["secrets", "rm", "conn.meche"])
+        result = runner.invoke(_app(), ["secrets", "rm", "conn.alpha"])
         assert result.exit_code == 0
-        assert ("dokli", "conn.meche") not in fake_keyring.store
+        assert ("dokli", "conn.alpha") not in fake_keyring.store
 
     def test_get_missing_fails(self, fake_keyring):
         """We expect get on an absent secret to fail with a non-zero exit."""

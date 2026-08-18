@@ -41,19 +41,19 @@ class TestConfig:
         target = tmp_path / "dokli.yaml"
         config = ConfigFactory.build(
             connections=[
-                ConnectionConfigFactory.build(name="meche", api_key_cmd="echo key"),
+                ConnectionConfigFactory.build(name="alpha", api_key_cmd="echo key"),
                 ConnectionConfigFactory.build(name="stage", api_key="*" * 64),
             ]
         )
         config.save(target)
 
         data = yaml.safe_load(target.read_text())
-        assert [c["name"] for c in data["connections"]] == ["meche", "stage"]
+        assert [c["name"] for c in data["connections"]] == ["alpha", "stage"]
         assert data["connections"][0]["api_key_cmd"] == "echo key"
         assert data["connections"][1]["api_key"] == "*" * 64
 
         reloaded = [ConnectionConfig.model_validate(c) for c in data["connections"]]
-        assert [c.name for c in reloaded] == ["meche", "stage"]
+        assert [c.name for c in reloaded] == ["alpha", "stage"]
         assert reloaded[1].api_key.get_secret_value() == "*" * 64
 
     def test_config_path_prefers_local(self, tmp_path, monkeypatch):
@@ -67,10 +67,10 @@ class TestConfig:
         """We expect save() without a path to write to the local dokli.yaml."""
         (tmp_path / "dokli.yaml").write_text("connections: []\n")
         monkeypatch.chdir(tmp_path)
-        config = ConfigFactory.build(connections=[ConnectionConfigFactory.build(name="meche")])
+        config = ConfigFactory.build(connections=[ConnectionConfigFactory.build(name="alpha")])
         config.save()
         data = yaml.safe_load((tmp_path / "dokli.yaml").read_text())
-        assert data["connections"][0]["name"] == "meche"
+        assert data["connections"][0]["name"] == "alpha"
 
 
 class TestConnectionConfig:
@@ -96,9 +96,9 @@ class TestConnectionConfig:
 
     def test_get_api_key_prefers_keyring(self, fake_keyring):
         """We expect the keychain to be used before api_key_cmd."""
-        fake_keyring.store[("dokli", "conn.meche")] = "*" * 64
+        fake_keyring.store[("dokli", "conn.alpha")] = "*" * 64
         config = ConnectionConfigFactory.build(
-            name="meche", api_key=None, api_key_keyring=True, api_key_cmd="echo key"
+            name="alpha", api_key=None, api_key_keyring=True, api_key_cmd="echo key"
         )
         assert config.get_api_key() == "*" * 64
 
@@ -133,8 +133,8 @@ class TestTuiConfig:
         target.write_text(
             """\
 connections:
-  - name: meche
-    url: https://meche.lan
+  - name: alpha
+    url: https://alpha.lan
     api_key_cmd: "echo key"
 tui:
   theme: light
