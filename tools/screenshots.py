@@ -9,6 +9,8 @@ Usage:
 """
 
 import asyncio
+import html
+import re
 import sys
 from pathlib import Path
 from unittest import mock
@@ -67,6 +69,44 @@ def _save(app: DokliApp, name: str) -> str:
     return str(path)
 
 
+_TEXT_ELEMENT = re.compile(r"<text(?P<attrs>[^>]*)>(?P<body>[^<]*)</text>")
+
+
+def _rectify_logo_blocks(svg: str) -> str:
+    """Render the splash logo's ``█`` glyphs as crisp ``<rect>`` cells.
+
+    The exported SVG positions every character at fixed cell coordinates, but
+    the actual rendering depends on the viewer honoring ``textLength`` and using
+    a monospaced font (Fira Code via ``@font-face``); fallback fonts or renderers
+    that ignore ``textLength`` compress the spaces and misalign the block art.
+    Drawing the blocks as rects removes that dependency entirely.
+    """
+    fills = {k: v.strip() for k, v in re.findall(r"\.terminal-\w+-r(\d+)\s*\{\s*fill:\s*([^;}]+)", svg)}
+
+    def replace(match: re.Match) -> str:
+        attrs, body = match.group("attrs"), match.group("body")
+        if "█" not in body:
+            return match.group(0)
+        text = html.unescape(body).replace("\u00a0", " ")
+        cls = re.search(r'class="[^"]*-r(\d+)"', attrs).group(1)
+        x = float(re.search(r'x="([\d.]+)"', attrs).group(1))
+        y = float(re.search(r'y="([\d.]+)"', attrs).group(1))
+        total = float(re.search(r'textLength="([\d.]+)"', attrs).group(1))
+        cell = total / len(text) if text else 12.2
+        fill = fills.get(cls, "#e4e4e6")
+        top = y - 18.5  # baseline -> cell top (font-size 20 / line-height 24.4)
+        rects = []
+        for index, char in enumerate(text):
+            if char == "█":
+                rects.append(
+                    f'<rect x="{x + index * cell:.1f}" y="{top:.1f}" '
+                    f'width="{cell:.1f}" height="24.65" fill="{fill}" />'
+                )
+        return "".join(rects)
+
+    return _TEXT_ELEMENT.sub(replace, svg)
+
+
 async def _settle(pilot) -> None:
     for _ in range(12):
         await pilot.pause()
@@ -94,7 +134,10 @@ async def shot_splash() -> str:
         # layout; it is transient anyway, so hide it for a clean logo shot.
         splash.query_one("#status-panel").display = False
         await _settle(pilot)
-        return _save(app, "splash")
+        svg = _rectify_logo_blocks(app.export_screenshot())
+        path = ASSETS / "tui-splash.svg"
+        path.write_text(svg)
+        return str(path)
 
 
 async def shot_connections() -> str:
