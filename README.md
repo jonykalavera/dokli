@@ -335,9 +335,14 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 | | |
 |---|---|
 | Connections | Yazi-style browser |
-| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.png) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.png) |
-| Command palette | Result view (logs + search) |
-| ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.png) | ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png) |
+| ![Connections](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-connections.svg) | ![Browser](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser.svg) |
+| Compose detail | Command palette |
+| ![Compose detail](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-browser-detail.svg) | ![Command palette](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-palette.svg) |
+| Result view (logs + search) | Splash |
+| ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.svg) | ![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.svg) |
+
+Screenshots are generated headless from anonymized mock data — regenerate them
+with `make screenshots` (they never show real instances).
 
 ### TUI customization
 

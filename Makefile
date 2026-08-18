@@ -12,6 +12,9 @@ lint:
 dev-tui:
 	uv run textual run --dev dokli.tui.app:DokliApp
 
+screenshots:
+	uv run python tools/screenshots.py
+
 def-tui-console:
 	uv run textual console - SYSTEM -X EVENT
 
