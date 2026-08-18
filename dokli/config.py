@@ -65,6 +65,12 @@ class TuiConfig(BaseModel):
     auto_deploy: bool = Field(
         False, description="Deploy a service after a create/update from a form (best effort)."
     )
+    logs_interval_seconds: float = Field(
+        3.0, description="How often the logs follow-mode polls for new lines (issue #72)."
+    )
+    logs_tail_lines: int = Field(
+        500, description="How many lines each logs follow-mode poll requests (issue #72)."
+    )
 
     @property
     def dark(self) -> bool:
