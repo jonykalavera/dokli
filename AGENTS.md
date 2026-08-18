@@ -6,6 +6,10 @@ Python CLI/TUI for [Dokploy](https://github.com/Dokploy/dokploy), generated from
 
 All collaboration content must be in **English** to ease contributions from anyone: commit messages, PR descriptions, issues/tickets, code comments and docstrings, README/docs, and config samples. No Spanish (or other languages) in code or GitHub content.
 
+## Environment data
+
+Never leak **environment-specific data** in collaboration content (PR descriptions, issues, comments, commit messages, README, examples): connection names, instance hostnames/URLs, real service/project/environment names, real ids, or instance-specific counts. Smoke-test notes must be anonymized (e.g. "a real connection", "a github-sourced compose", "a deployment log") or use placeholders like `<conn>`, `<id>`, `<compose>`. Only `meche`/`hot-test` connection *names* may appear in `~/.config` notes; never in public content.
+
 ## Commands
 
 Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
