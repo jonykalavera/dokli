@@ -922,9 +922,23 @@ class BrowserScreen(Screen):
                 on_success=self._auto_deploy_callback(action),
                 excluded=excluded,
                 inject=inject,
+                context=self._context(),
                 classes="Entities",
             )
         )
+
+    def _context(self) -> dict:
+        """Navigation context for FK source params (e.g. the current project).
+
+        Walks the path from the innermost level for the nearest environment
+        record, whose ``projectId`` drives ``environment.byProjectId``.
+        """
+        for level in reversed(self.path):
+            if level.entity == "environment" and level.record:
+                project_id = level.record.get("projectId")
+                if project_id:
+                    return {"projectId": project_id}
+        return {}
 
     def _auto_deploy_callback(self, action):
         """A form success hook that deploys the service when configured."""

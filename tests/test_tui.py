@@ -966,6 +966,110 @@ def test_conditional_build_type_gates_build_fields(mocker):
     _run(main())
 
 
+def _environment_form_schema():
+    return {
+        "paths": {
+            "/application.create": {
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string"},
+                                        "environmentId": {"type": "string"},
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+def test_environment_id_picker_uses_project_context(mocker):
+    """We expect environmentId to list the project's environments via context."""
+    client = mocker.Mock()
+    client.request.return_value = FakeResponse([{"environmentId": "e1", "name": "production"}])
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_environment_form_schema())
+    action = registry.get("application").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action, context={"projectId": "p1"})
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["environmentId"]
+            assert isinstance(control, FkSelectControl)
+            assert isinstance(control.query_one("#environmentId-input"), Select)
+            assert control._options == [("production", "e1")]
+            method, route, params = client.request.call_args[0]
+            assert route == "environment.byProjectId"
+            assert params == {"projectId": "p1"}
+
+    _run(main())
+
+
+def test_environment_id_falls_back_without_context(mocker):
+    """We expect environmentId to fall back to text when no project context exists."""
+    client = mocker.Mock()
+    client.request.side_effect = httpx.HTTPError("missing projectId")
+    mocker.patch("dokli.tui.engine.fk.APIClient", return_value=client)
+    mocker.patch("dokli.tui.app.APIClient")
+    mocker.patch("dokli.tui.screens.generic.execute.APIClient")
+    registry = parse_spec(_environment_form_schema())
+    action = registry.get("application").get("create")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ActionFormScreen(_connection(), action)
+            app.install_screen(screen, name="form")
+            app.push_screen("form")
+            for _ in range(6):
+                await pilot.pause()
+            control = screen.form.fields["environmentId"]
+            assert isinstance(control, FkSelectControl)
+            assert isinstance(control.query_one("#environmentId-input"), Input)
+
+    _run(main())
+
+
+def test_browser_context_finds_project_id(mocker):
+    """We expect the browser to expose the current environment's projectId."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path = [
+                Level(kind="entities", items=[]),
+                Level(
+                    kind="children",
+                    items=[],
+                    entity="environment",
+                    record={"environmentId": "e1", "name": "production", "projectId": "p1"},
+                ),
+            ]
+            assert screen._context() == {"projectId": "p1"}
+            screen.path[1].record = {"environmentId": "e1", "name": "production"}
+            assert screen._context() == {}
+
+    _run(main())
+
+
 def test_textarea_typing_is_not_reversed(mocker):
     """We expect typing into a text area to keep the natural character order."""
     mocker.patch("dokli.tui.app.APIClient")

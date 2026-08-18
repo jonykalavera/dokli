@@ -38,6 +38,7 @@ class ActionFormScreen(Screen):
         on_success: Callable[[], None] | None = None,
         excluded: set[str] | None = None,
         inject: dict | None = None,
+        context: dict | None = None,
         *args,
         **kwargs,
     ) -> None:
@@ -45,7 +46,8 @@ class ActionFormScreen(Screen):
 
         ``excluded`` fields are dropped from the form (e.g. parent-id fields);
         ``inject`` fields are merged into the submitted body (e.g. the parent id
-        derived from context).
+        derived from context); ``context`` holds navigation context used to
+        resolve FK source params (e.g. the current ``projectId``).
         """
         super().__init__(*args, **kwargs)
         self.connection = connection
@@ -54,6 +56,7 @@ class ActionFormScreen(Screen):
         self.on_success = on_success
         self.excluded = excluded or set()
         self.inject = inject or {}
+        self.context = context or {}
         model = build_form_model(action.request_schema, name=f"{action.route}Form", excluded=self.excluded)
         prefill = {key: value for key, value in self.record.items() if key in model.model_fields}
         entity = self.action.route.split(".")[0]
@@ -69,7 +72,18 @@ class ActionFormScreen(Screen):
 
     def _fk_fetcher(self, control: FkSelectControl) -> Callable[[], Any]:
         """A fetcher that loads the FK control's candidates off the event loop."""
-        return lambda: asyncio.to_thread(load_fk_candidates, self.connection, control.fk_source)
+        source = control.fk_source
+        params = self._fk_params(source)
+        return lambda: asyncio.to_thread(load_fk_candidates, self.connection, source, params)
+
+    def _fk_params(self, source: dict) -> dict:
+        """Resolve an FK source's query params from the navigation context."""
+        params: dict = {}
+        for param, context_key in (source.get("params") or {}).items():
+            value = self.context.get(context_key) or self.record.get(context_key)
+            if value:
+                params[param] = value
+        return params
 
     def compose(self) -> "ComposeResult":
         """Compose the screen."""
@@ -131,6 +145,7 @@ class ActionFormScreen(Screen):
                 record=self.record,
                 excluded=self.excluded,
                 inject=self.inject,
+                context=self.context,
                 classes="Entities",
             )
         )
