@@ -66,7 +66,7 @@ PARENT_KINDS: dict[str, set[str] | None] = {
 
 # Kinds whose update requires fields the create may not set; the live child
 # record is merged into the update payload so those fields are preserved.
-UPDATE_MERGE_KINDS = frozenset({"backup"})
+UPDATE_MERGE_KINDS = frozenset({"backup", "schedule"})
 
 # Data fields that are resolved by name (never sent as-is), and how.
 NAMED_REFERENCES: dict[str, str] = {"backup": "destination"}
@@ -85,7 +85,7 @@ EXPORT_FIELDS: dict[str, set[str]] = {
     "security": {"username"},
     "redirects": {"regex", "replacement", "permanent"},
     "mount": {"type", "mountPath", "filePath", "content"},
-    "schedule": {"name", "cronExpression", "command", "enabled"},
+    "schedule": {"name", "cronExpression", "command", "enabled", "serviceName", "shellType", "scheduleType"},
     "backup": {"schedule", "prefix", "database", "databaseType", "enabled", "keepLatestCount", "backupType"},
 }
 

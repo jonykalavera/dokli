@@ -88,6 +88,46 @@ class TestExportResources:
         assert kinds["schedule"].data["cronExpression"] == "0 3 * * *"
         assert any("Secret fields" in w for w in warnings)
 
+    def test_exports_compose_schedule_fields(self, mocker):
+        """We expect a compose schedule to export its target service and shell."""
+        mocker.patch(
+            "dokli.export.APIClient",
+            return_value=_FakeClient(
+                {
+                    "schedule.list": [
+                        {
+                            "scheduleId": "sc1",
+                            "name": "nightly",
+                            "cronExpression": "0 3 * * *",
+                            "command": "echo hello",
+                            "enabled": True,
+                            "serviceName": "worker",
+                            "shellType": "bash",
+                            "scheduleType": "compose",
+                        }
+                    ],
+                    "destination.all": [],
+                }
+            ),
+        )
+        mocker.patch(
+            "dokli.export.collect_state",
+            return_value=State(
+                connection="test-env",
+                projects=[_project_live("app", [_live_service("compose", "backend")])],
+            ),
+        )
+
+        manifest, _ = export_manifest(_connection())
+
+        schedule = manifest.resources[0]
+        assert schedule.kind == "schedule"
+        assert schedule.name == "nightly"
+        assert schedule.data["serviceName"] == "worker"
+        assert schedule.data["shellType"] == "bash"
+        assert schedule.data["scheduleType"] == "compose"
+        assert schedule.data["cronExpression"] == "0 3 * * *"
+
     def test_mount_content_redacted_by_default(self, mocker):
         """We expect file-mount content to be omitted unless --include-secrets."""
         mocker.patch(
