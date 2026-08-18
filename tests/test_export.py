@@ -97,11 +97,11 @@ class TestExportResources:
                     "schedule.list": [
                         {
                             "scheduleId": "sc1",
-                            "name": "reorder-stalled",
-                            "cronExpression": "*/5 * * * *",
-                            "command": "bash /watcher/stalled-reorder.sh",
+                            "name": "nightly",
+                            "cronExpression": "0 3 * * *",
+                            "command": "echo hello",
                             "enabled": True,
-                            "serviceName": "qbittorrent",
+                            "serviceName": "worker",
                             "shellType": "bash",
                             "scheduleType": "compose",
                         }
@@ -114,7 +114,7 @@ class TestExportResources:
             "dokli.export.collect_state",
             return_value=State(
                 connection="test-env",
-                projects=[_project_live("app", [_live_service("compose", "torrents")])],
+                projects=[_project_live("app", [_live_service("compose", "backend")])],
             ),
         )
 
@@ -122,11 +122,11 @@ class TestExportResources:
 
         schedule = manifest.resources[0]
         assert schedule.kind == "schedule"
-        assert schedule.name == "reorder-stalled"
-        assert schedule.data["serviceName"] == "qbittorrent"
+        assert schedule.name == "nightly"
+        assert schedule.data["serviceName"] == "worker"
         assert schedule.data["shellType"] == "bash"
         assert schedule.data["scheduleType"] == "compose"
-        assert schedule.data["cronExpression"] == "*/5 * * * *"
+        assert schedule.data["cronExpression"] == "0 3 * * *"
 
     def test_mount_content_redacted_by_default(self, mocker):
         """We expect file-mount content to be omitted unless --include-secrets."""

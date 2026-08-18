@@ -376,14 +376,14 @@ class TestResourceManager:
                 "schedule.list": [
                     {
                         "scheduleId": "s1",
-                        "name": "reorder-stalled",
-                        "cronExpression": "*/5 * * * *",
-                        "command": "bash /watcher/stalled-reorder.sh",
+                        "name": "nightly",
+                        "cronExpression": "0 3 * * *",
+                        "command": "echo hello",
                         "enabled": True,
-                        "serviceName": "qbittorrent",
+                        "serviceName": "worker",
                         "shellType": "bash",
                         "scheduleType": "compose",
-                        "appName": "media-torrents",
+                        "appName": "example-app",
                     }
                 ],
             }
@@ -392,9 +392,9 @@ class TestResourceManager:
             _manifest(
                 Resource(
                     kind="schedule",
-                    name="reorder-stalled",
+                    name="nightly",
                     in_="application:api",
-                    data={"name": "reorder-stalled", "cronExpression": "*/5 * * * *", "command": "echo changed"},
+                    data={"name": "nightly", "cronExpression": "0 3 * * *", "command": "echo changed"},
                 )
             ),
             client,
@@ -405,7 +405,7 @@ class TestResourceManager:
         body = update[2]["body"]
         assert body["scheduleId"] == "s1"
         assert body["command"] == "echo changed"
-        assert body["serviceName"] == "qbittorrent"
+        assert body["serviceName"] == "worker"
         assert body["shellType"] == "bash"
         assert body["scheduleType"] == "compose"
         assert manager.report.actions[0].action == "update"
