@@ -31,3 +31,7 @@ class TestParseParams:
     def test_plain_string_unchanged(self):
         """We expect an ordinary string to pass through unchanged."""
         assert _parse_params({"env": "PORT=8080"}) == {"env": "PORT=8080"}
+
+    def test_drops_none_and_empty_values(self):
+        """We expect unset and empty params to be dropped, not sent empty."""
+        assert _parse_params({"serverId": "", "tail": None, "appName": "media"}) == {"appName": "media"}
