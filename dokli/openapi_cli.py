@@ -84,10 +84,19 @@ def _api_command_factory(
 ) -> Callable[..., None]:
     """Create a command from an OpenAPI endpoint."""
     params = request.params or []
-    # Create a list of parameters for the signature
+    # Required params become positional arguments (schema order); optional
+    # params become ``--flag`` options defaulting to ``None`` (omitted from the
+    # request). ``required`` is respected so optional query params are not sent
+    # as empty values.
     original_name = {_safe_param_name(x["name"]): x["name"] for x in params}
-    param_hints = {_safe_param_name(p["name"]): _infer_param_type(p) for p in params}
-    parameters = [Parameter(name, Parameter.KEYWORD_ONLY, annotation=typ) for name, typ in param_hints.items()]
+    parameters = []
+    for param in params:
+        name = _safe_param_name(param["name"])
+        annotation = _infer_param_type(param)
+        if param.get("required"):
+            parameters.append(Parameter(name, Parameter.KEYWORD_ONLY, annotation=annotation))
+        else:
+            parameters.append(Parameter(name, Parameter.KEYWORD_ONLY, default=None, annotation=annotation))
     if request.body and request.body.get("required", False):
         parameters.append(
             Parameter("body", Parameter.KEYWORD_ONLY, annotation=Annotated[str, typer.Option(help="JSON body")])
