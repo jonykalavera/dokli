@@ -137,20 +137,28 @@ def logs_command(
         None, help="Connection name.", shell_complete=complete_connection_names
     ),
     container_id: str = typer.Option(None, "--container-id", help="Docker container id."),
-    tail: int = typer.Option(500, "--tail", help="Lines of history to show first."),
+    lines: int = typer.Option(100, "-n", "--lines", help="Number of lines (history)."),
+    follow: bool = typer.Option(False, "-f", "--follow", help="Follow the log (stream live)."),
 ) -> None:
-    """Stream a container's live logs over WebSocket (Ctrl+C to stop)."""
+    """Show a container's last -n log lines, or stream them live with -f."""
     connection = _get_connection(connection_name)
     if not container_id:
         raise typer.BadParameter("--container-id is required.")
-    asyncio.run(_stream_container_logs(connection, container_id, tail))
+    asyncio.run(_stream_container_logs(connection, container_id, lines, follow))
 
 
-async def _stream_container_logs(connection: ConnectionConfig, container_id: str, tail: int) -> None:
-    """Print a container's live logs as they arrive over the WebSocket."""
+async def _stream_container_logs(
+    connection: ConnectionConfig, container_id: str, lines: int, follow: bool = False
+) -> None:
+    """Print a container's logs; keep streaming while ``follow`` is set."""
+    params = {"containerId": container_id, "tail": lines}
+    count = 0
     try:
-        async for line in iter_lines(connection, LOGS_ENDPOINT, {"containerId": container_id, "tail": tail}):
-            print(line.rstrip("\r"))  # noqa: T201
+        async for raw in iter_lines(connection, LOGS_ENDPOINT, params):
+            print(raw.rstrip("\r"))  # noqa: T201
+            count += 1
+            if not follow and count >= lines:
+                break
     except KeyboardInterrupt:
         pass
 
