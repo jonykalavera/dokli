@@ -20,10 +20,14 @@ def _parse_params(params: dict[str, str]) -> dict[str, str]:
     """Parse CLI params.
 
     The magic prefixes (``%json:`` / ``%file:``) only apply to ``str`` values;
-    schema-typed params (int, bool, ...) pass through untouched.
+    schema-typed params (int, bool, ...) pass through untouched. Unset
+    (``None``) and empty-string values are dropped so optional query params are
+    never serialized as empty (e.g. ``?serverId=``).
     """
     kwargs = {}
     for key, value in params.items():
+        if value is None or value == "":
+            continue
         _value = value
         if isinstance(value, str):
             if value.startswith(MAGIC_JSON):
