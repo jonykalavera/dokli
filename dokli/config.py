@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from click import BadParameter
 from click.shell_completion import CompletionItem
 from pydantic import BaseModel, Field, HttpUrl, SecretStr, field_serializer, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
@@ -18,6 +19,18 @@ def complete_connection_names(ctx: Any, param: Any, incomplete: str) -> list[Com
     """Click shell completion for the configured connection names."""
     names = [connection.name for connection in Config().connections]
     return [CompletionItem(name) for name in names if name.startswith(incomplete)]
+
+
+def resolve_connection(config: "Config", name: str | None) -> "ConnectionConfig":
+    """Resolve a connection by name, or the only configured one."""
+    if name is not None:
+        for connection in config.connections:
+            if connection.name == name:
+                return connection
+        raise BadParameter(f"Unknown connection '{name}'.")
+    if len(config.connections) == 1:
+        return config.connections[0]
+    raise BadParameter("Specify a connection name.")
 
 
 # Textual ColorSystem fields users may override.

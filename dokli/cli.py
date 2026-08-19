@@ -1,6 +1,5 @@
 """Dokli CLI."""
 
-import asyncio
 import json
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -13,19 +12,19 @@ from rich.table import Table
 
 from dokli.api_client import APIClient
 from dokli.apply import Applier
-from dokli.config import Config, ConnectionConfig, complete_connection_names
+from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
 from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
 from dokli.export import export_manifest
 from dokli.formatting import Format, redact_secrets
 from dokli.init import init_manifest
+from dokli.logs_cli import build_command as build_logs_command
 from dokli.manifest import load_manifests
 from dokli.openapi_cli import build_command as build_api_command
 from dokli.report import ApplyReport
 from dokli.secrets_cli import build_command as build_secrets_command
 from dokli.state import collect_state
 from dokli.validate import validate_manifest
-from dokli.wss import DEPLOYMENT_LOGS_ENDPOINT, LOGS_ENDPOINT, iter_lines
 
 try:
     from dokli.tui.app import app as tui
@@ -41,6 +40,7 @@ state: dict[str, Any] = {
 app.add_typer(build_api_command(state["config"]))
 app.add_typer(build_connections_command(state["config"]))
 app.add_typer(build_secrets_command())
+app.command(name="logs")(build_logs_command(state["config"]))
 
 
 def tui_command(
@@ -62,15 +62,7 @@ if _tui_loaded:
 
 def _get_connection(connection_name: str | None) -> ConnectionConfig:
     """Resolve a connection by name, or the only configured one."""
-    config = state["config"]
-    if connection_name is not None:
-        for connection in config.connections:
-            if connection.name == connection_name:
-                return connection
-        raise typer.BadParameter(f"Unknown connection '{connection_name}'.")
-    if len(config.connections) == 1:
-        return config.connections[0]
-    raise typer.BadParameter("Specify a connection name.")
+    return resolve_connection(state["config"], connection_name)
 
 
 @app.command(name="init")
@@ -129,101 +121,6 @@ def _print_schema_summary(connection: ConnectionConfig, schema: dict) -> None:
     rprint(f"Dokploy API version: {info.get('version', '-')}")
     rprint(f"Paths: {len(paths)}")
     rprint(f"Schemas: {len(schemas)}")
-
-
-@app.command(name="logs")
-def logs_command(
-    connection_name: str | None = typer.Argument(
-        None, help="Connection name.", shell_complete=complete_connection_names
-    ),
-    compose_id: str = typer.Option(None, "--compose-id", help="Compose service id."),
-    application_id: str = typer.Option(None, "--application-id", help="Application service id."),
-    deployment_id: str = typer.Option(None, "--deployment-id", help="Deployment id."),
-    container_id: str = typer.Option(None, "--container-id", help="Docker container id (with --compose-id)."),
-    lines: int = typer.Option(100, "-n", "--lines", help="Number of lines (history)."),
-    follow: bool = typer.Option(False, "-f", "--follow", help="Follow the log (stream live)."),
-) -> None:
-    """Show a service's last -n log lines, or stream them live with -f."""
-    connection = _get_connection(connection_name)
-    if sum(bool(x) for x in (compose_id, application_id, deployment_id)) != 1:
-        raise typer.BadParameter("Provide exactly one of --compose-id, --application-id, --deployment-id.")
-    if compose_id and not container_id:
-        raise typer.BadParameter("--container-id is required with --compose-id.")
-    if follow:
-        asyncio.run(_follow_service_logs(connection, compose_id, application_id, deployment_id, container_id, lines))
-    else:
-        asyncio.run(_fetch_service_logs(connection, compose_id, application_id, deployment_id, container_id, lines))
-
-
-def _request(connection: ConnectionConfig, route: str, params: dict) -> Any:
-    """Run a REST read and return the raw JSON payload."""
-    return APIClient(connection).request("GET", route, params).json()
-
-
-async def _fetch_service_logs(
-    connection: ConnectionConfig,
-    compose_id: str | None,
-    application_id: str | None,
-    deployment_id: str | None,
-    container_id: str | None,
-    lines: int,
-) -> None:
-    """Print a service's last ``lines`` log lines (one-shot REST read)."""
-    if compose_id:
-        text = await asyncio.to_thread(
-            _request, connection, "compose.readLogs",
-            {"composeId": compose_id, "containerId": container_id, "tail": lines},
-        )
-    elif application_id:
-        text = await asyncio.to_thread(
-            _request, connection, "application.readLogs", {"applicationId": application_id, "tail": lines}
-        )
-    else:
-        text = await asyncio.to_thread(
-            _request, connection, "deployment.readLogs", {"deploymentId": deployment_id, "tail": lines}
-        )
-    print(text.rstrip("\n"))  # noqa: T201
-
-
-async def _follow_service_logs(
-    connection: ConnectionConfig,
-    compose_id: str | None,
-    application_id: str | None,
-    deployment_id: str | None,
-    container_id: str | None,
-    lines: int,
-) -> None:
-    """Stream a service's logs live over its WebSocket endpoint."""
-    if compose_id:
-        endpoint = LOGS_ENDPOINT
-        params = {"containerId": container_id, "tail": lines}
-    elif application_id:
-        application = await asyncio.to_thread(
-            _request, connection, "application.one", {"applicationId": application_id}
-        )
-        app_name = application.get("appName")
-        if not app_name:
-            raise typer.BadParameter("Application has no appName.")
-        containers = await asyncio.to_thread(
-            _request, connection, "docker.getContainersByAppNameMatch", {"appName": app_name}
-        )
-        running = [c for c in containers if isinstance(c, dict) and c.get("state") == "running"] or containers
-        if not running:
-            raise typer.BadParameter(f"No container found for application '{app_name}'.")
-        endpoint = LOGS_ENDPOINT
-        params = {"containerId": running[0]["containerId"], "tail": lines}
-    else:
-        deployments = await asyncio.to_thread(_request, connection, "deployment.allCentralized", {})
-        deployment = next((d for d in deployments if d.get("deploymentId") == deployment_id), None)
-        if deployment is None or not deployment.get("logPath"):
-            raise typer.BadParameter("Deployment not found or has no log.")
-        endpoint = DEPLOYMENT_LOGS_ENDPOINT
-        params = {"logPath": deployment["logPath"]}
-    try:
-        async for raw in iter_lines(connection, endpoint, params):
-            print(raw.rstrip("\r"), flush=True)  # noqa: T201
-    except KeyboardInterrupt:
-        pass
 
 
 @app.command(name="state")
