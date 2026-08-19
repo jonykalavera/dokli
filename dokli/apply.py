@@ -15,7 +15,7 @@ from dokli.diff import resolve_compose_file
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, Manifest, Service
 from dokli.prune import Pruner
 from dokli.report import ApplyAction, ApplyReport
-from dokli.resources import ResourceManager, build_registry, resolve_env
+from dokli.resources import ResourceManager, build_registry, env_changed, resolve_env
 from dokli.secrets import db_account, get_secret
 from dokli.state import LiveGitProvider, LiveProject, LiveService, State, collect_state
 
@@ -370,7 +370,7 @@ class Applier:
             payload["command"] = service_def.command
         if service_def.env is not None:
             env = resolve_env(service_def.env)
-            if live is None or (live.env or "") != env:
+            if live is None or env_changed(env, live.env):
                 payload["env"] = env
         return payload
 
@@ -405,7 +405,7 @@ class Applier:
             payload["buildPath"] = service_def.build_path
         if service_def.env is not None:
             env = resolve_env(service_def.env)
-            if live is None or (live.env or "") != env:
+            if live is None or env_changed(env, live.env):
                 payload["env"] = env
         return payload
 
@@ -431,7 +431,7 @@ class Applier:
                 payload["databasePassword"] = password
         if service_def.env is not None:
             env = resolve_env(service_def.env)
-            if live is None or (live.env or "") != env:
+            if live is None or env_changed(env, live.env):
                 payload["env"] = env
         return payload
 

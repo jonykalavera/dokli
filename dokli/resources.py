@@ -233,6 +233,17 @@ def resolve_env(env: str) -> str:
     return "\n".join(lines)
 
 
+def env_changed(resolved_env: str, live_env: str | None) -> bool:
+    """Whether resolved manifest env differs from the live env, ignoring line order.
+
+    Docker compose env order is insignificant; comparing sorted ``KEY=VALUE``
+    lines avoids spurious plan/apply churn.
+    """
+    desired = sorted(line for line in resolved_env.splitlines() if line)
+    current = sorted(line for line in (live_env or "").splitlines() if line)
+    return desired != current
+
+
 def _resolve_secret(value: Any) -> Any:
     if isinstance(value, dict) and set(value) <= {"cmd", "keyring"}:
         if "cmd" in value:
