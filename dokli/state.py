@@ -126,13 +126,13 @@ def _collect_project(client: APIClient, raw_project: dict[str, Any], provider_ma
             name=environment.get("name") or "",
             is_default=environment.get("isDefault", False),
             services=[
-                *_collect_services("compose", environment.get("compose", []), provider_map),
-                *_collect_services("application", environment.get("applications", []), provider_map),
-                *_collect_services("postgres", environment.get("postgres", []), provider_map),
-                *_collect_services("mysql", environment.get("mysql", []), provider_map),
-                *_collect_services("mariadb", environment.get("mariadb", []), provider_map),
-                *_collect_services("mongo", environment.get("mongo", []), provider_map),
-                *_collect_services("redis", environment.get("redis", []), provider_map),
+                *_collect_services(client, "compose", environment.get("compose", []), provider_map),
+                *_collect_services(client, "application", environment.get("applications", []), provider_map),
+                *_collect_services(client, "postgres", environment.get("postgres", []), provider_map),
+                *_collect_services(client, "mysql", environment.get("mysql", []), provider_map),
+                *_collect_services(client, "mariadb", environment.get("mariadb", []), provider_map),
+                *_collect_services(client, "mongo", environment.get("mongo", []), provider_map),
+                *_collect_services(client, "redis", environment.get("redis", []), provider_map),
             ],
         )
         for environment in detail.get("environments", [])
@@ -145,7 +145,32 @@ def _collect_project(client: APIClient, raw_project: dict[str, Any], provider_ma
     )
 
 
+# Detail fields that mark a service record as full (present in ``<type>.one``
+# but absent from the summary records Dokploy returns in ``project.one`` on
+# recent versions).
+_DETAIL_FIELDS: dict[str, tuple[str, ...]] = {
+    "compose": ("composeFile", "sourceType"),
+    "application": ("sourceType", "dockerImage", "buildType"),
+    "postgres": ("databaseName", "databaseUser"),
+    "mysql": ("databaseName", "databaseUser"),
+    "mariadb": ("databaseName", "databaseUser"),
+    "mongo": ("databaseName",),
+    "redis": ("dockerImage", "command"),
+}
+
+_SERVICE_ID_PARAMS: dict[str, str] = {
+    "compose": "composeId",
+    "application": "applicationId",
+    "postgres": "postgresId",
+    "mysql": "mysqlId",
+    "mariadb": "mariadbId",
+    "mongo": "mongoId",
+    "redis": "redisId",
+}
+
+
 def _collect_services(
+    client: APIClient,
     service_type: ServiceType,
     raw_services: list[dict[str, Any]],
     provider_map: dict[str, str],
@@ -155,33 +180,57 @@ def _collect_services(
         service_id = _service_id(raw)
         if not service_id:
             continue
+        record = _enrich_service(client, service_type, service_id, raw)
         services.append(
             LiveService(
                 service_id=service_id,
-                app_name=raw.get("appName") or "",
+                app_name=record.get("appName") or "",
                 type=service_type,
-                name=raw.get("name") or "",
-                description=raw.get("description"),
-                source_type=raw.get("sourceType"),
-                provider=_resolve_provider(raw, provider_map),
-                repository=_first(raw, "repository", "gitlabRepository", "giteaRepository", "bitbucketRepository"),
-                owner=_first(raw, "owner", "gitlabOwner", "giteaOwner", "bitbucketOwner"),
-                branch=_first(raw, "branch", "gitlabBranch", "giteaBranch", "bitbucketBranch"),
-                build_type=raw.get("buildType"),
-                dockerfile_location=raw.get("dockerfileLocation"),
-                docker_image=raw.get("dockerImage"),
-                build_path=raw.get("buildPath"),
-                compose_path=raw.get("composePath"),
-                compose_file=raw.get("composeFile"),
-                command=raw.get("command"),
-                database_name=raw.get("databaseName"),
-                database_user=raw.get("databaseUser"),
-                database_password=raw.get("databasePassword"),
-                env=raw.get("env"),
-                server_id=raw.get("serverId"),
+                name=record.get("name") or "",
+                description=record.get("description"),
+                source_type=record.get("sourceType"),
+                provider=_resolve_provider(record, provider_map),
+                repository=_first(record, "repository", "gitlabRepository", "giteaRepository", "bitbucketRepository"),
+                owner=_first(record, "owner", "gitlabOwner", "giteaOwner", "bitbucketOwner"),
+                branch=_first(record, "branch", "gitlabBranch", "giteaBranch", "bitbucketBranch"),
+                build_type=record.get("buildType"),
+                dockerfile_location=record.get("dockerfileLocation"),
+                docker_image=record.get("dockerImage"),
+                build_path=record.get("buildPath"),
+                compose_path=record.get("composePath"),
+                compose_file=record.get("composeFile"),
+                command=record.get("command"),
+                database_name=record.get("databaseName"),
+                database_user=record.get("databaseUser"),
+                database_password=record.get("databasePassword"),
+                env=record.get("env"),
+                server_id=record.get("serverId"),
             )
         )
     return services
+
+
+def _enrich_service(
+    client: APIClient,
+    service_type: ServiceType,
+    service_id: str,
+    raw: dict[str, Any],
+) -> dict[str, Any]:
+    """Fetch the full service record via ``<type>.one`` when the summary lacks detail.
+
+    ``project.one`` returns compose/application/database records as summaries on
+    recent Dokploy versions (no ``composeFile``/``sourceType``/``databaseName``);
+    the full record lives behind the ``<type>.one`` route. Missing fields fall
+    back to the summary so a transient failure does not lose the id/name.
+    """
+    if any(raw.get(field) is not None for field in _DETAIL_FIELDS.get(service_type, ())):
+        return raw
+    id_param = _SERVICE_ID_PARAMS[service_type]
+    try:
+        detail = client.request("GET", f"{service_type}.one", {id_param: service_id}).json()
+    except Exception:
+        return raw
+    return {**raw, **detail}
 
 
 def _collect_git_provider(raw: dict[str, Any]) -> LiveGitProvider:

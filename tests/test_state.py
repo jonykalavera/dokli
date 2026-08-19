@@ -165,3 +165,70 @@ class TestCollectState:
         assert service.database_name == "appdb"
         assert service.database_user == "app"
         assert service.database_password == "hunter2"
+
+    def test_enriches_summary_compose_via_one(self, mocker):
+        """We expect summary compose records to be enriched via compose.one."""
+        responses = _responses()
+        responses["project.one"]["environments"][0]["compose"] = [
+            {"composeId": "c1", "appName": "backend", "name": "backend", "serverId": "srv1", "description": None}
+        ]
+        responses["compose.one"] = {
+            "composeId": "c1",
+            "appName": "backend",
+            "name": "backend",
+            "sourceType": "raw",
+            "composeFile": "services:\n  web:\n    image: nginx:latest\n",
+            "command": "",
+            "env": "FOO=bar",
+            "serverId": "srv1",
+        }
+        client = mocker.Mock()
+        client.request.side_effect = lambda _method, path, _params: FakeResponse(responses[path])
+        mocker.patch("dokli.state.APIClient", return_value=client)
+
+        state = collect_state(_connection())
+
+        compose = state.projects[0].environments[0].services[0]
+        assert compose.type == "compose"
+        assert compose.compose_file == "services:\n  web:\n    image: nginx:latest\n"
+        assert compose.source_type == "raw"
+        assert compose.env == "FOO=bar"
+        one_call = next(
+            call for call in client.request.call_args_list if call.args[1] == "compose.one"
+        )
+        assert one_call.args[2] == {"composeId": "c1"}
+
+    def test_full_record_skips_one_fetch(self, mocker):
+        """We expect no <type>.one call when the record already has detail."""
+        responses = _responses()
+        client = mocker.Mock()
+        client.request.side_effect = lambda _method, path, _params: FakeResponse(responses[path])
+        mocker.patch("dokli.state.APIClient", return_value=client)
+
+        collect_state(_connection())
+
+        assert not any(call.args[1].endswith(".one") and not call.args[1].startswith("project")
+                       for call in client.request.call_args_list)
+
+    def test_summary_falls_back_when_one_fails(self, mocker):
+        """We expect a failed <type>.one to keep the summary record."""
+
+        def _request(_method, path, _params):
+            if path == "compose.one":
+                raise RuntimeError("boom")
+            return FakeResponse(_responses()[path])
+
+        responses = _responses()
+        responses["project.one"]["environments"][0]["compose"] = [
+            {"composeId": "c1", "appName": "backend", "name": "backend", "serverId": "srv1", "description": None}
+        ]
+        client = mocker.Mock()
+        client.request.side_effect = _request
+        mocker.patch("dokli.state.APIClient", return_value=client)
+
+        state = collect_state(_connection())
+
+        compose = state.projects[0].environments[0].services[0]
+        assert compose.type == "compose"
+        assert compose.name == "backend"
+        assert compose.compose_file is None
