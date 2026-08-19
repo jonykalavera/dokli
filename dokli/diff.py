@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from dokli.manifest import ApplicationService, ComposeService, DatabaseService, GitSource, Manifest, Service
-from dokli.resources import resolve_env
+from dokli.resources import env_changed, resolve_env
 from dokli.state import LiveEnvironment, LiveProject, LiveService, State
 
 
@@ -227,7 +227,7 @@ def _compose_changes(service_def: ComposeService, live: LiveService, changes: li
             changes.append("compose_file")
     if service_def.command is not None and (live.command or "") != service_def.command:
         changes.append("command")
-    if service_def.env is not None and (live.env or "") != resolve_env(service_def.env):
+    if service_def.env is not None and env_changed(resolve_env(service_def.env), live.env):
         changes.append("env")
 
 
@@ -245,7 +245,7 @@ def _application_changes(service_def: ApplicationService, live: LiveService, cha
         changes.append("dockerfile_location")
     if service_def.build_path and live.build_path != service_def.build_path:
         changes.append("build_path")
-    if service_def.env is not None and (live.env or "") != resolve_env(service_def.env):
+    if service_def.env is not None and env_changed(resolve_env(service_def.env), live.env):
         changes.append("env")
 
 
@@ -260,7 +260,7 @@ def _database_changes(service_def: DatabaseService, live: LiveService, changes: 
         changes.append("database_user")
     if service_def.password and live.database_password != service_def.password:
         changes.append("password")
-    if service_def.env is not None and (live.env or "") != resolve_env(service_def.env):
+    if service_def.env is not None and env_changed(resolve_env(service_def.env), live.env):
         changes.append("env")
 
 
@@ -281,6 +281,10 @@ def _source_changed(source: GitSource, live: LiveService) -> bool:
 def resolve_compose_file(value: str) -> str:
     """Return compose YAML content, reading from disk when the value is a path."""
     path = Path(value)
-    if path.is_file():
+    try:
+        is_file = path.is_file()
+    except OSError:
+        return value
+    if is_file:
         return path.read_text()
     return value

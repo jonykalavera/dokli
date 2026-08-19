@@ -141,6 +141,34 @@ class TestBuildPlan:
 
         assert not plan.has_changes
 
+    def test_env_line_order_does_not_flag_change(self):
+        """We expect plan to ignore env line ordering (compose env is unordered)."""
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {
+                                "type": "compose",
+                                "name": "backend",
+                                "compose_file": "version: '3'",
+                                "env": "PLAIN=value\nPASSWORD={cmd: \"echo hunter2\"}",
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        state = _state(
+            projects=[_project_live("app", [_compose_live("backend", "s1", env="PASSWORD=hunter2\nPLAIN=value")])]
+        )
+
+        plan = build_plan(manifest, state)
+
+        assert not plan.has_changes
+
     def test_env_secret_ref_flagged_when_resolved_differs(self):
         """We expect plan to flag env when the resolved ref differs from live."""
         manifest = Manifest.model_validate(
@@ -167,6 +195,28 @@ class TestBuildPlan:
 
         assert plan.items[0].action == "update"
         assert plan.items[0].changed == ["env"]
+
+    def test_long_inline_compose_file_does_not_crash(self):
+        """We expect a long inline compose_file to be treated as YAML, not a path."""
+        long_yaml = "\n".join(f"  - line_{i}: value" for i in range(200))
+        manifest = Manifest.model_validate(
+            {
+                "connection": "test-env",
+                "projects": [
+                    {
+                        "name": "app",
+                        "services": [
+                            {"type": "compose", "name": "backend", "compose_file": long_yaml},
+                        ],
+                    }
+                ],
+            }
+        )
+        state = _state(projects=[_project_live("app", [_compose_live("backend", "s1", compose_file=long_yaml)])])
+
+        plan = build_plan(manifest, state)
+
+        assert not plan.has_changes
 
     def test_git_provider_missing(self):
         """We expect a validate item when a git provider is missing."""
