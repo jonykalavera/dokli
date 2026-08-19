@@ -67,7 +67,7 @@ show_missing = true
 ##############################################################################
 [project]
 name = "dokli"
-version = "0.4.0"
+version = "0.4.1"
 description = "Dokploy CLI and TUI"
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
