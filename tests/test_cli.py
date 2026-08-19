@@ -30,6 +30,78 @@ def test_app_has_main_callback():
     assert app.registered_callback.no_args_is_help
 
 
+def test_version_flag_prints_version():
+    """We expect --version / -v to print the installed version and exit."""
+    from typer.testing import CliRunner
+
+    from dokli.cli import _cli_version
+
+    for flag in ("--version", "-v"):
+        result = CliRunner().invoke(app, [flag])
+        assert result.exit_code == 0
+        assert result.output.strip() == f"dokli {_cli_version()}"
+
+
+_SCHEMA = {
+    "openapi": "3.1.0",
+    "info": {"title": "Dokploy API", "version": "v1.0"},
+    "paths": {"/x.all": {"get": {}}},
+    "components": {"schemas": {"x": {}}},
+}
+
+
+def _patch_schema(mocker):
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    client = mocker.Mock()
+    client.schema = _SCHEMA
+    return mocker.patch("dokli.cli.APIClient", return_value=client)
+
+
+def test_schema_command_dumps_json(mocker):
+    """We expect schema to print the connection's OpenAPI document as JSON."""
+    from typer.testing import CliRunner
+
+    client = _patch_schema(mocker)
+    result = CliRunner().invoke(app, ["schema", "test-env"])
+    assert result.exit_code == 0
+    assert '"title": "Dokploy API"' in result.output
+    assert client.call_args.kwargs == {"force_refresh": False}
+
+
+def test_schema_command_yaml(mocker):
+    """We expect --format yaml to dump the schema as YAML."""
+    from typer.testing import CliRunner
+
+    _patch_schema(mocker)
+    result = CliRunner().invoke(app, ["schema", "test-env", "--format", "yaml"])
+    assert result.exit_code == 0
+    assert "title: Dokploy API" in result.output
+
+
+def test_schema_command_summary(mocker):
+    """We expect --summary to print a compact overview."""
+    from typer.testing import CliRunner
+
+    _patch_schema(mocker)
+    result = CliRunner().invoke(app, ["schema", "test-env", "--summary"])
+    assert result.exit_code == 0
+    assert "Connection: test-env" in result.output
+    assert "Dokploy API version: v1.0" in result.output
+    assert "Paths: 1" in result.output
+    assert "Schemas: 1" in result.output
+
+
+def test_schema_command_refresh(mocker):
+    """We expect --refresh to force a schema refetch."""
+    from typer.testing import CliRunner
+
+    client = _patch_schema(mocker)
+    result = CliRunner().invoke(app, ["schema", "test-env", "--refresh"])
+    assert result.exit_code == 0
+    assert client.call_args.kwargs == {"force_refresh": True}
+
+
 def test_refresh_command_forces_refresh(mocker):
     """We expect refresh to force the schema refresh."""
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
@@ -118,7 +190,7 @@ def test_connection_arguments_expose_shell_complete():
     from typer.main import get_command
 
     group = get_command(app)
-    for name in ("refresh", "state", "export", "tui"):
+    for name in ("refresh", "state", "export", "schema", "tui"):
         command = group.get_command(None, name)
         param = next(p for p in command.params if p.name == "connection_name")
         assert param._custom_shell_complete is complete_connection_names
