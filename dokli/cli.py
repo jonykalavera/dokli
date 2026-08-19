@@ -1,5 +1,8 @@
 """Dokli CLI."""
 
+import json
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from typing import Any
 
 import typer
@@ -13,7 +16,7 @@ from dokli.config import Config, ConnectionConfig, complete_connection_names
 from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
 from dokli.export import export_manifest
-from dokli.formatting import redact_secrets
+from dokli.formatting import Format, redact_secrets
 from dokli.init import init_manifest
 from dokli.manifest import load_manifests
 from dokli.openapi_cli import build_command as build_api_command
@@ -91,6 +94,39 @@ def refresh_command(
     connection = _get_connection(connection_name)
     APIClient(connection, force_refresh=True)
     rprint(f"[green]Refreshed OpenAPI schema for {connection.name}.[/green]")
+
+
+@app.command(name="schema")
+def schema_command(
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
+    format: Format = Format.json,
+    refresh: bool = typer.Option(False, "--refresh", help="Refetch the schema instead of using the cache."),
+    summary: bool = typer.Option(False, "--summary", help="Print a compact overview instead of the full schema."),
+) -> None:
+    """Show the OpenAPI schema of a connection."""
+    connection = _get_connection(connection_name)
+    schema = APIClient(connection, force_refresh=refresh).schema
+    if summary:
+        _print_schema_summary(connection, schema)
+    elif format == Format.yaml:
+        rprint(yaml.safe_dump(schema, sort_keys=False))
+    else:
+        rprint(json.dumps(schema, indent=2))
+
+
+def _print_schema_summary(connection: ConnectionConfig, schema: dict) -> None:
+    """Print a compact overview of a connection's OpenAPI schema."""
+    info = schema.get("info", {}) or {}
+    paths = schema.get("paths", {}) or {}
+    schemas = (schema.get("components", {}) or {}).get("schemas", {}) or {}
+    rprint(f"Connection: {connection.name}")
+    rprint(f"URL: {connection.url}")
+    rprint(f"Title: {info.get('title', '-')}")
+    rprint(f"Dokploy API version: {info.get('version', '-')}")
+    rprint(f"Paths: {len(paths)}")
+    rprint(f"Schemas: {len(schemas)}")
 
 
 @app.command(name="state")
@@ -236,6 +272,19 @@ def export_command(
         rprint(f"[yellow]{warning}[/yellow]")
 
 
-@app.callback(no_args_is_help=True)
-def main() -> None:
+@app.callback(no_args_is_help=True, invoke_without_command=True)
+def main(
+    version: bool = typer.Option(False, "--version", "-v", is_eager=True, help="Show the version and exit."),
+) -> None:
     """Magical Dokploy CLI/TUI."""
+    if version:
+        rprint(f"dokli {_cli_version()}")
+        raise typer.Exit()
+
+
+def _cli_version() -> str:
+    """The installed package version (single source: ``pyproject.toml``)."""
+    try:
+        return package_version("dokli")
+    except PackageNotFoundError:
+        return "unknown"
