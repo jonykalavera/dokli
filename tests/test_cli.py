@@ -102,29 +102,78 @@ def test_schema_command_refresh(mocker):
     assert client.call_args.kwargs == {"force_refresh": True}
 
 
-def test_logs_command_one_shot_prints_n_lines(mocker):
-    """We expect logs without -f to print the last -n lines and exit."""
+class _FakeResponse:
+    """Minimal response stand-in with a json() payload."""
+
+    def __init__(self, data):
+        self._data = data
+
+    def json(self):
+        return self._data
+
+
+def _patch_logs_client(mocker):
+    client = mocker.Mock()
+    mocker.patch("dokli.cli.APIClient", return_value=client)
+    return client
+
+
+def test_logs_one_shot_compose(mocker):
+    """We expect compose logs without -f to hit compose.readLogs and exit."""
     from typer.testing import CliRunner
 
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.cli._get_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse("line a\nline b\n")
 
-    async def fake_stream(connection, endpoint, params):
-        assert endpoint == "/docker-container-logs"
-        assert params == {"containerId": "cc1", "tail": 2}
-        for index in range(5):
-            yield f"line {index}\r"
-
-    mocker.patch("dokli.cli.iter_lines", side_effect=fake_stream)
-    result = CliRunner().invoke(app, ["logs", "test-env", "--container-id", "cc1", "-n", "2"])
+    result = CliRunner().invoke(
+        app, ["logs", "test-env", "--compose-id", "c1", "--container-id", "cc1", "-n", "2"]
+    )
     assert result.exit_code == 0
-    assert result.output.count("line ") == 2
-    assert "line 0" in result.output
-    assert "line 4" not in result.output
+    assert "line a" in result.output
+    assert "line b" in result.output
+    method, route, params = client.request.call_args[0]
+    assert route == "compose.readLogs"
+    assert params == {"composeId": "c1", "containerId": "cc1", "tail": 2}
 
 
-def test_logs_command_follow_streams_live(mocker):
-    """We expect logs -f to stream every line over the WebSocket."""
+def test_logs_one_shot_application(mocker):
+    """We expect application logs without -f to hit application.readLogs."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse("app line\n")
+
+    result = CliRunner().invoke(app, ["logs", "test-env", "--application-id", "a1", "-n", "2"])
+    assert result.exit_code == 0
+    assert "app line" in result.output
+    method, route, params = client.request.call_args[0]
+    assert route == "application.readLogs"
+    assert params == {"applicationId": "a1", "tail": 2}
+
+
+def test_logs_one_shot_deployment(mocker):
+    """We expect deployment logs without -f to hit deployment.readLogs."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse("dep line\n")
+
+    result = CliRunner().invoke(app, ["logs", "test-env", "--deployment-id", "d1", "-n", "2"])
+    assert result.exit_code == 0
+    assert "dep line" in result.output
+    method, route, params = client.request.call_args[0]
+    assert route == "deployment.readLogs"
+    assert params == {"deploymentId": "d1", "tail": 2}
+
+
+def test_logs_follow_compose_streams_ws(mocker):
+    """We expect compose logs -f to stream the container WebSocket."""
     from typer.testing import CliRunner
 
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
@@ -133,23 +182,81 @@ def test_logs_command_follow_streams_live(mocker):
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/docker-container-logs"
         assert params == {"containerId": "cc1", "tail": 100}
-        for line in ("2026-08-05T19:56:00Z a\r", "2026-08-05T19:56:01Z b\r", "2026-08-05T19:56:02Z c\r"):
-            yield line
+        yield "2026-08-05T19:56:00Z live 1\r"
+        yield "2026-08-05T19:56:01Z live 2\r"
 
     mocker.patch("dokli.cli.iter_lines", side_effect=fake_stream)
-    result = CliRunner().invoke(app, ["logs", "test-env", "--container-id", "cc1", "-f"])
+    result = CliRunner().invoke(app, ["logs", "test-env", "--compose-id", "c1", "--container-id", "cc1", "-f"])
     assert result.exit_code == 0
-    assert "a" in result.output
-    assert "c" in result.output
+    assert "live 1" in result.output
+    assert "live 2" in result.output
 
 
-def test_logs_command_requires_container_id(mocker):
-    """We expect logs to fail without a container id."""
+def test_logs_follow_application_resolves_container(mocker):
+    """We expect application logs -f to resolve the container then stream."""
     from typer.testing import CliRunner
 
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.cli._get_connection", return_value=connection)
-    result = CliRunner().invoke(app, ["logs", "test-env"])
+    client = _patch_logs_client(mocker)
+
+    def fake_request(method, route, params):
+        if route == "application.one":
+            return _FakeResponse({"appName": "app-xyz"})
+        if route == "docker.getContainersByAppNameMatch":
+            return _FakeResponse([{"containerId": "cc1", "state": "running"}])
+        raise AssertionError(route)
+
+    client.request.side_effect = fake_request
+
+    async def fake_stream(connection, endpoint, params):
+        assert endpoint == "/docker-container-logs"
+        assert params == {"containerId": "cc1", "tail": 100}
+        yield "app live\r"
+
+    mocker.patch("dokli.cli.iter_lines", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--application-id", "a1", "-f"])
+    assert result.exit_code == 0
+    assert "app live" in result.output
+
+
+def test_logs_follow_deployment_uses_log_path(mocker):
+    """We expect deployment logs -f to stream via the deployment logPath."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse([{"deploymentId": "d1", "logPath": "/tmp/x.log"}])
+
+    async def fake_stream(connection, endpoint, params):
+        assert endpoint == "/listen-deployment"
+        assert params == {"logPath": "/tmp/x.log"}
+        yield "dep live\r"
+
+    mocker.patch("dokli.cli.iter_lines", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--deployment-id", "d1", "-f"])
+    assert result.exit_code == 0
+    assert "dep live" in result.output
+
+
+def test_logs_requires_exactly_one_selector(mocker):
+    """We expect logs to fail unless exactly one service selector is given."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    assert CliRunner().invoke(app, ["logs", "test-env"]).exit_code != 0
+    assert CliRunner().invoke(app, ["logs", "test-env", "--compose-id", "c1", "--application-id", "a1"]).exit_code != 0
+
+
+def test_logs_compose_requires_container_id(mocker):
+    """We expect compose logs to require --container-id."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--compose-id", "c1"])
     assert result.exit_code != 0
 
 
