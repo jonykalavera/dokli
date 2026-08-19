@@ -17,6 +17,7 @@ from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
 from dokli.tui.engine import EntityAction, field_label
+from dokli.wss import DEPLOYMENT_LOGS_ENDPOINT, LOGS_ENDPOINT, iter_lines
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -117,12 +118,76 @@ class ResultScreen(Screen):
             self._follow_worker = None
 
     def _start_follow(self) -> None:
-        """Start the follow-mode polling loop (logs only)."""
+        """Start the follow-mode loop: WebSocket stream when available, else polling."""
         if self._follow_worker is not None and not self._follow_worker.is_cancelled:
             return
-        self._follow_worker = self.run_worker(  # type: ignore[arg-type]
-            self._poll_follow(), group="follow"
-        )
+        if self._log_stream_spec() is not None:
+            self._follow_worker = self.run_worker(  # type: ignore[arg-type]
+                self._follow_ws(), group="follow"
+            )
+        else:
+            self._follow_worker = self.run_worker(  # type: ignore[arg-type]
+                self._poll_follow(), group="follow"
+            )
+
+    def _log_stream_spec(self) -> dict | None:
+        """The WebSocket stream spec for this logs result, if any.
+
+        Container logs stream via ``containerId`` (docker/compose readLogs); a
+        deployment streams via its ``logPath`` (threaded from the browser).
+        Returns ``None`` otherwise, so follow-mode falls back to polling.
+        """
+        if not self._is_logs:
+            return None
+        if self.params.get("containerId"):
+            return {
+                "endpoint": LOGS_ENDPOINT,
+                "params": {
+                    key: self.params[key]
+                    for key in ("containerId", "serverId", "serviceId", "runType")
+                    if self.params.get(key)
+                },
+            }
+        if self.params.get("logPath"):
+            stream_params = {"logPath": self.params["logPath"]}
+            if self.params.get("serverId"):
+                stream_params["serverId"] = self.params["serverId"]
+            return {"endpoint": DEPLOYMENT_LOGS_ENDPOINT, "params": stream_params}
+        return None
+
+    async def _follow_ws(self) -> None:
+        """Stream log lines over WebSocket; fall back to polling on failure.
+
+        While connected the stream is the source of truth: the buffer is rebuilt
+        from it (the server sends the tail history, then follows). Any
+        connection/auth error switches to the polling API.
+        """
+        spec = self._log_stream_spec()
+        if spec is None:
+            await self._poll_follow()
+            return
+        params = dict(spec["params"])
+        if spec["endpoint"] == LOGS_ENDPOINT:
+            params["tail"] = cast("DokliApp", self.app).config.tui.logs_tail_lines
+        self._lines = []
+        self._last_ts = None
+        try:
+            async for raw in iter_lines(self.connection, spec["endpoint"], params):
+                line = raw.rstrip("\r")
+                if not line:
+                    continue
+                self._merge_log_lines([line])
+                if self._query:
+                    continue
+                self._rerender_logs()
+                self._pin_to_tail()
+                self._render_status()
+        except Exception:
+            self.notify("Live logs unavailable; falling back to polling.", severity="warning", timeout=5)
+            self._lines = [line for line in _plain_lines(self.data) if line]
+            self._last_ts = _latest_timestamp(self._lines)
+            self._rerender_logs()
+            await self._poll_follow()
 
     async def _poll_follow(self) -> None:
         """Periodically fetch newer log lines and append them to the view."""
@@ -131,10 +196,16 @@ class ResultScreen(Screen):
             await asyncio.sleep(interval)
             await self._fetch_follow()
 
+    def _pin_to_tail(self) -> None:
+        """Pin to the tail while auto-scroll is active, else mark the view paused."""
+        container = self.query_one("#result-scroll", VerticalScroll)
+        if self._auto_scroll and container.scroll_y >= container.max_scroll_y - 1:
+            container.scroll_end(animate=False)
+        elif self._auto_scroll:
+            self._auto_scroll = False
+
     async def _fetch_follow(self) -> None:
         """Fetch one batch of log lines, merge, and pin to the tail if wanted."""
-        container = self.query_one("#result-scroll", VerticalScroll)
-        at_bottom = self._auto_scroll and container.scroll_y >= container.max_scroll_y - 1
         params = {**self.params, "tail": cast("DokliApp", self.app).config.tui.logs_tail_lines}
         try:
             response = await asyncio.to_thread(
@@ -150,10 +221,7 @@ class ResultScreen(Screen):
         if self._query:
             return
         self._rerender_logs()
-        if at_bottom:
-            container.scroll_end(animate=False)
-        elif self._auto_scroll:
-            self._auto_scroll = False
+        self._pin_to_tail()
         self._render_status()
 
     def _merge_log_lines(self, incoming: list[str]) -> None:

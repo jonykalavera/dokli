@@ -102,6 +102,34 @@ def test_schema_command_refresh(mocker):
     assert client.call_args.kwargs == {"force_refresh": True}
 
 
+def test_logs_command_streams_lines(mocker):
+    """We expect logs to stream a container's live WebSocket lines."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+
+    async def fake_stream(connection, endpoint, params):
+        assert endpoint == "/docker-container-logs"
+        assert params == {"containerId": "cc1", "tail": 500}
+        yield "2026-08-05T19:56:00Z hello\r"
+
+    mocker.patch("dokli.cli.iter_lines", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--container-id", "cc1"])
+    assert result.exit_code == 0
+    assert "hello" in result.output
+
+
+def test_logs_command_requires_container_id(mocker):
+    """We expect logs to fail without a container id."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    result = CliRunner().invoke(app, ["logs", "test-env"])
+    assert result.exit_code != 0
+
+
 def test_refresh_command_forces_refresh(mocker):
     """We expect refresh to force the schema refresh."""
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")

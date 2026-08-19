@@ -1,5 +1,6 @@
 """Dokli CLI."""
 
+import asyncio
 import json
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -24,6 +25,7 @@ from dokli.report import ApplyReport
 from dokli.secrets_cli import build_command as build_secrets_command
 from dokli.state import collect_state
 from dokli.validate import validate_manifest
+from dokli.wss import LOGS_ENDPOINT, iter_lines
 
 try:
     from dokli.tui.app import app as tui
@@ -127,6 +129,30 @@ def _print_schema_summary(connection: ConnectionConfig, schema: dict) -> None:
     rprint(f"Dokploy API version: {info.get('version', '-')}")
     rprint(f"Paths: {len(paths)}")
     rprint(f"Schemas: {len(schemas)}")
+
+
+@app.command(name="logs")
+def logs_command(
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
+    container_id: str = typer.Option(None, "--container-id", help="Docker container id."),
+    tail: int = typer.Option(500, "--tail", help="Lines of history to show first."),
+) -> None:
+    """Stream a container's live logs over WebSocket (Ctrl+C to stop)."""
+    connection = _get_connection(connection_name)
+    if not container_id:
+        raise typer.BadParameter("--container-id is required.")
+    asyncio.run(_stream_container_logs(connection, container_id, tail))
+
+
+async def _stream_container_logs(connection: ConnectionConfig, container_id: str, tail: int) -> None:
+    """Print a container's live logs as they arrive over the WebSocket."""
+    try:
+        async for line in iter_lines(connection, LOGS_ENDPOINT, {"containerId": container_id, "tail": tail}):
+            print(line.rstrip("\r"))  # noqa: T201
+    except KeyboardInterrupt:
+        pass
 
 
 @app.command(name="state")

@@ -709,6 +709,10 @@ class BrowserScreen(Screen):
                 value = record_id(record, entity_name)
             if value:
                 params[param] = value
+        # The deployment log file is needed by the live WebSocket stream; the
+        # REST readLogs ignores the extra param.
+        if action.route == "deployment.readLogs" and record.get("logPath"):
+            params["logPath"] = record["logPath"]
         missing = [param for param in action.required_params if not params.get(param)]
         return params, missing
 
