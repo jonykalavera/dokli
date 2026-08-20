@@ -178,6 +178,8 @@ def test_logs_follow_compose_streams_ws(mocker):
 
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse({"serverId": None})  # compose.one
 
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/docker-container-logs"
@@ -202,8 +204,9 @@ def test_logs_follow_application_resolves_container(mocker):
 
     def fake_request(method, route, params):
         if route == "application.one":
-            return _FakeResponse({"appName": "app-xyz"})
+            return _FakeResponse({"appName": "app-xyz", "serverId": "srv1"})
         if route == "docker.getContainersByAppNameMatch":
+            assert params == {"appName": "app-xyz", "serverId": "srv1"}
             return _FakeResponse([{"containerId": "cc1", "state": "running"}])
         raise AssertionError(route)
 
@@ -211,7 +214,7 @@ def test_logs_follow_application_resolves_container(mocker):
 
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/docker-container-logs"
-        assert params == {"containerId": "cc1", "tail": 100}
+        assert params == {"containerId": "cc1", "tail": 100, "serverId": "srv1"}
         yield "app live\r"
 
     mocker.patch("dokli.logs_cli.iter_lines", side_effect=fake_stream)
@@ -227,17 +230,73 @@ def test_logs_follow_deployment_uses_log_path(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse([{"deploymentId": "d1", "logPath": "/tmp/x.log"}])
+    client.request.return_value = _FakeResponse(
+        [{"deploymentId": "d1", "logPath": "/tmp/x.log", "serverId": "srv1"}]
+    )
 
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/listen-deployment"
-        assert params == {"logPath": "/tmp/x.log"}
+        assert params == {"logPath": "/tmp/x.log", "serverId": "srv1"}
         yield "dep live\r"
 
     mocker.patch("dokli.logs_cli.iter_lines", side_effect=fake_stream)
     result = CliRunner().invoke(app, ["logs", "test-env", "--deployment-id", "d1", "-f"])
     assert result.exit_code == 0
     assert "dep live" in result.output
+
+
+def test_logs_follow_stream_ends_cleanly(mocker):
+    """We expect -f to exit cleanly when the WebSocket stream ends."""
+    import websockets
+
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse({"serverId": None})  # compose.one
+
+    async def fake_stream(connection, endpoint, params):
+        yield "line\r"
+        raise websockets.exceptions.ConnectionClosedOK(None, None)
+
+    mocker.patch("dokli.logs_cli.iter_lines", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--compose-id", "c1", "--container-id", "cc1", "-f"])
+    assert result.exit_code == 0
+    assert "line" in result.output
+
+
+def test_logs_follow_connection_error_exits_one(mocker):
+    """We expect a failed WebSocket connection to exit non-zero with an error."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
+    client = _patch_logs_client(mocker)
+    client.request.return_value = _FakeResponse({"serverId": None})  # compose.one
+
+    async def fake_stream(connection, endpoint, params):
+        if False:
+            yield  # make it an async generator
+        raise OSError("connection refused")
+
+    mocker.patch("dokli.logs_cli.iter_lines", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--compose-id", "c1", "--container-id", "cc1", "-f"])
+    assert result.exit_code == 1
+    assert "Log stream failed" in result.output
+
+
+def test_logs_validates_lines_range(mocker):
+    """We expect -n outside the API's tail bounds to be rejected."""
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
+    result = CliRunner().invoke(app, ["logs", "test-env", "--deployment-id", "d1", "-n", "0"])
+    assert result.exit_code != 0
+    assert "must be between" in result.output
+    result = CliRunner().invoke(app, ["logs", "test-env", "--deployment-id", "d1", "-n", "10001"])
+    assert result.exit_code != 0
 
 
 def test_logs_requires_exactly_one_selector(mocker):

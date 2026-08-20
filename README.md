@@ -105,7 +105,7 @@ Uses the cross-platform [`keyring`](https://pypi.org/project/keyring/) package (
 - magical JSON parameters `%json:{"projectId": "daspdoada798sda"}`
 - magical file parameters `%file:/path/to/data/foo.redis.json`
 - shell completion for configured connection names (`dokli state <TAB>`, `dokli connections get <TAB>`, ...)
-- `dokli logs <conn> (--compose-id | --application-id | --deployment-id) [-n N] [-f]` — show a service's last `-n` log lines (REST, one-shot) or stream live with `-f` (WebSocket).
+- `dokli logs <conn> (--compose-id + --container-id | --application-id | --deployment-id) [-n N] [-f]` — show a service's last `-n` log lines (REST, one-shot) or stream live with `-f` (WebSocket; deployment `-f` streams the whole log).
 - output formats:
   - yaml
   - json
