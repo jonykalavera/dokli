@@ -308,6 +308,11 @@ def _patch_api(mocker):
     mocker.patch("dokli.tui.app.APIClient", return_value=client)
     mocker.patch("dokli.tui.screens.generic.execute.APIClient", return_value=client)
     mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+    # No live WebSockets in tests: follow-mode falls back to polling.
+    mocker.patch(
+        "dokli.tui.screens.generic.result.iter_lines",
+        side_effect=ConnectionError("no WebSocket in tests"),
+    )
     return responses
 
 
@@ -2397,6 +2402,10 @@ def test_logs_fetch_follow_appends_and_pins(mocker):
     )
     client.request.side_effect = lambda method, path, params: next(batches)
     mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+    mocker.patch(
+        "dokli.tui.screens.generic.result.iter_lines",
+        side_effect=ConnectionError("no WebSocket in tests"),
+    )
     registry = parse_spec(FAKE_SCHEMA)
     action = registry.get("compose").get("readLogs")
 
@@ -2419,6 +2428,99 @@ def test_logs_fetch_follow_appends_and_pins(mocker):
             assert screen._lines[-1] == "2026-08-05T19:56:00Z line 3"
             assert screen._auto_scroll is True
             assert "live" in str(screen.query_one("#match-status", Label).renderable)
+
+    _run(main())
+
+
+def test_log_stream_spec():
+    """We expect WS stream specs for container/deployment logs, None otherwise."""
+    registry = parse_spec(FAKE_SCHEMA)
+    compose_logs = registry.get("compose").get("readLogs")
+    screen = ResultScreen(
+        _connection(), compose_logs, "", params={"composeId": "c1", "containerId": "cc1"}
+    )
+    spec = screen._log_stream_spec()
+    assert spec is not None
+    assert spec["endpoint"] == "/docker-container-logs"
+    assert spec["params"] == {"containerId": "cc1"}
+
+    deployment_logs = registry.get("deployment").get("readLogs")
+    screen = ResultScreen(
+        _connection(),
+        deployment_logs,
+        "",
+        params={"deploymentId": "d1", "logPath": "/tmp/x.log"},
+    )
+    spec = screen._log_stream_spec()
+    assert spec is not None
+    assert spec["endpoint"] == "/listen-deployment"
+    assert spec["params"] == {"logPath": "/tmp/x.log"}
+
+    plain = registry.get("project").get("all")
+    screen = ResultScreen(_connection(), plain, "")
+    assert screen._log_stream_spec() is None
+
+
+def test_logs_follow_ws_streams_lines(mocker):
+    """We expect a logs result to stream lines over WebSocket by default."""
+    async def fake_stream(connection, endpoint, params):
+        assert endpoint == "/docker-container-logs"
+        assert params.get("containerId") == "cc1"
+        assert params.get("tail") == 500
+        yield "2026-08-05T19:56:00Z live line 1\r"
+        yield "2026-08-05T19:56:01Z live line 2\r"
+
+    mocker.patch("dokli.tui.screens.generic.result.iter_lines", side_effect=fake_stream)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(
+                _connection(), action, "2026-08-05T19:55:54Z line 1", params={"composeId": "c1", "containerId": "cc1"}
+            )
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            for _ in range(10):
+                await pilot.pause()
+            assert screen._lines[-1] == "2026-08-05T19:56:01Z live line 2"
+            assert screen._lines[0] == "2026-08-05T19:56:00Z live line 1"
+            assert "live" in str(screen.query_one("#match-status", Label).renderable)
+
+    _run(main())
+
+
+def test_logs_follow_ws_falls_back_to_polling(mocker):
+    """We expect a failed WebSocket stream to fall back to the polling API."""
+    client = mocker.Mock()
+    batches = iter(
+        [
+            FakeResponse("2026-08-05T19:56:00Z polled line 2"),
+        ]
+    )
+    client.request.side_effect = lambda method, path, params: next(batches)
+    mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+    mocker.patch(
+        "dokli.tui.screens.generic.result.iter_lines",
+        side_effect=ConnectionError("ws down"),
+    )
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("compose").get("readLogs")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(
+                _connection(), action, "2026-08-05T19:55:54Z line 1", params={"composeId": "c1", "containerId": "cc1"}
+            )
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            for _ in range(10):
+                await pilot.pause()
+            await screen._fetch_follow()
+            await pilot.pause()
+            assert screen._lines[-1] == "2026-08-05T19:56:00Z polled line 2"
 
     _run(main())
 

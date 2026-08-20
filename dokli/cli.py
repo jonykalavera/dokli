@@ -12,12 +12,13 @@ from rich.table import Table
 
 from dokli.api_client import APIClient
 from dokli.apply import Applier
-from dokli.config import Config, ConnectionConfig, complete_connection_names
+from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
 from dokli.connections import build_command as build_connections_command
 from dokli.diff import build_plan
 from dokli.export import export_manifest
 from dokli.formatting import Format, redact_secrets
 from dokli.init import init_manifest
+from dokli.logs_cli import build_command as build_logs_command
 from dokli.manifest import load_manifests
 from dokli.openapi_cli import build_command as build_api_command
 from dokli.report import ApplyReport
@@ -39,6 +40,7 @@ state: dict[str, Any] = {
 app.add_typer(build_api_command(state["config"]))
 app.add_typer(build_connections_command(state["config"]))
 app.add_typer(build_secrets_command())
+app.command(name="logs")(build_logs_command(state["config"]))
 
 
 def tui_command(
@@ -60,15 +62,7 @@ if _tui_loaded:
 
 def _get_connection(connection_name: str | None) -> ConnectionConfig:
     """Resolve a connection by name, or the only configured one."""
-    config = state["config"]
-    if connection_name is not None:
-        for connection in config.connections:
-            if connection.name == connection_name:
-                return connection
-        raise typer.BadParameter(f"Unknown connection '{connection_name}'.")
-    if len(config.connections) == 1:
-        return config.connections[0]
-    raise typer.BadParameter("Specify a connection name.")
+    return resolve_connection(state["config"], connection_name)
 
 
 @app.command(name="init")
