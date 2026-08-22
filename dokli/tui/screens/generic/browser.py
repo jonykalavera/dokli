@@ -79,6 +79,7 @@ class BrowserScreen(Screen):
         Binding("f5", "refresh", "Refresh"),
         Binding("/", "filter", "Filter"),
         Binding("S", "stats_selected", "Stats", show=False),
+        Binding("y", "yank_id", "Yank id", show=False),
         Binding("escape", "cancel", "Back"),
         Binding("q", "quit", "Quit"),
     ]
@@ -357,6 +358,8 @@ class BrowserScreen(Screen):
     def contextual_bindings(self) -> list[tuple[str, str]]:
         """The current selection's action keybindings, for the help screen."""
         entries: list[tuple[str, str]] = []
+        if record_id(self.selected or {}, self._selected_kind() or ""):
+            entries.append(("y", "Yank id"))
         if self._stats_target() is not None:
             entries.append(("S", "Stats"))
         entity = self.registry.get(self._selected_kind() or "")
@@ -717,6 +720,20 @@ class BrowserScreen(Screen):
     def action_stats_selected(self) -> None:
         """Open live stats for the selected service/container."""
         self.run_worker(self._open_stats(), group="action")  # type: ignore[arg-type]
+
+    def action_yank_id(self) -> None:
+        """Copy the selected record's primary id to the clipboard (OSC 52)."""
+        selected = self.selected
+        if selected is None:
+            self.notify("Nothing selected to yank.", severity="warning", timeout=3)
+            return
+        kind = self._selected_kind() or ""
+        ident = record_id(selected, kind)
+        if not ident:
+            self.notify("No id available for this selection.", severity="warning", timeout=3)
+            return
+        self.app.copy_to_clipboard(ident)
+        self.notify(f"Copied {ident}")
 
     async def _open_stats(self) -> None:
         """Open stats for the selection, choosing a container when ambiguous.

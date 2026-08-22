@@ -212,6 +212,27 @@ class TestKeyBindings:
         keys = {key for _, key in bindings if key is not None}
         assert "D" not in keys
 
+    def test_yank_key_is_reserved(self):
+        """We expect RESERVED_KEYS (y, the yank binding) to never be assigned."""
+        entity = self._entity(
+            "remove",
+            "redeploy",
+            "restart",
+            "search",
+            "start",
+            "save",
+            "suggest",
+            "sync",
+            "show",
+            "stop",
+            "status",
+            "submit",
+            "updateTeams",
+        )
+        bindings = action_bindings(entity)
+        keys = {key for _, key in bindings if key is not None}
+        assert "y" not in keys
+
     def test_fallback_to_free_key(self):
         """We expect a free key when all verb letters are taken."""
         assert key_for_verb("xyz", frozenset("xyzw")) == "a"
