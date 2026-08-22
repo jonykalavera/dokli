@@ -2,7 +2,7 @@
 
 import json
 
-from dokli.formatting import Format, format_data, redact_secrets
+from dokli.formatting import Format, _format_agent, _flatten_record, format_data, redact_secrets
 
 
 class TestRedactSecrets:
@@ -53,3 +53,33 @@ class TestFormatData:
         out = format_data(data, Format.json, indent=2)
         assert json.loads(out) == data
         assert "\n  " in out
+
+
+class TestFormatAgent:
+    """NDJSON dataframe serialization (header + rows)."""
+
+    def test_flatten_record_nested(self):
+        """We expect nested dicts to flatten with __ separators."""
+        flat = _flatten_record({"network": {"down": 1.0, "up": 2.0}, "cpu": 0.5})
+        assert flat == {"network__down": 1.0, "network__up": 2.0, "cpu": 0.5}
+
+    def test_agent_list_of_dicts(self):
+        """We expect a list to become a header row + one row per record."""
+        out = _format_agent([{"a": 1, "b": "x"}, {"a": 2, "b": "y"}])
+        lines = out.strip().split("\n")
+        assert json.loads(lines[0]) == ["a", "b"]
+        assert json.loads(lines[1]) == [1, "x"]
+        assert json.loads(lines[2]) == [2, "y"]
+
+    def test_agent_single_dict(self):
+        """We expect a single dict to become a header + one row."""
+        out = _format_agent({"cpu": 0.5, "disk": None})
+        lines = out.strip().split("\n")
+        assert json.loads(lines[0]) == ["cpu", "disk"]
+        assert json.loads(lines[1]) == [0.5, None]
+
+    def test_agent_is_parseable_line_by_line(self):
+        """We expect every line (header and rows) to be valid JSON."""
+        out = format_data([{"a": 1}, {"a": 2}], Format.agent)
+        for line in out.strip().split("\n"):
+            json.loads(line)

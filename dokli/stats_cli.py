@@ -1,6 +1,7 @@
 """The ``dokli stats`` command: live container stats over WebSocket."""
 
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -16,6 +17,7 @@ from rich.console import Console
 
 from dokli.api_client import request_json
 from dokli.config import Config, complete_connection_names, resolve_connection
+from dokli.formatting import Format
 from dokli.monitoring import (
     METRIC_SCALE,
     format_duo_total_label,
@@ -74,6 +76,10 @@ def build_command(config: Config) -> Callable[..., None]:
         height: int = typer.Option(3, "--height", help="Sparkline height in rows (1-8)."),
         samples: int = typer.Option(None, "--samples", help="History samples (default: console width)."),
         no_backfill: bool = typer.Option(False, "--no-backfill", help="Skip the REST history backfill (system-only)."),
+        once: bool = typer.Option(False, "--once", help="Print a single snapshot and exit (no live stream)."),
+        format: Format = typer.Option(  # noqa: B008
+            Format.python, "--format", help="Output format (python = braille; agent = NDJSON dataframe)."
+        ),
     ) -> None:
         """Stream a service's or the host system's stats live (Ctrl+C to stop)."""
         connection = resolve_connection(config, connection_name)
@@ -104,6 +110,8 @@ def build_command(config: Config) -> Callable[..., None]:
                 height,
                 samples,
                 no_backfill,
+                once,
+                format,
             )
         )
 
@@ -121,11 +129,20 @@ async def _stream_stats(
     height: int,
     samples: int,
     no_backfill: bool,
+    once: bool,
+    format: Format = Format.python,
 ) -> None:
-    """Stream and print a service's or the host system's stats as braille sparklines."""
+    """Stream and print a service's or the host system's stats as braille sparklines.
+
+    With ``format=agent`` it instead emits an NDJSON dataframe (header row once,
+    then one row per sample) — machine-friendly, low footprint.
+    """
     app_name, app_type, display_type, project_name, service_label = await _resolve_stats_target(
         connection, compose_id, application_id, container_name, container_id, app_name, app_type
     )
+    if format == Format.agent:
+        await _stream_agent(connection, app_name, app_type, display_type, once)
+        return
     metrics = _metrics_for(display_type)
     buffers: dict[str, deque[float]] = {}
     duo_buffers: dict[str, tuple[deque[float], deque[float]]] = {
@@ -134,7 +151,7 @@ async def _stream_stats(
     # Parallel, lockstep timestamps (ISO) so the header can show the order window
     # actually visible in the charts.
     timestamps: dict[str, deque[str]] = {name: deque(maxlen=samples) for name in metrics}
-    live = sys.stdout.isatty()
+    live = sys.stdout.isatty() and not once
     block_lines = 0
     if live:
         # The monitor owns the whole screen: clear it before the first block so
@@ -159,6 +176,8 @@ async def _stream_stats(
                 _clear_lines(block_lines)
             block_lines = _print_block(base_header, data, buffers, duo_buffers, metrics, height, timestamps)
             sys.stdout.flush()
+            if once:
+                break
     except KeyboardInterrupt:
         pass
     except websockets.exceptions.ConnectionClosed:
@@ -166,6 +185,58 @@ async def _stream_stats(
     except (websockets.exceptions.WebSocketException, OSError) as err:
         rprint(f"[red]Stats stream failed: {err}[/red]")
         raise typer.Exit(code=1) from None
+
+
+#: Column names for the ``--format agent`` stats dataframe (flat, __-joined).
+_AGENT_COLUMNS = [
+    "time",
+    "cpu",
+    "memory",
+    "network__down",
+    "network__up",
+    "block__down",
+    "block__up",
+    "disk",
+]
+
+
+async def _stream_agent(connection, app_name: str, app_type: str, display_type: str, once: bool) -> None:
+    """Emit an NDJSON stats dataframe: header once, then one row per sample."""
+    print(json.dumps(_AGENT_COLUMNS))  # noqa: T201
+    try:
+        async for data in iter_stats(connection, app_name, app_type):
+            row = [_agent_row(data, display_type)]
+            print(json.dumps(row[0]), flush=True)  # noqa: T201
+            if once:
+                break
+    except KeyboardInterrupt:
+        pass
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    except (websockets.exceptions.WebSocketException, OSError) as err:
+        rprint(f"[red]Stats stream failed: {err}[/red]", file=sys.stderr)
+        raise typer.Exit(code=1) from None
+
+
+def _agent_row(data: dict, display_type: str) -> list:
+    """One dataframe row for a stats sample (positional, in _AGENT_COLUMNS order)."""
+    entry = data.get("cpu") or {}
+    cpu = metric_value({"cpu": entry}, "cpu")
+    memory = metric_value(data, "memory")
+    network = metric_duo(data, "network")
+    block = metric_duo(data, "block")
+    disk = metric_value(data, "disk") if display_type == "system" else None
+    timestamp = (data.get("cpu") or {}).get("time")
+    return [
+        timestamp,
+        cpu,
+        memory,
+        network[0] if network else None,
+        network[1] if network else None,
+        block[0] if block else None,
+        block[1] if block else None,
+        disk,
+    ]
 
 
 async def _resolve_stats_target(

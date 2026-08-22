@@ -17,7 +17,7 @@ from dokli.connections import build_command as build_connections_command
 from dokli.connections import set_default_connection, unset_default_connection
 from dokli.diff import build_plan
 from dokli.export import export_manifest
-from dokli.formatting import Format, redact_secrets
+from dokli.formatting import Format, _format_agent, redact_secrets
 from dokli.init import init_manifest
 from dokli.logs_cli import build_command as build_logs_command
 from dokli.ls_cli import build_command as build_ls_command
@@ -145,12 +145,38 @@ def _print_schema_summary(connection: ConnectionConfig, schema: dict) -> None:
     rprint(f"Schemas: {len(schemas)}")
 
 
+def _state_agent_rows(live_state) -> str:
+    """Per-service agent dataframe rows (project/environment context prefixed)."""
+    rows = []
+    for project in live_state.projects:
+        for environment in project.environments:
+            for service in environment.services:
+                rows.append(
+                    {
+                        "project__name": project.name,
+                        "environment__name": environment.name,
+                        "type": service.type,
+                        "name": service.name,
+                        "app_name": service.app_name,
+                        "id": service.service_id,
+                        "source_type": service.source_type,
+                        "repository": service.repository,
+                        "docker_image": service.docker_image,
+                        "server_id": service.server_id,
+                    }
+                )
+    return _format_agent(rows)
+
+
 @app.command(name="state")
 def state_command(
     connection_name: str | None = typer.Argument(
         None, help="Connection name.", shell_complete=complete_connection_names
     ),
     show_secrets: bool = typer.Option(False, "--show-secrets", help="Show environment variables (secrets)."),
+    format: Format = typer.Option(  # noqa: B008
+        Format.yaml, "--format", help="Output format (yaml = default; agent = NDJSON dataframe)."
+    ),
 ) -> None:
     """Show the current state of a Dokploy instance."""
     connection = _get_connection(connection_name)
@@ -158,7 +184,11 @@ def state_command(
     data = live_state.model_dump(mode="json")
     if not show_secrets:
         data = redact_secrets(data)
-    rprint(yaml.dump(data))
+    if format == Format.agent:
+        # Per-service rows (no compose/env blobs) keep the dataframe lean.
+        print(_state_agent_rows(live_state), end="")  # noqa: T201
+    else:
+        rprint(yaml.dump(data))
 
 
 @app.command(name="plan")

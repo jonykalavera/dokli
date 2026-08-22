@@ -8,6 +8,7 @@ from rich.table import Table
 
 from dokli.api_client import APIClient
 from dokli.config import Config, complete_connection_names, resolve_connection
+from dokli.formatting import Format, _format_agent
 from dokli.state import collect_state
 
 
@@ -26,6 +27,9 @@ def build_command(config: Config) -> Callable[..., None]:
         ),
         search: str | None = typer.Option(
             None, "--search", "-s", help="Only list services whose name matches this substring."
+        ),
+        format: Format = typer.Option(  # noqa: B008
+            Format.python, "--format", help="Output format (python = table; agent = NDJSON dataframe)."
         ),
     ) -> None:
         """List services and their ids across the instance."""
@@ -52,7 +56,10 @@ def build_command(config: Config) -> Callable[..., None]:
                         }
                     )
 
-        _render(rows)
+        if format == Format.agent:
+            print(_format_agent(rows), end="")  # noqa: T201
+        else:
+            _render(rows)
 
     return ls_command
 

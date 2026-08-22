@@ -24,6 +24,7 @@ class Format(str, Enum):
     json = "json"
     yaml = "yaml"
     table = "table"
+    agent = "agent"
 
 
 def format_response(
@@ -78,6 +79,50 @@ def _redact_env_lines(value: str) -> str:
     return "\n".join(lines)
 
 
+def _flatten_record(record: Any, prefix: str = "") -> dict[str, Any]:
+    """Flatten a nested record into flat keys joined with ``__``.
+
+    ``{"network": {"down": 1.0}}`` becomes ``{"network__down": 1.0}``. Lists
+    stay as-is (a JSON column value). ``None``/scalars are kept.
+    """
+    flat: dict[str, Any] = {}
+    if isinstance(record, dict):
+        for key, value in record.items():
+            name = f"{prefix}{key}" if not prefix else f"{prefix}__{key}"
+            if isinstance(value, dict):
+                flat.update(_flatten_record(value, name))
+            else:
+                flat[name] = value
+    else:
+        flat[prefix or "value"] = record
+    return flat
+
+
+def _format_agent(data: D) -> str:
+    """Serialize data as a header row + one NDJSON row per record.
+
+    Line 1 is the column names (array of strings); every following line is one
+    record's values (array). Nested objects are flattened with ``__``.
+    """
+    records: list[dict[str, Any]]
+    if isinstance(data, list):
+        records = [_flatten_record(item) for item in data if isinstance(item, dict)]
+    elif isinstance(data, dict):
+        records = [_flatten_record(data)]
+    else:
+        return json.dumps(["value"]) + "\n" + json.dumps([data]) + "\n"
+
+    columns: list[str] = []
+    for record in records:
+        for key in record:
+            if key not in columns:
+                columns.append(key)
+    lines = [json.dumps(columns)]
+    for record in records:
+        lines.append(json.dumps([record.get(column) for column in columns]))
+    return "\n".join(lines) + "\n"
+
+
 def format_data(data: D, format: Format, indent: int = 0) -> str | D | Table:
     """Format the given data in the given format."""
     match format:
@@ -87,6 +132,8 @@ def format_data(data: D, format: Format, indent: int = 0) -> str | D | Table:
             return json.dumps(data, indent=indent or None)
         case Format.yaml:
             return yaml.dump(data)
+        case Format.agent:
+            return _format_agent(data)
         case Format.table:
             table = _data_to_table(data)
             return table
