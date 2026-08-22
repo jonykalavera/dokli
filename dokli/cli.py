@@ -17,7 +17,7 @@ from dokli.connections import build_command as build_connections_command
 from dokli.connections import set_default_connection, unset_default_connection
 from dokli.diff import build_plan
 from dokli.export import export_manifest
-from dokli.formatting import Format, _format_agent, redact_secrets
+from dokli.formatting import Format, _format_agent, redact_secrets, select_fields
 from dokli.init import init_manifest
 from dokli.logs_cli import build_command as build_logs_command
 from dokli.ls_cli import build_command as build_ls_command
@@ -145,7 +145,7 @@ def _print_schema_summary(connection: ConnectionConfig, schema: dict) -> None:
     rprint(f"Schemas: {len(schemas)}")
 
 
-def _state_agent_rows(live_state) -> str:
+def _state_agent_rows(live_state, fields: list[str] | None = None) -> str:
     """Per-service agent dataframe rows (project/environment context prefixed)."""
     rows = []
     for project in live_state.projects:
@@ -165,7 +165,7 @@ def _state_agent_rows(live_state) -> str:
                         "server_id": service.server_id,
                     }
                 )
-    return _format_agent(rows)
+    return _format_agent(select_fields(rows, fields or []))
 
 
 @app.command(name="state")
@@ -177,6 +177,7 @@ def state_command(
     format: Format = typer.Option(  # noqa: B008
         Format.yaml, "--format", help="Output format (yaml = default; agent = NDJSON dataframe)."
     ),
+    fields: str = typer.Option(None, "--fields", help="Comma-separated top-level fields to keep."),
 ) -> None:
     """Show the current state of a Dokploy instance."""
     connection = _get_connection(connection_name)
@@ -184,11 +185,12 @@ def state_command(
     data = live_state.model_dump(mode="json")
     if not show_secrets:
         data = redact_secrets(data)
+    field_list = [field.strip() for field in fields.split(",") if field.strip()] if fields else None
     if format == Format.agent:
         # Per-service rows (no compose/env blobs) keep the dataframe lean.
-        print(_state_agent_rows(live_state), end="")  # noqa: T201
+        print(_state_agent_rows(live_state, field_list), end="")  # noqa: T201
     else:
-        rprint(yaml.dump(data))
+        rprint(yaml.dump(select_fields(data, field_list or [])))
 
 
 @app.command(name="plan")
