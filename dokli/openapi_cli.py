@@ -16,6 +16,7 @@ from rich import print as rprint
 from dokli.api_client import APIClient
 from dokli.commands import run_command
 from dokli.config import Config, ConnectionConfig
+from dokli.errors import emit_error
 from dokli.formatting import Format, format_response
 
 OPENAPI_TO_PYTHON: dict[str, type] = {
@@ -164,8 +165,7 @@ def _api_command_factory(
                 else:
                     rprint(content)
             case HTTPError():
-                rprint(f"[red]{response}[/red]")
-                raise typer.Exit(code=1)
+                emit_error(str(response), format=format)
             case _:
                 raise ValueError(f"Unknown response type {type(response)}")
 

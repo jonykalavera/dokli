@@ -92,7 +92,7 @@ tui = [
 ]
 
 [project.scripts]
-dokli = "dokli.cli:app"
+dokli = "dokli.cli:entry"
 
 [dependency-groups]
 dev = [

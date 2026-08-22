@@ -17,6 +17,7 @@ from dokli.connections import build_command as build_connections_command
 from dokli.connections import set_default_connection, unset_default_connection
 from dokli.diff import build_plan
 from dokli.doctor import run_doctor
+from dokli.errors import EXIT_ERROR, EXIT_USAGE, emit_error, format_from_argv
 from dokli.export import export_manifest
 from dokli.formatting import Format, _format_agent, redact_secrets, select_fields
 from dokli.init import init_manifest
@@ -80,8 +81,7 @@ def init_command(
     try:
         path = init_manifest(state["config"], output)
     except FileExistsError as err:
-        rprint(f"[red]{err}[/red]")
-        raise typer.Exit(code=1) from None
+        emit_error(str(err))
     rprint(f"[green]Wrote {path}[/green]")
 
 
@@ -182,7 +182,10 @@ def state_command(
 ) -> None:
     """Show the current state of a Dokploy instance."""
     connection = _get_connection(connection_name)
-    live_state = collect_state(connection)
+    try:
+        live_state = collect_state(connection)
+    except Exception as err:  # noqa: BLE001
+        emit_error(f"state failed: {err}", format=format)
     data = live_state.model_dump(mode="json")
     if not show_secrets:
         data = redact_secrets(data)
@@ -367,3 +370,25 @@ def _cli_version() -> str:
         return package_version("dokli")
     except PackageNotFoundError:
         return "unknown"
+
+
+def entry() -> None:
+    """Console entry point: run the app with a stable error channel.
+
+    Catches unexpected exceptions and typer/click usage errors so the process
+    always exits with a documented code (0 ok / 1 runtime / 2 usage) and, when
+    a machine format was requested on the command line (``--format json`` or
+    ``agent``), writes the failure as JSON to stderr.
+    """
+    format = format_from_argv()
+    try:
+        try:
+            code = app(standalone_mode=False)
+        except typer.BadParameter as err:
+            emit_error(str(err), format=format, exit_code=EXIT_USAGE)
+        except Exception as err:  # noqa: BLE001
+            emit_error(str(err), format=format, exit_code=EXIT_ERROR)
+    except typer.Exit as err:
+        raise SystemExit(err.exit_code) from None
+    if isinstance(code, int):
+        raise SystemExit(code)

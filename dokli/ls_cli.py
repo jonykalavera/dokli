@@ -8,6 +8,7 @@ from rich.table import Table
 
 from dokli.api_client import APIClient
 from dokli.config import Config, complete_connection_names, resolve_connection
+from dokli.errors import emit_error
 from dokli.formatting import Format, _format_agent, select_fields
 from dokli.state import collect_state
 
@@ -36,7 +37,10 @@ def build_command(config: Config) -> Callable[..., None]:
         """List services and their ids across the instance."""
         connection = resolve_connection(config, connection_name)
         client = APIClient(connection)
-        state = collect_state(connection, client=client)
+        try:
+            state = collect_state(connection, client=client)
+        except Exception as err:  # noqa: BLE001
+            emit_error(f"ls failed: {err}", format=format)
 
         rows: list[dict[str, str]] = []
         for project in state.projects:

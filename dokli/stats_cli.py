@@ -12,11 +12,11 @@ from datetime import datetime
 import httpx
 import typer
 import websockets
-from rich import print as rprint
 from rich.console import Console
 
 from dokli.api_client import request_json
 from dokli.config import Config, complete_connection_names, resolve_connection
+from dokli.errors import emit_error
 from dokli.formatting import Format, select_fields
 from dokli.monitoring import (
     METRIC_SCALE,
@@ -187,8 +187,7 @@ async def _stream_stats(
     except websockets.exceptions.ConnectionClosed:
         pass
     except (websockets.exceptions.WebSocketException, OSError) as err:
-        rprint(f"[red]Stats stream failed: {err}[/red]")
-        raise typer.Exit(code=1) from None
+        emit_error(f"Stats stream failed: {err}", format=format)
 
 
 #: Column names for the ``--format agent`` stats dataframe (flat, __-joined).
@@ -225,8 +224,7 @@ async def _stream_agent(
     except websockets.exceptions.ConnectionClosed:
         pass
     except (websockets.exceptions.WebSocketException, OSError) as err:
-        rprint(f"[red]Stats stream failed: {err}[/red]", file=sys.stderr)
-        raise typer.Exit(code=1) from None
+        emit_error(f"Stats stream failed: {err}", format=Format.agent)
 
 
 def _agent_row(data: dict, display_type: str) -> list:
