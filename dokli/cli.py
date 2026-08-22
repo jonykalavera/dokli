@@ -29,6 +29,7 @@ from dokli.report import ApplyReport
 from dokli.secrets_cli import build_command as build_secrets_command
 from dokli.state import collect_state
 from dokli.stats_cli import build_command as build_stats_command
+from dokli.terminal_cli import build_command as build_terminal_command
 from dokli.validate import validate_manifest
 
 try:
@@ -47,6 +48,7 @@ app.add_typer(build_connections_command(state["config"]))
 app.add_typer(build_secrets_command())
 app.command(name="logs")(build_logs_command(state["config"]))
 app.command(name="stats")(build_stats_command(state["config"]))
+app.command(name="terminal")(build_terminal_command(state["config"]))
 app.command(name="ls")(build_ls_command(state["config"]))
 
 

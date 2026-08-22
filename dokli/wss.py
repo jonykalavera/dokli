@@ -20,6 +20,10 @@ LOGS_ENDPOINT = "/docker-container-logs"
 DEPLOYMENT_LOGS_ENDPOINT = "/listen-deployment"
 #: Live container stats (JSON pushed every ~1.3s).
 STATS_ENDPOINT = "/listen-docker-stats-monitoring"
+#: Interactive shell into a container (bidirectional; resize via JSON message).
+CONTAINER_TERMINAL_ENDPOINT = "/docker-container-terminal"
+#: Interactive host shell via SSH (bidirectional; resize via JSON message).
+HOST_TERMINAL_ENDPOINT = "/terminal"
 
 
 def ws_base(connection: ConnectionConfig) -> str:
@@ -55,6 +59,29 @@ async def iter_lines(connection: ConnectionConfig, path: str, params: dict | Non
             *lines, buffer = text.split("\n")
             for line in lines:
                 yield line
+
+
+def resize_message(cols: int, rows: int) -> str:
+    """A resize control message for the terminal endpoints.
+
+    Terminal keystrokes and resize control share the same WebSocket channel:
+    the server treats any payload starting with ``{`` as a JSON control
+    message (see Dokploy's ``parseResizeMessage``), so this envelope must be
+    sent as a *text* frame (not a binary one) to be recognized.
+    """
+    return json.dumps({"type": "resize", "cols": cols, "rows": rows})
+
+
+async def open_terminal(connection: ConnectionConfig, path: str, params: dict | None = None):
+    """Open a bidirectional terminal WebSocket.
+
+    Returns the open ``websockets`` connection: send raw keystrokes as binary
+    frames, send :func:`resize_message` (as text) to resize, and iterate over
+    incoming frames for the terminal's output. Raises the underlying exception
+    when the handshake is rejected.
+    """
+    uri = ws_url(connection, path, params)
+    return await connect(uri, additional_headers=_headers(connection))
 
 
 async def iter_stats(
