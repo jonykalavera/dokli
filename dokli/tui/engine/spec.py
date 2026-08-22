@@ -163,7 +163,7 @@ def classify(action: EntityAction) -> str:
 
 
 # Keys used by the browser navigation; never assigned to actions.
-RESERVED_KEYS = frozenset("hjklrq")
+RESERVED_KEYS = frozenset("hjklrqy")
 
 # Keys reserved for app-level bindings (e.g. D toggles dark mode); never
 # assigned to actions so the app shortcuts are not overshadowed.
