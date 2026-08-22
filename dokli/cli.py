@@ -16,6 +16,7 @@ from dokli.config import Config, ConnectionConfig, complete_connection_names, re
 from dokli.connections import build_command as build_connections_command
 from dokli.connections import set_default_connection, unset_default_connection
 from dokli.diff import build_plan
+from dokli.doctor import run_doctor
 from dokli.export import export_manifest
 from dokli.formatting import Format, _format_agent, redact_secrets, select_fields
 from dokli.init import init_manifest
@@ -191,6 +192,36 @@ def state_command(
         print(_state_agent_rows(live_state, field_list), end="")  # noqa: T201
     else:
         rprint(yaml.dump(select_fields(data, field_list or [])))
+
+
+@app.command(name="doctor")
+def doctor_command(
+    connection_name: str | None = typer.Argument(
+        None, help="Connection name.", shell_complete=complete_connection_names
+    ),
+    format: Format = typer.Option(  # noqa: B008
+        Format.python, "--format", help="Output format (python = table; agent = NDJSON dataframe)."
+    ),
+) -> None:
+    """Check an instance's health: connectivity, auth, schema cache freshness."""
+    connection = _get_connection(connection_name)
+    report = run_doctor(connection)
+    if format == Format.agent:
+        rows = [{"check": c.name, "ok": c.ok, "detail": c.detail} for c in report.checks]
+        print(_format_agent(rows), end="")  # noqa: T201
+    elif format == Format.json:
+        print(json.dumps(report.to_dict(), indent=2))  # noqa: T201
+    else:
+        table = Table(title=f"Health checks for {report.connection}")
+        table.add_column("Check")
+        table.add_column("Status")
+        table.add_column("Detail")
+        for check in report.checks:
+            status = "[green]ok[/green]" if check.ok else "[red]fail[/red]"
+            table.add_row(check.name, status, check.detail)
+        rprint(table)
+    if not report.ok:
+        raise typer.Exit(code=1)
 
 
 @app.command(name="plan")
