@@ -51,6 +51,7 @@ def palette_for(dark: bool) -> Palette:
         return Palette(METRIC_COLORS, BORDER_COLOR)
     return Palette(_LIGHT_METRIC_COLORS, _LIGHT_BORDER_COLOR)
 
+
 #: Target kinds accepted by ``dokli stats --<kind>-id``, plus system.
 TARGET_KINDS = ("system", "compose", "application", "container")
 

@@ -157,9 +157,7 @@ async def _stream_stats(
         async for data in iter_stats(connection, app_name, app_type):
             if live and block_lines:
                 _clear_lines(block_lines)
-            block_lines = _print_block(
-                base_header, data, buffers, duo_buffers, metrics, height, timestamps
-            )
+            block_lines = _print_block(base_header, data, buffers, duo_buffers, metrics, height, timestamps)
             sys.stdout.flush()
     except KeyboardInterrupt:
         pass
@@ -272,9 +270,7 @@ def _print_loading(header: str, metrics: tuple[str, ...], height: int) -> int:
     for name in metrics:
         color = metric_colors[name]
         spark = "\n".join([""] * (2 * height if name in _DUO_METRICS else height))
-        lines += _print_metric_box(
-            name, "loading\u2026", spark, color, None, None, inner_width, border_color
-        )
+        lines += _print_metric_box(name, "loading\u2026", spark, color, None, None, inner_width, border_color)
     return lines
 
 
@@ -360,9 +356,7 @@ def _print_block(
             )
             light_color = None
             dark_color = None
-        lines += _print_metric_box(
-                name, label, spark, color, light_color, dark_color, inner_width, border_color
-            )
+        lines += _print_metric_box(name, label, spark, color, light_color, dark_color, inner_width, border_color)
     return lines
 
 
