@@ -157,6 +157,19 @@ class TestUseCommand:
         with pytest.raises(typer.BadParameter):
             set_default_connection(config, "nope")
 
+    def test_use_unset_clears_default(self, mocker):
+        """We expect `dokli use --unset` to clear and persist the default."""
+        from dokli.connections import unset_default_connection
+
+        config = ConfigFactory.build(
+            connections=[ConnectionConfigFactory.build(name="alpha")],
+            default_connection="alpha",
+        )
+        save = mocker.patch.object(Config, "save")
+        unset_default_connection(config)
+        assert config.default_connection is None
+        assert save.called
+
 
 class TestConnectionConfig:
     """Connection config model tests."""

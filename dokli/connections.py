@@ -80,6 +80,13 @@ def set_default_connection(config: Config, name: str) -> None:
     rprint(f"[green]Default connection set to '{name}'.[/green]")
 
 
+def unset_default_connection(config: Config) -> None:
+    """Clear the default connection and persist."""
+    config.default_connection = None
+    config.save()
+    rprint("[green]Default connection cleared.[/green]")
+
+
 def _find(config: Config, name: str) -> ConnectionConfig:
     for connection in config.connections:
         if connection.name == name:
