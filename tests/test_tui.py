@@ -1764,6 +1764,31 @@ def test_browser_yank_copies_selected_id(mocker):
     _run(main())
 
 
+def test_browser_yank_appears_in_contextual_bindings(mocker):
+    """We expect the yank key to show in the help/contextual bindings."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            screen = app.screen
+            screen.path.append(
+                Level(
+                    kind="children",
+                    items=[{"_kind": "project", "projectId": "p1", "name": "media"}],
+                    entity="project",
+                )
+            )
+            screen.current.index = 0
+            await pilot.pause()
+            bindings = dict(screen.contextual_bindings())
+            assert bindings["y"] == "Yank id"
+
+    _run(main())
+
+
 def test_browser_yank_notifies_copied_id(mocker):
     """We expect yank to notify with the copied id."""
     _patch_api(mocker)

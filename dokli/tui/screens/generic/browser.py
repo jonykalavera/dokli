@@ -358,6 +358,8 @@ class BrowserScreen(Screen):
     def contextual_bindings(self) -> list[tuple[str, str]]:
         """The current selection's action keybindings, for the help screen."""
         entries: list[tuple[str, str]] = []
+        if record_id(self.selected or {}, self._selected_kind() or ""):
+            entries.append(("y", "Yank id"))
         if self._stats_target() is not None:
             entries.append(("S", "Stats"))
         entity = self.registry.get(self._selected_kind() or "")
