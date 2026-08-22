@@ -2,6 +2,7 @@
 
 import yaml
 import pytest
+import typer
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
@@ -71,6 +72,103 @@ class TestConfig:
         config.save()
         data = yaml.safe_load((tmp_path / "dokli.yaml").read_text())
         assert data["connections"][0]["name"] == "alpha"
+
+    def test_save_persists_default_connection(self, tmp_path):
+        """We expect save() to persist default_connection and reload it."""
+        target = tmp_path / "dokli.yaml"
+        config = ConfigFactory.build(
+            connections=[ConnectionConfigFactory.build(name="alpha")],
+            default_connection="alpha",
+        )
+        config.save(target)
+        data = yaml.safe_load(target.read_text())
+        assert data["default_connection"] == "alpha"
+
+    def test_save_omits_default_connection_when_unset(self, tmp_path):
+        """We expect no default_connection key when it is not set."""
+        target = tmp_path / "dokli.yaml"
+        config = ConfigFactory.build(connections=[ConnectionConfigFactory.build(name="alpha")], default_connection=None)
+        config.save(target)
+        data = yaml.safe_load(target.read_text())
+        assert "default_connection" not in data
+
+
+class TestResolveConnection:
+    """Connection resolution with a configured default."""
+
+    def test_default_connection_wins_over_nothing(self):
+        """We expect the configured default to be used when no name is passed."""
+        from dokli.config import resolve_connection
+
+        config = ConfigFactory.build(
+            connections=[
+                ConnectionConfigFactory.build(name="alpha"),
+                ConnectionConfigFactory.build(name="beta"),
+            ],
+            default_connection="beta",
+        )
+        assert resolve_connection(config, None).name == "beta"
+
+    def test_explicit_name_beats_default(self):
+        """We expect an explicit name to override the default."""
+        from dokli.config import resolve_connection
+
+        config = ConfigFactory.build(
+            connections=[
+                ConnectionConfigFactory.build(name="alpha"),
+                ConnectionConfigFactory.build(name="beta"),
+            ],
+            default_connection="beta",
+        )
+        assert resolve_connection(config, "alpha").name == "alpha"
+
+    def test_missing_default_falls_back_to_single(self):
+        """We expect a missing default to fall back to the single connection."""
+        from dokli.config import resolve_connection
+
+        config = ConfigFactory.build(connections=[ConnectionConfigFactory.build(name="alpha")])
+        assert resolve_connection(config, None).name == "alpha"
+
+
+class TestUseCommand:
+    """`dokli use` sets the default connection."""
+
+    def test_use_sets_default(self, mocker):
+        """We expect `dokli use <name>` to set and persist the default."""
+        from dokli.connections import set_default_connection
+
+        config = ConfigFactory.build(
+            connections=[
+                ConnectionConfigFactory.build(name="alpha"),
+                ConnectionConfigFactory.build(name="beta"),
+            ]
+        )
+        save = mocker.patch.object(Config, "save")
+
+        set_default_connection(config, "beta")
+        assert config.default_connection == "beta"
+        assert save.called
+
+    def test_use_unknown_connection_fails(self, mocker):
+        """We expect `dokli use <unknown>` to error."""
+        from dokli.connections import set_default_connection
+
+        config = ConfigFactory.build(connections=[ConnectionConfigFactory.build(name="alpha")])
+        with pytest.raises(typer.BadParameter):
+            set_default_connection(config, "nope")
+
+    def test_use_unset_clears_default(self, mocker):
+        """We expect `dokli use --unset` to clear and persist the default."""
+        from dokli.connections import unset_default_connection
+
+        config = ConfigFactory.build(
+            connections=[ConnectionConfigFactory.build(name="alpha")],
+            default_connection="alpha",
+        )
+        save = mocker.patch.object(Config, "save")
+        unset_default_connection(config)
+        assert config.default_connection is None
+        assert save.called
 
 
 class TestConnectionConfig:

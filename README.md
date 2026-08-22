@@ -84,6 +84,10 @@ Configuration uses [pydantic-settings](https://docs.pydantic.dev/latest/concepts
 
 You can also manage connections with `dokli connections ls|add|update|remove|get|test`, or from the TUI.
 
+`dokli use <name>` sets the **default connection** — commands that take an
+optional connection name then use it automatically (e.g. `dokli stats`,
+`dokli logs`, `dokli state`, `dokli tui`).
+
 ### Secrets in the system keychain
 
 API keys, git provider credentials and database passwords can be stored in your OS keychain instead of the YAML files:
