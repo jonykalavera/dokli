@@ -151,7 +151,7 @@ class TestTerminalCommand:
         """We expect a host terminal to require --username."""
         result, _ = self._invoke(monkeypatch, "test-env", "--server-id", "local")
         assert result.exit_code == 2
-        assert "--username" in result.output
+        assert "is required for a host terminal" in result.output
 
     def test_container_target_uses_container_endpoint(self, monkeypatch):
         """We expect a container terminal to hit the container endpoint."""
