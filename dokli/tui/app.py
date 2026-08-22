@@ -22,6 +22,7 @@ from textual.command import (
 )
 from textual.containers import Horizontal, Vertical
 from textual.design import ColorSystem
+from textual.events import Mount
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Static
 from textual.worker import get_current_worker
 
@@ -266,9 +267,9 @@ class ActionPalette(CommandPalette):
                 yield CommandList()
                 yield LoadingIndicator()
 
-    def _on_mount(self, event) -> None:
+    def _on_mount(self, _: Mount) -> None:
         """Configure the palette, then run the initial (seeded) search."""
-        super()._on_mount(event)
+        super()._on_mount(_)
         if self._initial_query:
             self._gather_commands(self._initial_query)
 
