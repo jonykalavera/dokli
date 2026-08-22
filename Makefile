@@ -1,24 +1,56 @@
+SHELL := /bin/bash
+
+.PHONY: format lint check typecheck test ext-test
+
+UV_VERSION ?= 0.12.5
+UV_SYNC_ARGS ?= --all-groups --locked
+
+
+# ── UV rules ───────────────────────────────────────────────────────────────────
+install-uv:
+	curl -LsSf https://astral.sh/uv/$(UV_VERSION)/install.sh | sh
+
+install-python: install-uv
+	uv python install $$(cat .python-version)
+
+# Wrap any target in uv's environment: make uv.lint, make uv.test, ...
+uv.%:
+	uv run $(UV_RUN_ARGS) $(MAKE) -s $*
+
+# ── Developer rules ────────────────────────────────────────────────────────────
+install:
+	uv sync $(UV_SYNC_ARGS)
+
 test:
-	uv run pytest -vv --cov dokli --blockage
+	pytest -vv --cov dokli --blockage
 
 format:
-	uv run ruff format dokli/
-	uv run ruff check dokli/ --fix-only
+	ruff format dokli/
+	ruff check dokli/ --fix-only
 
 lint:
-	uv run ruff check dokli/
-	uv run ty check dokli
+	ruff check dokli/
+
+typecheck:
+	ty check dokli/
+
+check: lint typecheck
+	ruff format --check dokli/
 
 dev-tui:
-	uv run textual run --dev dokli.tui.app:DokliApp
+	textual run --dev dokli.tui.app:DokliApp
 
 screenshots:
-	uv run python tools/screenshots.py
+	python tools/screenshots.py
 
 def-tui-console:
-	uv run textual console - SYSTEM -X EVENT
+	textual console - SYSTEM -X EVENT
 
 release:
 	@test -n "$(VERSION)" || (echo "Usage: make release VERSION=0.1.0" && exit 1)
 	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
 	git push origin "v$(VERSION)"
+
+step-install: install
+
+step-test: uv.check uv.test
