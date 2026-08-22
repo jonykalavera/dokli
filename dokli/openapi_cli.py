@@ -112,10 +112,21 @@ def _api_command_factory(
             annotation=bool,
         )
     )
+    # add json indent parameter (only meaningful with --format json)
+    parameters.append(
+        Parameter(
+            "indent",
+            Parameter.KEYWORD_ONLY,
+            default=0,
+            annotation=Annotated[int, typer.Option(help="JSON indent spaces (json only; 0 = compact).")],
+        )
+    )
     # Create a Signature object
     sig = Signature(parameters)
 
-    def api_command(format: Format = Format.json, show_secrets: bool = False, **kwargs: Any) -> None:
+    def api_command(format: Format = Format.json, show_secrets: bool = False, indent: int = 0, **kwargs: Any) -> None:
+        if not 0 <= indent <= 8:
+            raise typer.BadParameter("--indent must be between 0 and 8.")
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
@@ -126,7 +137,14 @@ def _api_command_factory(
         )
         match response:
             case Response():
-                rprint(format_response(response, format=format, show_secrets=show_secrets))
+                # Print JSON with a plain print: rich re-materializes escaped
+                # newlines (and highlights) long single-line JSON when its
+                # console wraps at pipe width, breaking json.load downstream.
+                content = format_response(response, format=format, show_secrets=show_secrets, indent=indent)
+                if isinstance(content, str):
+                    print(content)  # noqa: T201
+                else:
+                    rprint(content)
             case HTTPError():
                 rprint(f"[red]{response}[/red]")
                 raise typer.Exit(code=1)

@@ -26,7 +26,12 @@ class Format(str, Enum):
     table = "table"
 
 
-def format_response(response: Response, format: Format, show_secrets: bool = False) -> str | Table | dict | list:
+def format_response(
+    response: Response,
+    format: Format,
+    show_secrets: bool = False,
+    indent: int = 0,
+) -> str | Table | dict | list:
     """Format the given Response in the given format."""
     raw_data = response.text
     if not raw_data:
@@ -34,7 +39,7 @@ def format_response(response: Response, format: Format, show_secrets: bool = Fal
     data = json.loads(raw_data)
     if not show_secrets:
         data = redact_secrets(data)
-    return format_data(data, format)
+    return format_data(data, format, indent=indent)
 
 
 def redact_secrets(data: Any) -> Any:
@@ -73,13 +78,13 @@ def _redact_env_lines(value: str) -> str:
     return "\n".join(lines)
 
 
-def format_data(data: D, format: Format) -> str | D | Table:
+def format_data(data: D, format: Format, indent: int = 0) -> str | D | Table:
     """Format the given data in the given format."""
     match format:
         case Format.python:
             return data
         case Format.json:
-            return json.dumps(data)
+            return json.dumps(data, indent=indent or None)
         case Format.yaml:
             return yaml.dump(data)
         case Format.table:

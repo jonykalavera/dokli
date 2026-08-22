@@ -1,6 +1,8 @@
 """Formatting/redaction tests."""
 
-from dokli.formatting import redact_secrets
+import json
+
+from dokli.formatting import Format, format_data, redact_secrets
 
 
 class TestRedactSecrets:
@@ -33,3 +35,21 @@ class TestRedactSecrets:
         """We expect unrelated fields to pass through unchanged."""
         data = {"projectId": "p1", "name": "app", "services": []}
         assert redact_secrets(data) == data
+
+
+class TestFormatData:
+    """JSON/yaml formatting."""
+
+    def test_json_escapes_newlines(self):
+        """We expect json output to keep newlines escaped and stay parseable."""
+        data = {"name": "web", "env": "A=1\nB=2\nTOKEN=secret"}
+        out = format_data(data, Format.json)
+        assert "\n" not in out.replace("\\n", "")
+        assert json.loads(out) == data
+
+    def test_json_indent(self):
+        """We expect --indent to pretty-print json (still parseable)."""
+        data = {"env": "A=1\nB=2"}
+        out = format_data(data, Format.json, indent=2)
+        assert json.loads(out) == data
+        assert "\n  " in out
