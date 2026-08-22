@@ -355,6 +355,10 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 
 ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png)
 
+### Live stats
+
+![Live stats](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-stats.png)
+
 ### Splash
 
 ![Splash](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-splash.png)
