@@ -316,7 +316,7 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 
 - **Yazi-style 3-column browser**: parent | current | detail, with `j`/`k` navigate, `h`/`l` drill in/out, `/` filter, `F5` refresh, `y` yank the selected id. Common actions get a curated key (`c` create, `u` update, `x` deploy, `L` logs, `d` deployments, `s` start, `o` stop, ...); everything else runs via the action picker or palette.
 - **Command palette** (`ctrl+p`): search across commands and the focused screen's available actions, with shortcuts shown in the help line.
-- **Action picker** (`ctrl+shift+p`): the palette pre-filtered to the selected record's actions — reach any verb that has no direct key.
+- **Action picker** (`f4`): the palette pre-filtered to the selected record's actions — reach any verb that has no direct key.
 - **Help** (`?`): lists the app, screen and contextual keybindings.
 - **Related actions**: entities whose list action needs a parent (e.g.
   `deployment.allByCompose`) are surfaced as a separate contextual action on
@@ -407,7 +407,7 @@ tui:
   (`background`, `surface`, `panel`) only affect the active `theme:` variant,
   so toggling light/dark (`D`) still switches the background.
 - App keys remap the global shortcuts (`D` dark, `C` connections, `?` help,
-  `q` quit, `ctrl+p` palette, `ctrl+shift+p` action picker, `escape` back);
+  `q` quit, `ctrl+p` palette, `f4` action picker, `escape` back);
   remapped keys are reserved so entity actions never clash with them.
 - `entity_colors` overrides the per-entity icon colors (`compose`, `application`,
   `redis`, `project`, ...); `state_colors` overrides the container-state
@@ -422,7 +422,7 @@ tui:
   `redeploy` `X`, `testConnection` `t`, `restart` `R`, `readLogs` `L`,
   `rebuild` `b`, `move` `m`, `duplicate` `d`, `rollback` `Z`). Verbs without a
   key — and related shortcuts like `d` (Deployments) and `L` (Logs) — are
-  reachable via `ctrl+shift+p` / `ctrl+p`.
+  reachable via `f4` / `ctrl+p`.
 - `auto_deploy` triggers the entity's `deploy` action after a successful
   create/update form (best effort — skipped when the record id is unknown).
 

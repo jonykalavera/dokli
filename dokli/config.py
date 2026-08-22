@@ -64,7 +64,7 @@ class TuiKeysConfig(BaseModel):
             "(create, update, save, start, stop, remove, deploy, restart, "
             "readLogs, rebuild, move, duplicate, rollback, ...); verbs without "
             "a key are reachable only through the palette (ctrl+p) or the "
-            "action picker (ctrl+shift+p)."
+            "action picker (f4)."
         ),
     )
 

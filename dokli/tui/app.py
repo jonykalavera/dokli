@@ -63,7 +63,7 @@ APP_ACTIONS: dict[str, tuple[str, str]] = {
     "system_stats": ("S", "System stats"),
     "help": ("?", "Help"),
     "command_palette": ("ctrl+p", "Command palette"),
-    "pick_action": ("ctrl+shift+p", "Action picker"),
+    "pick_action": ("f4", "Action picker"),
     "cancel": ("escape", "Cancel/Back"),
     "quit": ("q", "Quit"),
 }
@@ -247,7 +247,8 @@ class ActionPalette(CommandPalette):
     Opens with the search input seeded to ``initial_query`` (e.g. ``"Run "``)
     so the discovered commands are scoped to record actions instead of showing
     every app/system command. Keeps ``ctrl+p`` for the full palette and
-    ``ctrl+shift+p`` for the scoped action picker.
+    ``f4`` for the scoped action picker (a pure function key: no ESC-prefix
+    ambiguity like ``alt+`` combos).
     """
 
     def __init__(self, initial_query: str = "") -> None:
@@ -285,7 +286,7 @@ class DokliApp(App):
         ("C", "connections", "Connections"),
         ("?", "help", "Help"),
         ("ctrl+p", "command_palette", "Command palette"),
-        ("ctrl+shift+p", "pick_action", "Action picker"),
+        ("f4", "pick_action", "Action picker"),
         ("escape", "cancel", "Cancel/Back"),
         ("q", "quit", "Quit"),
     ]

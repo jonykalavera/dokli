@@ -3766,7 +3766,7 @@ def test_command_palette_opens(mocker):
 
 
 def test_action_picker_opens_and_seeds_query(mocker):
-    """We expect ctrl+shift+p to open the palette pre-filtered to record actions."""
+    """We expect f4 to open the palette pre-filtered to record actions."""
     _patch_api(mocker)
     registry = parse_spec(FAKE_SCHEMA)
 
@@ -3778,7 +3778,7 @@ def test_action_picker_opens_and_seeds_query(mocker):
             await _mount_browser(app, pilot, _connection(), registry)
             _select(app, "project")
             await pilot.pause()
-            await pilot.press("ctrl+shift+p")
+            await pilot.press("f4")
             await pilot.pause()
             assert isinstance(app.screen, ActionPalette)
             assert app.screen._initial_query == "Run "
