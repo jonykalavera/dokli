@@ -243,7 +243,7 @@ def _sgr(hex_color: str) -> str:
 def _stats_box(name: str, label: str, rows: list[str], color: str, border: str) -> list[str]:
     """One metric box: top border (label in color), braille rows, bottom border."""
     inner = len(rows[0]) if rows else 0
-    label_text = f"{name.upper():6s} {label}"
+    label_text = f"{name.upper()} {label}"
     fill = max(0, inner + 2 - len("╭─ ") - len(label_text) - len(" ╮"))
     lines = [f"{_sgr(border)}╭─ \x1b[0m{_sgr(color)}{label_text}\x1b[0m{_sgr(border)} {'─' * fill}╮\x1b[0m"]
     for row in rows:
@@ -260,11 +260,11 @@ def _stats_frame() -> str:
     """
     border = BORDER_COLOR
     colors = METRIC_COLORS
-    # The Static has ``padding: 0 1`` and the scroll container reserves a
-    # scrollbar column, so usable content width is SIZE width minus 3; a box
-    # line (│ … │) must be exactly that wide or Textual wraps it and the
+    # The Static has ``padding: 0 1`` and the scroll container keeps a stable
+    # scrollbar gutter, so the usable content width is SIZE width minus 4; a
+    # box line (│ … │) must be exactly that wide or Textual wraps it and the
     # borders step ("skewed") line by line.
-    inner = SIZE[0] - 5  # content width (107) minus the two border columns.
+    inner = SIZE[0] - 6  # content width (106) minus the two border columns.
     cols = inner * 2  # one braille cell renders two sample columns.
 
     single = (

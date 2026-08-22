@@ -76,7 +76,7 @@ class StatsScreen(Screen):
 
     CSS = """
     #stats-hint { padding: 0 1; color: $text-muted; }
-    #stats-scroll { height: 1fr; }
+    #stats-scroll { height: 1fr; overflow-x: auto; scrollbar-gutter: stable; }
     #stats-output { padding: 0 1; }
     """
 
@@ -135,7 +135,8 @@ class StatsScreen(Screen):
         argv = [sys.executable, "-m", "dokli", *stats_argv(self.connection.name, self.kind, self.ident)]
         while True:
             self._buffer = ""
-            await asyncio.to_thread(self._spawn_pty, argv)
+            width = self._stats_width()
+            await asyncio.to_thread(self._spawn_pty, argv, width)
             # Re-armed? The child exited because of a dark/light toggle.
             if not self._restart:
                 break
@@ -156,7 +157,7 @@ class StatsScreen(Screen):
         """The environment for the stats CLI, signaling the active theme."""
         return {**os.environ, "DOKLI_THEME": "dark" if dark else "light"}
 
-    def _spawn_pty(self, argv: list[str]) -> None:
+    def _spawn_pty(self, argv: list[str], width: int) -> None:
         """Spawn ``dokli stats`` on a pty and render its redraw stream.
 
         Blocks until the child exits; each chunk refreshes the frame through
@@ -164,7 +165,7 @@ class StatsScreen(Screen):
         """
         master, slave = pty.openpty()
         self._master = master
-        self._sync_pty_size()
+        self.set_winsize(master, max(10, self.size.height or 24), max(20, width))
         self._buffer = ""
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         env = StatsScreen._spawn_env(self.app.dark)
@@ -200,17 +201,20 @@ class StatsScreen(Screen):
             os.close(master)
             self._master = None
 
-    def _sync_pty_size(self) -> None:
-        """Push the app's current size to the stats pty, so the CLI reflows.
+    def _stats_width(self) -> int:
+        """The usable content width of the stats output (main thread only)."""
+        try:
+            output = self.query_one("#stats-output", Static)
+            width = output.content_size.width
+        except Exception:
+            width = (self.size.width or 80) - 4
+        return max(20, width)
 
-        The CLI renders boxes ``width - 2`` wide; the ``#stats-output`` Static
-        has ``padding: 0 1`` and the scroll container may reserve a column for
-        its scrollbar, so the usable content width is ``size.width - 3``.
-        """
+    def _sync_pty_size(self) -> None:
+        """Re-apply the current content width to the stats pty on resize."""
         if self._master is None:
             return
-        width = max(20, (self.size.width or 80) - 3)
-        self.set_winsize(self._master, max(10, self.size.height or 24), width)
+        self.set_winsize(self._master, max(10, self.size.height or 24), self._stats_width())
 
     @staticmethod
     def set_winsize(master: int, rows: int, columns: int) -> None:

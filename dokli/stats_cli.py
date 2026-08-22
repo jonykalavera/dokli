@@ -411,7 +411,7 @@ def _print_metric_box(
     distinguishable. Returns the number of lines printed (top + graph + bottom).
     """
     border = border_color
-    label_text = f"{name.upper():6s} {label}"
+    label_text = f"{name.upper()} {label}"
     fill = max(0, inner_width + 2 - len("╭─ ") - len(label_text) - len(" ╮"))
     _console.print(f"[{border}]╭─ [/][{color}]{label_text}[/][{border}] {'─' * fill}╮[/]", soft_wrap=True)
     rows = spark.split("\n") or [""]
