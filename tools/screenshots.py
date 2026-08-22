@@ -260,7 +260,11 @@ def _stats_frame() -> str:
     """
     border = BORDER_COLOR
     colors = METRIC_COLORS
-    inner = 108  # SIZE width (110) minus the two border columns.
+    # The Static has ``padding: 0 1`` and the scroll container reserves a
+    # scrollbar column, so usable content width is SIZE width minus 3; a box
+    # line (│ … │) must be exactly that wide or Textual wraps it and the
+    # borders step ("skewed") line by line.
+    inner = SIZE[0] - 5  # content width (107) minus the two border columns.
     cols = inner * 2  # one braille cell renders two sample columns.
 
     single = (

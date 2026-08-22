@@ -201,10 +201,15 @@ class StatsScreen(Screen):
             self._master = None
 
     def _sync_pty_size(self) -> None:
-        """Push the app's current size to the stats pty, so the CLI reflows."""
+        """Push the app's current size to the stats pty, so the CLI reflows.
+
+        The CLI renders boxes ``width - 2`` wide; the ``#stats-output`` Static
+        has ``padding: 0 1`` and the scroll container may reserve a column for
+        its scrollbar, so the usable content width is ``size.width - 3``.
+        """
         if self._master is None:
             return
-        width = max(20, (self.size.width or 80) - 2)
+        width = max(20, (self.size.width or 80) - 3)
         self.set_winsize(self._master, max(10, self.size.height or 24), width)
 
     @staticmethod
