@@ -175,6 +175,9 @@ $ dokli api test-env project one --format json zuanf1SWHMFO11y6xqpRR
 "redis": [], "compose": []}
 ```
 
+JSON output stays parseable when piped (newlines in fields stay escaped), and
+`--indent N` (default `0` = compact, JSON only) pretty-prints.
+
 ## Dokli as Code
 
 Dokli can manage a Dokploy instance declaratively, like Docker Compose for Dokploy. A manifest file (`dokploy.yaml`) describes the desired state and `dokli apply` brings the instance to match it — idempotent and additive (it never deletes resources that are not in the manifest, unless you pass `--prune`).
