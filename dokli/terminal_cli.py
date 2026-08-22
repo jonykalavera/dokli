@@ -21,6 +21,22 @@ from dokli.wss import CONTAINER_TERMINAL_ENDPOINT, HOST_TERMINAL_ENDPOINT, open_
 DEFAULT_COLS = 80
 DEFAULT_ROWS = 24
 
+#: Lines typed at the terminal that end the shell session (trailing spaces ok).
+_EXIT_LINES = frozenset({b"exit", b"logout", b"quit", b"exit 0", b"exit 0;"})
+
+
+def _is_exit_line(line: bytes) -> bool:
+    r"""Whether a decoded input line ends the shell session.
+
+    Ctrl+D (``\x04``) at the start of a line is the shell EOF. Word-exact
+    ``exit``/``logout``/``quit`` (after stripping trailing whitespace) also end
+    the session; anything else (e.g. ``echo exit``) does not.
+    """
+    stripped = line.rstrip(b" \t\r\n")
+    if stripped.startswith(b"\x04"):
+        return True
+    return stripped in _EXIT_LINES
+
 
 def build_command(config: Config) -> Callable[..., None]:
     """Return the ``terminal`` command function, bound to ``config``."""
@@ -40,7 +56,7 @@ def build_command(config: Config) -> Callable[..., None]:
 
         Exactly one of --container-id or --server-id selects the target. For a
         host terminal, --username is required and --port defaults to 22. The
-        terminal takes over the current TTY; exit with Ctrl+D or Ctrl+C.
+        terminal takes over the current TTY; exit with ``exit`` or Ctrl+D.
         """
         connection = resolve_connection(config, connection_name)
         if bool(container_id) == bool(server_id):
@@ -110,13 +126,17 @@ async def _bridge(ws: ClientConnection) -> None:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
     else:
         await _relay(ws)
+    # The stdin thread may still be blocked in os.read; closing the fd lets it
+    # hit EOF so the executor (and asyncio.run's shutdown) can finish.
+    with contextlib.suppress(OSError):
+        os.close(stdin.fileno())
 
 
 async def _relay(ws: ClientConnection) -> None:
     """Relay stdin -> socket and socket -> stdout, ending when either side ends.
 
-    Whichever direction ends first (stdin EOF or the server closing the
-    session) cancels the other so the bridge returns cleanly.
+    Whichever direction ends first (stdin EOF, an exit line closing the socket,
+    or the server ending the session) cancels the other so the bridge returns.
     """
     stdin_task = asyncio.create_task(_read_stdin(ws))
     socket_task = asyncio.create_task(_read_socket(ws))
@@ -131,13 +151,31 @@ async def _relay(ws: ClientConnection) -> None:
 
 
 async def _read_stdin(ws: ClientConnection) -> None:
-    """Forward raw stdin bytes to the terminal socket (binary frames)."""
+    """Forward raw stdin bytes to the socket, closing when an exit line is typed.
+
+    Dokploy does not close the WebSocket when a container shell exits (local
+    path), so when the user types an ``exit``/``logout``/``quit``/Ctrl+D line the
+    socket is force-closed (via the transport) to end the session. For a
+    container exec there is no outer shell, so this is the whole session; the
+    host-SSH endpoint closes itself, making this a harmless fallback there.
+    """
     loop = asyncio.get_running_loop()
+    line = b""
     while True:
         data = await loop.run_in_executor(None, os.read, sys.stdin.fileno(), 4096)
         if not data:
             break
         await ws.send(data)
+        # The pty echoes input back, so an exit line arrives twice: once raw
+        # from the user and once echoed. Only act on the raw occurrence.
+        line += data
+        if b"\r" in line or b"\n" in line:
+            head, _, rest = line.partition(b"\n")
+            head = head.partition(b"\r")[0]
+            if _is_exit_line(head):
+                _close_socket(ws)
+                return
+            line = rest
 
 
 async def _read_socket(ws: ClientConnection) -> None:
@@ -151,6 +189,20 @@ def _write_stdout(data: bytes) -> None:
     """Write terminal output to stdout (helper so tests can capture it)."""
     sys.stdout.buffer.write(data)
     sys.stdout.buffer.flush()
+
+
+def _close_socket(ws: ClientConnection) -> None:
+    """Force-close the terminal socket without waiting for a close handshake.
+
+    Dokploy does not reply to WebSocket close frames on the container-terminal
+    endpoint (local path), so ``await ws.close()`` would hang. Closing the
+    underlying asyncio transport terminates the connection immediately.
+    """
+    transport = getattr(ws, "transport", None)
+    if transport is not None:
+        transport.close()
+    else:
+        asyncio.ensure_future(ws.close())  # pragma: no cover - defensive fallback
 
 
 def _send_resize(ws: ClientConnection) -> None:

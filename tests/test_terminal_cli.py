@@ -7,6 +7,7 @@ from dokli.terminal_cli import (
     DEFAULT_COLS,
     DEFAULT_ROWS,
     _bridge,
+    _is_exit_line,
     _read_stdin,
     _read_socket,
     _send_resize,
@@ -27,6 +28,7 @@ class FakeWebSocket:
     def __init__(self):
         self.sent = []
         self.incoming = []
+        self.closed = False
 
     def __aiter__(self):
         return self
@@ -38,6 +40,9 @@ class FakeWebSocket:
 
     async def send(self, data):
         self.sent.append(data)
+
+    async def close(self):
+        self.closed = True
 
 
 class TestResizeMessage:
@@ -101,6 +106,71 @@ class TestBridge:
 
         asyncio.run(_read_socket(ws))
         assert b"".join(call.args[0] for call in write.call_args_list) == b"ab\x1b[2J"
+
+    def test_exit_line_closes_socket(self, mocker, monkeypatch):
+        """We expect an exit line to force-close the socket."""
+        ws = FakeWebSocket()
+        stdin = mocker.Mock()
+        stdin.isatty.return_value = False
+        stdin.fileno.return_value = 3
+        monkeypatch.setattr("dokli.terminal_cli.sys.stdin", stdin)
+        reads = iter([b"exit\r", b""])
+        monkeypatch.setattr("dokli.terminal_cli.os.read", lambda fd, n: next(reads))
+        close = mocker.Mock()
+        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
+
+        asyncio.run(_read_stdin(ws))
+        assert ws.sent == [b"exit\r"]
+        assert close.called
+
+    def test_non_exit_line_keeps_socket(self, mocker, monkeypatch):
+        """We expect a non-exit line not to close the socket."""
+        ws = FakeWebSocket()
+        stdin = mocker.Mock()
+        stdin.isatty.return_value = False
+        stdin.fileno.return_value = 3
+        monkeypatch.setattr("dokli.terminal_cli.sys.stdin", stdin)
+        reads = iter([b"echo exit\r", b""])
+        monkeypatch.setattr("dokli.terminal_cli.os.read", lambda fd, n: next(reads))
+        close = mocker.Mock()
+        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
+
+        asyncio.run(_read_stdin(ws))
+        assert not close.called
+
+
+class TestIsExitLine:
+    """Exit-line detection tests."""
+
+    def test_exit_line(self):
+        """We expect word-exact exit to be recognized."""
+        assert _is_exit_line(b"exit")
+        assert _is_exit_line(b"exit\r")
+        assert _is_exit_line(b"logout")
+        assert _is_exit_line(b"quit")
+
+    def test_ctrl_d_is_exit(self):
+        """We expect Ctrl+D (0x04) to be recognized as EOF."""
+        assert _is_exit_line(b"\x04")
+        assert _is_exit_line(b"\x04\r")
+
+    def test_embedded_exit_is_not(self):
+        """We expect 'echo exit' to not be an exit line."""
+        assert not _is_exit_line(b"echo exit")
+        assert not _is_exit_line(b"exits")
+
+
+class TestCloseSocket:
+    """Force-close of the terminal socket (no close-handshake wait)."""
+
+    def test_closes_transport(self, mocker):
+        """We expect _close_socket to close the underlying transport."""
+        from dokli.terminal_cli import _close_socket
+
+        transport = mocker.Mock()
+        ws = mocker.Mock(transport=transport)
+        _close_socket(ws)
+        transport.close.assert_called_once()
 
     def test_send_resize_uses_current_size(self, mocker, monkeypatch):
         """We expect SIGWINCH to send a resize message with the current size."""
