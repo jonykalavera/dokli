@@ -20,6 +20,7 @@ from dokli.export import export_manifest
 from dokli.formatting import Format, redact_secrets
 from dokli.init import init_manifest
 from dokli.logs_cli import build_command as build_logs_command
+from dokli.ls_cli import build_command as build_ls_command
 from dokli.manifest import load_manifests
 from dokli.openapi_cli import build_command as build_api_command
 from dokli.report import ApplyReport
@@ -44,6 +45,7 @@ app.add_typer(build_connections_command(state["config"]))
 app.add_typer(build_secrets_command())
 app.command(name="logs")(build_logs_command(state["config"]))
 app.command(name="stats")(build_stats_command(state["config"]))
+app.command(name="ls")(build_ls_command(state["config"]))
 
 
 def tui_command(
