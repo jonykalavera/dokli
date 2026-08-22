@@ -252,11 +252,30 @@ def _stats_box(name: str, label: str, rows: list[str], color: str, border: str) 
     return lines
 
 
+def _varying(base: float, amp: float, n: int, seed: int) -> list[float]:
+    """A deterministic, realistic-looking sample series around ``base``.
+
+    Combines a couple of out-of-phase sine waves with small noise so the
+    braille charts show real variation instead of a flat line.
+    """
+    import math
+    import random
+
+    rng = random.Random(seed)
+    values = []
+    for i in range(n):
+        wave = amp * (0.6 * math.sin(i / 11.0) + 0.4 * math.sin(i / 5.0 + 1.7))
+        noise = amp * 0.12 * (rng.random() * 2 - 1)
+        values.append(max(0.0, base + wave + noise))
+    return values
+
+
 def _stats_frame() -> str:
     """A mock ``dokli stats`` ANSI frame (anonymous data) for the README.
 
     Mirrors the CLI output: header with the sample time range, then one box per
-    metric. Bars reuse the real braille renderers so the screenshot is faithful.
+    metric. Bars reuse the real braille renderers with varying sample series so
+    the screenshot is faithful and reads like a live monitor.
     """
     border = BORDER_COLOR
     colors = METRIC_COLORS
@@ -268,16 +287,16 @@ def _stats_frame() -> str:
     cols = inner * 2  # one braille cell renders two sample columns.
 
     single = (
-        ("cpu", "34.2%", render_sparkline([34.0] * cols, height=3, vmax=100), colors["cpu"]),
-        ("memory", "21.15GiB/62.40GiB", render_sparkline([55.0] * cols, height=3, vmax=100), colors["memory"]),
-        ("disk", "76.2%", render_sparkline([76.2] * cols, height=3, vmax=100), colors["disk"]),
+        ("cpu", "34.2%", render_sparkline(_varying(34.0, 26.0, cols, 1), height=3, vmax=100), colors["cpu"]),
+        ("memory", "21.15GiB/62.40GiB", render_sparkline(_varying(55.0, 9.0, cols, 2), height=3, vmax=100), colors["memory"]),
+        ("disk", "76.2%", render_sparkline(_varying(76.2, 2.5, cols, 3), height=3, vmax=100), colors["disk"]),
     )
     dual = (
         ("network", "2.1GB↓/134MB↑",
-         render_dual_sparkline([400.0] * cols, [90.0] * cols, height=3),
+         render_dual_sparkline(_varying(400.0, 330.0, cols, 4), _varying(90.0, 70.0, cols, 5), height=3),
          colors["network"]),
         ("block", "9.2TB↓/3.3TB↑",
-         render_dual_sparkline([800.0] * cols, [300.0] * cols, height=3),
+         render_dual_sparkline(_varying(800.0, 450.0, cols, 6), _varying(300.0, 200.0, cols, 7), height=3),
          colors["block"]),
     )
 
