@@ -524,7 +524,8 @@ def test_stats_validates_app_type(mocker):
     _patch_stats_env(mocker)
     result = CliRunner().invoke(app, ["stats", "test-env", "--app-type", "bogus"])
     assert result.exit_code != 0
-    assert "--app-type must be one of" in result.output
+    # The option name may be colorized (ANSI) by typer, so match the stable part.
+    assert "must be one of" in result.output
 
 
 def test_stats_streams_container_by_name(mocker):
