@@ -928,3 +928,90 @@ def test_connections_group_arguments_expose_shell_complete():
         command = group.get_command(None, name)
         param = next(p for p in command.params if p.name == "name")
         assert param._custom_shell_complete is complete_connection_names
+
+
+def test_ls_lists_services(mocker):
+    """We expect ls to list services across projects/environments."""
+    from typer.testing import CliRunner
+
+    from dokli.state import LiveEnvironment, LiveProject, LiveService, State
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.ls_cli.resolve_connection", return_value=connection)
+    mocker.patch("dokli.ls_cli.APIClient", return_value=mocker.Mock())
+    mocker.patch(
+        "dokli.ls_cli.collect_state",
+        return_value=State(
+            connection="test-env",
+            projects=[
+                LiveProject(
+                    project_id="p1",
+                    name="media",
+                    environments=[
+                        LiveEnvironment(
+                            environment_id="e1",
+                            name="production",
+                            is_default=True,
+                            services=[
+                                LiveService(service_id="c1", app_name="frigate-app", type="compose", name="frigate"),
+                                LiveService(
+                                    service_id="a1", app_name="web-app", type="application", name="web"
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+    result = CliRunner().invoke(app, ["ls", "test-env"])
+    assert result.exit_code == 0
+    assert "frigate" in result.output
+    assert "web" in result.output
+    assert "c1" in result.output
+    assert "a1" in result.output
+
+
+def test_ls_filters_by_type_and_search(mocker):
+    """We expect --type and --search to filter the listing."""
+    from typer.testing import CliRunner
+
+    from dokli.state import LiveEnvironment, LiveProject, LiveService, State
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.ls_cli.resolve_connection", return_value=connection)
+    mocker.patch("dokli.ls_cli.APIClient", return_value=mocker.Mock())
+    mocker.patch(
+        "dokli.ls_cli.collect_state",
+        return_value=State(
+            connection="test-env",
+            projects=[
+                LiveProject(
+                    project_id="p1",
+                    name="media",
+                    environments=[
+                        LiveEnvironment(
+                            environment_id="e1",
+                            name="production",
+                            is_default=True,
+                            services=[
+                                LiveService(service_id="c1", app_name="frigate-app", type="compose", name="frigate"),
+                                LiveService(
+                                    service_id="a1", app_name="web-app", type="application", name="web"
+                                ),
+                            ],
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+    result = CliRunner().invoke(app, ["ls", "test-env", "--type", "application"])
+    assert result.exit_code == 0
+    assert "frigate" not in result.output
+    assert "web" in result.output
+
+    result = CliRunner().invoke(app, ["ls", "test-env", "--search", "frigate"])
+    assert result.exit_code == 0
+    assert "frigate" in result.output
+    assert "web" not in result.output
