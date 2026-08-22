@@ -398,6 +398,37 @@ def test_stats_backfills_history_into_header(mocker):
     assert "test-env › app-xyz (docker-compose) ·" in result.output
 
 
+def test_stats_once_prints_single_snapshot(mocker):
+    """We expect --once to render one sample and exit (no live stream)."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        side_effect=lambda connection, route, params: {
+            "compose.one": {"appName": "app-xyz", "composeType": "docker-compose"},
+            "application.readAppMonitoring": {},
+        }.get(route, {}),
+    )
+
+    consumed = []
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+        yield _STATS_SAMPLE2  # --once must stop after the first sample.
+
+    async def spy(connection, app_name, app_type):
+        async for item in fake_stream(connection, app_name, app_type):
+            consumed.append(item)
+            yield item
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=spy)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1", "--once"])
+    assert result.exit_code == 0
+    assert len(consumed) == 1
+    assert "CPU" in result.output
+
+
 def test_stats_no_backfill_skips_history(mocker):
     """We expect --no-backfill to skip the REST history fetch."""
     from typer.testing import CliRunner

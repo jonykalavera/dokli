@@ -74,6 +74,7 @@ def build_command(config: Config) -> Callable[..., None]:
         height: int = typer.Option(3, "--height", help="Sparkline height in rows (1-8)."),
         samples: int = typer.Option(None, "--samples", help="History samples (default: console width)."),
         no_backfill: bool = typer.Option(False, "--no-backfill", help="Skip the REST history backfill (system-only)."),
+        once: bool = typer.Option(False, "--once", help="Print a single snapshot and exit (no live stream)."),
     ) -> None:
         """Stream a service's or the host system's stats live (Ctrl+C to stop)."""
         connection = resolve_connection(config, connection_name)
@@ -104,6 +105,7 @@ def build_command(config: Config) -> Callable[..., None]:
                 height,
                 samples,
                 no_backfill,
+                once,
             )
         )
 
@@ -121,6 +123,7 @@ async def _stream_stats(
     height: int,
     samples: int,
     no_backfill: bool,
+    once: bool,
 ) -> None:
     """Stream and print a service's or the host system's stats as braille sparklines."""
     app_name, app_type, display_type, project_name, service_label = await _resolve_stats_target(
@@ -134,7 +137,7 @@ async def _stream_stats(
     # Parallel, lockstep timestamps (ISO) so the header can show the order window
     # actually visible in the charts.
     timestamps: dict[str, deque[str]] = {name: deque(maxlen=samples) for name in metrics}
-    live = sys.stdout.isatty()
+    live = sys.stdout.isatty() and not once
     block_lines = 0
     if live:
         # The monitor owns the whole screen: clear it before the first block so
@@ -159,6 +162,8 @@ async def _stream_stats(
                 _clear_lines(block_lines)
             block_lines = _print_block(base_header, data, buffers, duo_buffers, metrics, height, timestamps)
             sys.stdout.flush()
+            if once:
+                break
     except KeyboardInterrupt:
         pass
     except websockets.exceptions.ConnectionClosed:
