@@ -12,6 +12,11 @@ from dokli.config import ConnectionConfig
 DEFAULT_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
 
 
+def request_json(connection: ConnectionConfig, route: str, params: dict) -> Any:
+    """Run a REST GET against a connection and return the JSON payload."""
+    return APIClient(connection).request("GET", route, params).json()
+
+
 class APIClient:
     """Dokploy API client."""
 

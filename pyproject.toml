@@ -83,6 +83,7 @@ dependencies = [
     "httpx>=0.28.1,<0.29.0",
     "keyring>=25.7.0",
     "websockets>=16.1.1",
+    "braillegraph>=0.6",
 ]
 
 [project.optional-dependencies]
