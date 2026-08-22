@@ -8,7 +8,7 @@ import typer
 import websockets
 from rich import print as rprint
 
-from dokli.api_client import APIClient
+from dokli.api_client import request_json
 from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
 from dokli.wss import DEPLOYMENT_LOGS_ENDPOINT, LOGS_ENDPOINT, iter_lines
 
@@ -56,7 +56,7 @@ def build_command(config: Config) -> Callable[..., None]:
 
 def _request(connection: ConnectionConfig, route: str, params: dict) -> Any:
     """Run a REST read and return the raw JSON payload."""
-    return APIClient(connection).request("GET", route, params).json()
+    return request_json(connection, route, params)
 
 
 async def _fetch_service_logs(
@@ -70,7 +70,9 @@ async def _fetch_service_logs(
     """Print a service's last ``lines`` log lines (one-shot REST read)."""
     if compose_id:
         text = await asyncio.to_thread(
-            _request, connection, "compose.readLogs",
+            _request,
+            connection,
+            "compose.readLogs",
             {"composeId": compose_id, "containerId": container_id, "tail": lines},
         )
     elif application_id:

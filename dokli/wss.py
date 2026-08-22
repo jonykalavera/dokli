@@ -6,6 +6,7 @@ header the REST API uses. See Dokploy's ``apps/dokploy/server/wss/`` for the
 server side.
 """
 
+import json
 from collections.abc import AsyncIterator
 from urllib.parse import urlencode
 
@@ -17,6 +18,8 @@ from dokli.config import ConnectionConfig
 LOGS_ENDPOINT = "/docker-container-logs"
 #: Live deployment/build logs (``tail -f`` of the deployment log file).
 DEPLOYMENT_LOGS_ENDPOINT = "/listen-deployment"
+#: Live container stats (JSON pushed every ~1.3s).
+STATS_ENDPOINT = "/listen-docker-stats-monitoring"
 
 
 def ws_base(connection: ConnectionConfig) -> str:
@@ -35,9 +38,7 @@ def _headers(connection: ConnectionConfig) -> dict[str, str]:
     return {"x-api-key": connection.get_api_key()}
 
 
-async def iter_lines(
-    connection: ConnectionConfig, path: str, params: dict | None = None
-) -> AsyncIterator[str]:
+async def iter_lines(connection: ConnectionConfig, path: str, params: dict | None = None) -> AsyncIterator[str]:
     """Stream a Dokploy WebSocket endpoint, yielding complete lines.
 
     The server sends raw chunks that may span or split lines, so partial lines
@@ -54,3 +55,25 @@ async def iter_lines(
             *lines, buffer = text.split("\n")
             for line in lines:
                 yield line
+
+
+async def iter_stats(
+    connection: ConnectionConfig, app_name: str, app_type: str = "application"
+) -> AsyncIterator[dict]:
+    """Stream container stats, yielding each ``data`` payload as a dict.
+
+    The server pushes ``{"data": {cpu, memory, disk, network, block}}`` every
+    ~1.3s; each metric is the latest sample (``{"value": ..., "time": ...}``) or
+    ``None``. Raises the underlying exception when the handshake fails.
+    """
+    uri = ws_url(connection, STATS_ENDPOINT, {"appName": app_name, "appType": app_type})
+    async with connect(uri, additional_headers=_headers(connection)) as ws:
+        async for chunk in ws:
+            message = chunk.decode("utf-8", errors="replace") if isinstance(chunk, bytes) else chunk
+            try:
+                payload = json.loads(message)
+            except json.JSONDecodeError:
+                continue
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if isinstance(data, dict):
+                yield data

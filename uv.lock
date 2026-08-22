@@ -285,6 +285,12 @@ wheels = [
 ]
 
 [[package]]
+name = "braillegraph"
+version = "0.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/cf/f70fb67f740a12754c93039bf7977a2ca79737c8a5900c900c77a7afc13e/braillegraph-0.6.tar.gz", hash = "sha256:dd5656c371c4a60734013222b9ff9dbf4c27105090e66e5ef64cde1f6708d636", size = 5092, upload-time = "2014-11-23T04:46:24.463Z" }
+
+[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -562,6 +568,7 @@ name = "dokli"
 version = "0.4.1"
 source = { editable = "." }
 dependencies = [
+    { name = "braillegraph" },
     { name = "httpx" },
     { name = "humanize" },
     { name = "keyring" },
@@ -601,6 +608,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "braillegraph", specifier = ">=0.6" },
     { name = "httpx", specifier = ">=0.28.1,<0.29.0" },
     { name = "humanize", specifier = ">=4.10.0,<5.0.0" },
     { name = "keyring", specifier = ">=25.7.0" },

@@ -31,6 +31,9 @@ from dokli.tui.engine import parse_spec
 from dokli.tui.screens.generic.browser import BrowserScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.splash import SplashScreen
+from dokli.tui.screens.stats import StatsScreen
+from dokli.monitoring import render_dual_sparkline, render_sparkline
+from dokli.stats_common import BORDER_COLOR, METRIC_COLORS, darken_color, lighten_color
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -231,6 +234,97 @@ async def shot_result() -> str:
         return _render_png(app, "result")
 
 
+def _sgr(hex_color: str) -> str:
+    """ANSI truecolor SGR open for a ``#rrggbb`` hex color."""
+    r, g, b = (int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    return f"\x1b[38;2;{r};{g};{b}m"
+
+
+def _stats_box(name: str, label: str, rows: list[str], color: str, border: str) -> list[str]:
+    """One metric box: top border (label in color), braille rows, bottom border."""
+    inner = len(rows[0]) if rows else 0
+    label_text = f"{name.upper()} {label}"
+    fill = max(0, inner + 2 - len("╭─ ") - len(label_text) - len(" ╮"))
+    lines = [f"{_sgr(border)}╭─ \x1b[0m{_sgr(color)}{label_text}\x1b[0m{_sgr(border)} {'─' * fill}╮\x1b[0m"]
+    for row in rows:
+        lines.append(f"{_sgr(border)}│\x1b[0m{_sgr(color)}{row}\x1b[0m{_sgr(border)}│\x1b[0m")
+    lines.append(f"{_sgr(border)}╰{'─' * inner}╯\x1b[0m")
+    return lines
+
+
+def _varying(base: float, amp: float, n: int, seed: int) -> list[float]:
+    """A deterministic, realistic-looking sample series around ``base``.
+
+    Combines a couple of out-of-phase sine waves with small noise so the
+    braille charts show real variation instead of a flat line.
+    """
+    import math
+    import random
+
+    rng = random.Random(seed)
+    values = []
+    for i in range(n):
+        wave = amp * (0.6 * math.sin(i / 11.0) + 0.4 * math.sin(i / 5.0 + 1.7))
+        noise = amp * 0.12 * (rng.random() * 2 - 1)
+        values.append(max(0.0, base + wave + noise))
+    return values
+
+
+def _stats_frame() -> str:
+    """A mock ``dokli stats`` ANSI frame (anonymous data) for the README.
+
+    Mirrors the CLI output: header with the sample time range, then one box per
+    metric. Bars reuse the real braille renderers with varying sample series so
+    the screenshot is faithful and reads like a live monitor.
+    """
+    border = BORDER_COLOR
+    colors = METRIC_COLORS
+    # The Static has ``padding: 0 1`` and the scroll container keeps a stable
+    # scrollbar gutter, so the usable content width is SIZE width minus 4; a
+    # box line (│ … │) must be exactly that wide or Textual wraps it and the
+    # borders step ("skewed") line by line.
+    inner = SIZE[0] - 6  # content width (106) minus the two border columns.
+    cols = inner * 2  # one braille cell renders two sample columns.
+
+    single = (
+        ("cpu", "34.2%", render_sparkline(_varying(34.0, 26.0, cols, 1), height=3, vmax=100), colors["cpu"]),
+        ("memory", "21.15GiB/62.40GiB", render_sparkline(_varying(55.0, 9.0, cols, 2), height=3, vmax=100), colors["memory"]),
+        ("disk", "76.2%", render_sparkline(_varying(76.2, 2.5, cols, 3), height=3, vmax=100), colors["disk"]),
+    )
+    dual = (
+        ("network", "2.1GB↓/134MB↑",
+         render_dual_sparkline(_varying(400.0, 330.0, cols, 4), _varying(90.0, 70.0, cols, 5), height=3),
+         colors["network"]),
+        ("block", "9.2TB↓/3.3TB↑",
+         render_dual_sparkline(_varying(800.0, 450.0, cols, 6), _varying(300.0, 200.0, cols, 7), height=3),
+         colors["block"]),
+    )
+
+    lines = ["\x1b[0mtest-env › dokploy (system) · 13:32:04→13:38:12\x1b[0m"]
+    for name, label, spark, color in single:
+        rows = spark.split("\n")
+        lines.extend(_stats_box(name, label, [row.ljust(inner) for row in rows], color, border))
+    for name, label, spark, color in dual:
+        rows = spark.split("\n")
+        mid = len(rows) // 2
+        up = [row.ljust(inner) for row in rows[:mid]]
+        down = [row.ljust(inner) for row in rows[mid:]]
+        lines.extend(_stats_box(name, label, up + down, color, border))
+    return "\n".join(lines)
+
+
+async def shot_stats() -> str:
+    """Render the live stats screen (replayed anonymous frame)."""
+    app = DokliApp(config=_config())
+    async with app.run_test(size=SIZE) as pilot:
+        screen = StatsScreen(_connection(), "system", frames=[_stats_frame()])
+        app.install_screen(screen, name="stats")
+        app.push_screen("stats")
+        await _settle(pilot)
+        await _settle(pilot)
+        return _render_png(app, "stats")
+
+
 SHOTS = {
     "splash": shot_splash,
     "connections": shot_connections,
@@ -238,6 +332,7 @@ SHOTS = {
     "browser-detail": shot_browser_detail,
     "palette": shot_palette,
     "result": shot_result,
+    "stats": shot_stats,
 }
 
 

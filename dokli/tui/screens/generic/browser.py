@@ -38,6 +38,7 @@ from dokli.tui.screens.generic.execute import confirm_and_run
 from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
+from dokli.tui.screens.stats import StatsScreen
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -77,6 +78,7 @@ class BrowserScreen(Screen):
         Binding("right", "right", "Child", show=False),
         Binding("f5", "refresh", "Refresh"),
         Binding("/", "filter", "Filter"),
+        Binding("S", "stats_selected", "Stats", show=False),
         Binding("escape", "cancel", "Back"),
         Binding("q", "quit", "Quit"),
     ]
@@ -355,6 +357,8 @@ class BrowserScreen(Screen):
     def contextual_bindings(self) -> list[tuple[str, str]]:
         """The current selection's action keybindings, for the help screen."""
         entries: list[tuple[str, str]] = []
+        if self._stats_target() is not None:
+            entries.append(("S", "Stats"))
         entity = self.registry.get(self._selected_kind() or "")
         if entity is None:
             return entries
@@ -693,6 +697,63 @@ class BrowserScreen(Screen):
             body,
             on_success=self._refresh_after_action,
         )
+
+    def _stats_target(self) -> tuple[str, str] | None:
+        """The ``(kind, id)`` stats target for the selection, if any.
+
+        Compose/application services map to their own id; docker containers to
+        their ``containerId``. Other selections have no direct stats target.
+        """
+        kind = self._selected_kind() or ""
+        record = self.selected or {}
+        if kind == "docker":
+            container_id = record.get("containerId")
+            return ("container", container_id) if container_id else None
+        if kind in ("compose", "application"):
+            ident = record.get(f"{kind}Id")
+            return (kind, ident) if ident else None
+        return None
+
+    def action_stats_selected(self) -> None:
+        """Open live stats for the selected service/container."""
+        self.run_worker(self._open_stats(), group="action")  # type: ignore[arg-type]
+
+    async def _open_stats(self) -> None:
+        """Open stats for the selection, choosing a container when ambiguous.
+
+        A compose/application service may run several containers: the stats CLI
+        targets one container at a time, so like logs the user picks which one.
+        A single container (or a docker container) opens directly.
+        """
+        target = self._stats_target()
+        if target is None:
+            self.notify("No stats target selected.", severity="warning", timeout=4)
+            return
+        kind, ident = target
+        if kind not in ("compose", "application"):
+            self.app.push_screen(StatsScreen(self.connection, kind, ident))
+            return
+        kind = self._selected_kind() or ""
+        record = self.selected or {}
+        candidates = await asyncio.to_thread(related_records, self.client, self.registry, kind, record)
+        live = [c for c in candidates if c.get("containerId") and c.get("state") == "running"]
+        if not live:
+            self.notify(f"No running containers found for '{record_title(record)}'.", severity="warning", timeout=4)
+            return
+        if len(live) == 1:
+            self.app.push_screen(StatsScreen(self.connection, "container", live[0]["containerId"]))
+            return
+        container_id = await self.app.push_screen_wait(
+            PickerScreen(
+                "Select container for stats",
+                live,
+                "containerId",
+                "name",
+                classes="Entities",
+            )
+        )
+        if container_id is not None:
+            self.app.push_screen(StatsScreen(self.connection, "container", container_id))
 
     def _build_params(self, action) -> tuple[dict, list[str]]:
         """Params derivable from the selected record, plus the missing required ones."""

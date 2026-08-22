@@ -106,6 +106,7 @@ Uses the cross-platform [`keyring`](https://pypi.org/project/keyring/) package (
 - magical file parameters `%file:/path/to/data/foo.redis.json`
 - shell completion for configured connection names (`dokli state <TAB>`, `dokli connections get <TAB>`, ...)
 - `dokli logs <conn> (--compose-id + --container-id | --application-id | --deployment-id) [-n N] [-f]` — show a service's last `-n` log lines (REST, one-shot) or stream live with `-f` (WebSocket; deployment `-f` streams the whole log).
+- `dokli stats [<conn>] [(--compose-id | --application-id | --container-name | --container-id)] [--app-name NAME] [--app-type TYPE] [--height 1-8] [--samples N] [--no-backfill]` — stream stats live over WebSocket as braille sparklines (CPU, memory, network, block I/O, disk). With no selector it streams the **host system** stats (`dokploy`/`application`); a service selector targets that service, and `--container-name`/`--container-id` target a container directly by its docker name. Network and block I/O are plotted as cumulative totals (flat line when idle), matching the Dokploy web UI; disk is only shown for system stats. Charts are **backfilled** from the REST monitoring history when available (the Dokploy API only returns it for **system** stats — `dokploy` — so services/containers start empty and fill live; skip with `--no-backfill`), and the header shows the sample time range (e.g. `… · 13:32:04→13:38:12`). `--samples` defaults to the console width so the chart fills the screen; `--height` tunes the chart rows.
 - output formats:
   - yaml
   - json
@@ -328,6 +329,7 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
   unreachable instance never freezes the UI; a live connectivity check warns
   when the instance is unreachable but a cached schema was used.
 - **Results**: read-only queries open a result screen with search (`/`, `n`/`N` to jump) and `F5` to re-fetch — handy for logs. Logs follow by default: container and deployment logs **stream live over WebSocket** (falling back to the polling API when the connection or auth fails).
+- **Stats**: `S` opens live stats for the host system (or the active connection's system); selecting a compose/application/container in the browser and pressing `S` shows that service's stats. The live stats run the `dokli stats` CLI on a pty and re-render its ANSI frame — the same spawn/stream/render pipeline the future container-terminal socket will reuse — and the screen shows the exact `dokli stats ...` command so you can take it to a terminal.
 - **Forms**: foreign-key id fields (`serverId`, `destinationId`, `registryId`, `certificateId`, `sshKeyId`, git provider ids, `environmentId` scoped to the current project, service/db parents like `composeId`/`postgresId` enumerated across the project tree, and `mounts.create`'s `serviceId` driven by `serviceType`) render as a dropdown of live candidates instead of a raw id; when the source is empty or unreachable they fall back to free text. Parent-id fields of child records are hidden and injected from the navigation context. Update forms (and the wizard, which skips the hidden steps) hide provider-specific fields until a switch value is chosen (e.g. `sourceType=raw` shows the inline `composeFile` and hides the github/bitbucket/gitlab/gitea fields — git sources show their repo path instead; applications also gate build fields on `buildType`, which is itself hidden for `sourceType=docker`).
 - Entity icons are color-coded (Catppuccin palette), and container states show as a traffic-light dot.
 - Connections are managed from the TUI (add/edit/delete, persisted to the config file); `dokli tui [connection]` opens a specific connection directly.
@@ -352,6 +354,10 @@ A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy 
 ### Result view (logs + search)
 
 ![Result view](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-result.png)
+
+### Live stats
+
+![Live stats](https://raw.githubusercontent.com/jonykalavera/dokli/main/assets/tui-stats.png)
 
 ### Splash
 

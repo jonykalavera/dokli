@@ -26,6 +26,7 @@ from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.help import HelpScreen
 from dokli.tui.screens.settings import SettingsScreen
 from dokli.tui.screens.splash import SplashScreen
+from dokli.tui.screens.stats import StatsScreen
 
 TUI_PATH = Path(__file__).parent
 ASCII_ART_PATH = TUI_PATH / "asciiart"
@@ -48,6 +49,7 @@ def _build_connection_client(connection: ConnectionConfig) -> tuple[APIClient, d
 APP_ACTIONS: dict[str, tuple[str, str]] = {
     "toggle_dark": ("D", "Toggle dark mode"),
     "connections": ("C", "Connections"),
+    "system_stats": ("S", "System stats"),
     "help": ("?", "Help"),
     "command_palette": ("ctrl+p", "Command palette"),
     "cancel": ("escape", "Cancel/Back"),
@@ -142,6 +144,7 @@ class DokliCommands(Provider):
         commands: list[tuple[str, str, Callable[[], Any]]] = [
             ("Toggle dark mode", "Switch between light and dark themes", app.action_toggle_dark),
             ("Connections", "Open the connections screen", app.action_connections),
+            ("System stats", "Live host system stats", app.action_system_stats),
             ("Settings", "Open the settings screen", app.action_settings),
             ("Help", "Show the keybindings", app.action_help),
             ("Quit", "Exit the app", app.action_quit),
@@ -211,6 +214,8 @@ def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[]
         return commands
     selected = screen.selected or {}
     title = record_title(selected) if selected else (kind or "record")
+    if screen._stats_target() is not None:
+        commands.append(("Show stats", _with_key("Live stats", "S"), screen.action_stats_selected))
     for action, key in screen._entity_bindings(entity):
         display_verb = screen._action_verb_label(action)
         help_text = _with_key(f"{display_verb} · {kind} ({action.method})", key)
@@ -290,6 +295,11 @@ class DokliApp(App):
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
         self.dark = not self.dark
+        # Let the active screen react to the theme change (e.g. the stats
+        # screen re-spawns its CLI renderer with the other palette).
+        hook = getattr(self.screen, "theme_changed", None)
+        if hook is not None:
+            hook(self.dark)
 
     def action_cancel(self) -> None:
         """Cancel action."""
@@ -305,6 +315,13 @@ class DokliApp(App):
     def action_settings(self) -> None:
         """Open the settings screen."""
         self.push_screen("Settings")
+
+    def action_system_stats(self) -> None:
+        """Open the live system stats for the active connection."""
+        if self.connection is None:
+            self.notify("Select a connection first.", severity="warning", timeout=5)
+            return
+        self.push_screen(StatsScreen(self.connection, "system"))
 
     def set_connection(self, connection: ConnectionConfig) -> None:
         """Set the active connection and open the entity browser."""
