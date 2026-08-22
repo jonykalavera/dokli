@@ -459,6 +459,36 @@ def test_stats_agent_format_emits_dataframe(mocker):
     assert isinstance(row, list) and len(row) == len(header)
 
 
+def test_stats_fields_filters_agent_columns(mocker):
+    """We expect stats --format agent --fields to keep only the requested columns."""
+    import json
+
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        side_effect=lambda connection, route, params: {
+            "compose.one": {"appName": "app-xyz", "composeType": "docker-compose"},
+            "application.readAppMonitoring": {},
+        }.get(route, {}),
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(
+        app, ["stats", "test-env", "--compose-id", "c1", "--format", "agent", "--once", "--fields", "time, cpu"]
+    )
+    assert result.exit_code == 0
+    lines = result.output.strip().split("\n")
+    header = json.loads(lines[0])
+    assert header == ["time", "cpu"]
+    row = json.loads(lines[1])
+    assert isinstance(row, list) and len(row) == 2
+
+
 def test_stats_no_backfill_skips_history(mocker):
     """We expect --no-backfill to skip the REST history fetch."""
     from typer.testing import CliRunner
@@ -1116,6 +1146,46 @@ def test_ls_agent_format_emits_dataframe(mocker):
     assert json.loads(lines[1]) == ["media", "production", "compose", "frigate", "frigate-app", "c1"]
 
 
+def test_ls_fields_filters_agent_columns(mocker):
+    """We expect ls --format agent --fields to keep only the requested columns."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from dokli.state import LiveEnvironment, LiveProject, LiveService, State
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.ls_cli.resolve_connection", return_value=connection)
+    mocker.patch("dokli.ls_cli.APIClient", return_value=mocker.Mock())
+    mocker.patch(
+        "dokli.ls_cli.collect_state",
+        return_value=State(
+            connection="test-env",
+            projects=[
+                LiveProject(
+                    project_id="p1",
+                    name="media",
+                    environments=[
+                        LiveEnvironment(
+                            environment_id="e1",
+                            name="production",
+                            is_default=True,
+                            services=[
+                                LiveService(service_id="c1", app_name="frigate-app", type="compose", name="frigate")
+                            ],
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+    result = CliRunner().invoke(app, ["ls", "test-env", "--format", "agent", "--fields", "name, id"])
+    assert result.exit_code == 0
+    lines = result.output.strip().split("\n")
+    assert json.loads(lines[0]) == ["name", "id"]
+    assert json.loads(lines[1]) == ["frigate", "c1"]
+
+
 def test_state_agent_format_emits_per_service_rows(mocker):
     """We expect state --format agent to emit per-service rows, no blobs."""
     import json
@@ -1153,3 +1223,42 @@ def test_state_agent_format_emits_per_service_rows(mocker):
     assert "project__name" in header
     assert "compose_file" not in "".join(lines)
     assert json.loads(lines[1])[header.index("name")] == "frigate"
+
+
+def test_state_fields_filters_agent_columns(mocker):
+    """We expect state --format agent --fields to keep only the requested columns."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from dokli.state import LiveEnvironment, LiveProject, LiveService, State
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    mocker.patch(
+        "dokli.cli.collect_state",
+        return_value=State(
+            connection="test-env",
+            projects=[
+                LiveProject(
+                    project_id="p1",
+                    name="media",
+                    environments=[
+                        LiveEnvironment(
+                            environment_id="e1",
+                            name="production",
+                            is_default=True,
+                            services=[
+                                LiveService(service_id="c1", app_name="frigate-app", type="compose", name="frigate")
+                            ],
+                        )
+                    ],
+                )
+            ],
+        ),
+    )
+    result = CliRunner().invoke(app, ["state", "test-env", "--format", "agent", "--fields", "name, id"])
+    assert result.exit_code == 0
+    lines = result.output.strip().split("\n")
+    assert json.loads(lines[0]) == ["name", "id"]
+    assert json.loads(lines[1]) == ["frigate", "c1"]

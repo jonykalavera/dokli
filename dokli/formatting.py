@@ -32,6 +32,7 @@ def format_response(
     format: Format,
     show_secrets: bool = False,
     indent: int = 0,
+    fields: list[str] | None = None,
 ) -> str | Table | dict | list:
     """Format the given Response in the given format."""
     raw_data = response.text
@@ -40,6 +41,7 @@ def format_response(
     data = json.loads(raw_data)
     if not show_secrets:
         data = redact_secrets(data)
+    data = select_fields(data, fields or [])
     return format_data(data, format, indent=indent)
 
 
@@ -77,6 +79,24 @@ def _redact_env_lines(value: str) -> str:
                 continue
         lines.append(line)
     return "\n".join(lines)
+
+
+def select_fields(data: Any, fields: list[str]) -> Any:
+    """Keep only the given top-level fields of a dict (or of each dict in a list).
+
+    ``None`` fields filter to ``None``; scalars and lists of scalars pass
+    through untouched. Unknown field names are dropped. ``fields=[]`` returns
+    the data unchanged.
+    """
+    if not fields:
+        return data
+    match data:
+        case dict():
+            return {key: data[key] for key in fields if key in data}
+        case list():
+            return [select_fields(item, fields) for item in data]
+        case _:
+            return data
 
 
 def _flatten_record(record: Any, prefix: str = "") -> dict[str, Any]:

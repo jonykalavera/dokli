@@ -2,7 +2,7 @@
 
 import json
 
-from dokli.formatting import Format, _format_agent, _flatten_record, format_data, redact_secrets
+from dokli.formatting import Format, _format_agent, _flatten_record, format_data, redact_secrets, select_fields
 
 
 class TestRedactSecrets:
@@ -53,6 +53,38 @@ class TestFormatData:
         out = format_data(data, Format.json, indent=2)
         assert json.loads(out) == data
         assert "\n  " in out
+
+
+class TestSelectFields:
+    """Top-level field selection (jq-like)."""
+
+    def test_keeps_only_requested_fields(self):
+        """We expect only the requested top-level keys to remain."""
+        data = {"id": "p1", "name": "web", "description": "x"}
+        assert select_fields(data, ["id", "name"]) == {"id": "p1", "name": "web"}
+
+    def test_drops_unknown_fields(self):
+        """We expect unknown field names to be dropped."""
+        assert select_fields({"a": 1, "b": 2}, ["b", "nope"]) == {"b": 2}
+
+    def test_empty_fields_returns_data(self):
+        """We expect fields=[] to return the data unchanged."""
+        data = {"a": 1, "b": 2}
+        assert select_fields(data, []) is data
+
+    def test_filters_each_list_record(self):
+        """We expect a list of dicts to filter each record."""
+        rows = [{"a": 1, "b": "x"}, {"a": 2, "b": "y"}]
+        assert select_fields(rows, ["a"]) == [{"a": 1}, {"a": 2}]
+
+    def test_scalars_pass_through(self):
+        """We expect scalars and lists of scalars to be untouched."""
+        assert select_fields("hello", ["a"]) == "hello"
+        assert select_fields([1, 2], ["a"]) == [1, 2]
+
+    def test_none_values_filtered_in(self):
+        """We expect present keys with None values to stay."""
+        assert select_fields({"a": None, "b": 1}, ["a"]) == {"a": None}
 
 
 class TestFormatAgent:

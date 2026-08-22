@@ -121,12 +121,28 @@ def _api_command_factory(
             annotation=Annotated[int, typer.Option(help="JSON indent spaces (json only; 0 = compact).")],
         )
     )
+    # add fields parameter (jq-like top-level selection)
+    parameters.append(
+        Parameter(
+            "fields",
+            Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Annotated[str, typer.Option(help="Comma-separated top-level fields to keep (jq-like).")],
+        )
+    )
     # Create a Signature object
     sig = Signature(parameters)
 
-    def api_command(format: Format = Format.json, show_secrets: bool = False, indent: int = 0, **kwargs: Any) -> None:
+    def api_command(
+        format: Format = Format.json,
+        show_secrets: bool = False,
+        indent: int = 0,
+        fields: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         if not 0 <= indent <= 8:
             raise typer.BadParameter("--indent must be between 0 and 8.")
+        field_list = [field.strip() for field in fields.split(",") if field.strip()] if fields else None
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
@@ -140,7 +156,9 @@ def _api_command_factory(
                 # Print JSON with a plain print: rich re-materializes escaped
                 # newlines (and highlights) long single-line JSON when its
                 # console wraps at pipe width, breaking json.load downstream.
-                content = format_response(response, format=format, show_secrets=show_secrets, indent=indent)
+                content = format_response(
+                    response, format=format, show_secrets=show_secrets, indent=indent, fields=field_list
+                )
                 if isinstance(content, str):
                     print(content)  # noqa: T201
                 else:

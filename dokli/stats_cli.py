@@ -17,7 +17,7 @@ from rich.console import Console
 
 from dokli.api_client import request_json
 from dokli.config import Config, complete_connection_names, resolve_connection
-from dokli.formatting import Format
+from dokli.formatting import Format, select_fields
 from dokli.monitoring import (
     METRIC_SCALE,
     format_duo_total_label,
@@ -80,6 +80,7 @@ def build_command(config: Config) -> Callable[..., None]:
         format: Format = typer.Option(  # noqa: B008
             Format.python, "--format", help="Output format (python = braille; agent = NDJSON dataframe)."
         ),
+        fields: str = typer.Option(None, "--fields", help="Comma-separated top-level fields to keep (agent only)."),
     ) -> None:
         """Stream a service's or the host system's stats live (Ctrl+C to stop)."""
         connection = resolve_connection(config, connection_name)
@@ -98,6 +99,7 @@ def build_command(config: Config) -> Callable[..., None]:
             raise typer.BadParameter("--samples must be at least 1.")
         if samples is None:
             samples = _default_samples(shutil.get_terminal_size((80, 24)).columns)
+        field_list = [field.strip() for field in fields.split(",") if field.strip()] if fields else None
         asyncio.run(
             _stream_stats(
                 connection,
@@ -112,6 +114,7 @@ def build_command(config: Config) -> Callable[..., None]:
                 no_backfill,
                 once,
                 format,
+                field_list,
             )
         )
 
@@ -131,6 +134,7 @@ async def _stream_stats(
     no_backfill: bool,
     once: bool,
     format: Format = Format.python,
+    fields: list[str] | None = None,
 ) -> None:
     """Stream and print a service's or the host system's stats as braille sparklines.
 
@@ -141,7 +145,7 @@ async def _stream_stats(
         connection, compose_id, application_id, container_name, container_id, app_name, app_type
     )
     if format == Format.agent:
-        await _stream_agent(connection, app_name, app_type, display_type, once)
+        await _stream_agent(connection, app_name, app_type, display_type, once, fields)
         return
     metrics = _metrics_for(display_type)
     buffers: dict[str, deque[float]] = {}
@@ -200,13 +204,20 @@ _AGENT_COLUMNS = [
 ]
 
 
-async def _stream_agent(connection, app_name: str, app_type: str, display_type: str, once: bool) -> None:
+async def _stream_agent(
+    connection, app_name: str, app_type: str, display_type: str, once: bool, fields: list[str] | None = None
+) -> None:
     """Emit an NDJSON stats dataframe: header once, then one row per sample."""
-    print(json.dumps(_AGENT_COLUMNS))  # noqa: T201
+    columns = select_fields({col: None for col in _AGENT_COLUMNS}, fields or []).keys() if fields else _AGENT_COLUMNS
+    column_list = list(columns)
+    print(json.dumps(column_list))  # noqa: T201
     try:
         async for data in iter_stats(connection, app_name, app_type):
-            row = [_agent_row(data, display_type)]
-            print(json.dumps(row[0]), flush=True)  # noqa: T201
+            row = _agent_row(data, display_type)
+            if fields:
+                record = select_fields(dict(zip(_AGENT_COLUMNS, row, strict=True)), fields)
+                row = [record.get(column) for column in column_list]
+            print(json.dumps(row), flush=True)  # noqa: T201
             if once:
                 break
     except KeyboardInterrupt:

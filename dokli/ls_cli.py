@@ -8,7 +8,7 @@ from rich.table import Table
 
 from dokli.api_client import APIClient
 from dokli.config import Config, complete_connection_names, resolve_connection
-from dokli.formatting import Format, _format_agent
+from dokli.formatting import Format, _format_agent, select_fields
 from dokli.state import collect_state
 
 
@@ -31,6 +31,7 @@ def build_command(config: Config) -> Callable[..., None]:
         format: Format = typer.Option(  # noqa: B008
             Format.python, "--format", help="Output format (python = table; agent = NDJSON dataframe)."
         ),
+        fields: str = typer.Option(None, "--fields", help="Comma-separated top-level fields to keep (agent only)."),
     ) -> None:
         """List services and their ids across the instance."""
         connection = resolve_connection(config, connection_name)
@@ -57,7 +58,8 @@ def build_command(config: Config) -> Callable[..., None]:
                     )
 
         if format == Format.agent:
-            print(_format_agent(rows), end="")  # noqa: T201
+            field_list = [field.strip() for field in fields.split(",") if field.strip()] if fields else None
+            print(_format_agent(select_fields(rows, field_list or [])), end="")  # noqa: T201
         else:
             _render(rows)
 

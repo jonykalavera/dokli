@@ -103,3 +103,21 @@ class TestAPIClICommand:
         command = _api_command_factory(self._connection(), request)
         with pytest.raises(typer.BadParameter):
             command(format="json", indent=99, compose_id="c1")
+
+    def test_fields_filters_json_output(self, mocker, capsys):
+        """We expect --fields to keep only the requested top-level keys."""
+        import json
+
+        import httpx
+
+        from dokli.openapi_cli import run_command
+
+        mocker.patch(
+            "dokli.openapi_cli.run_command",
+            return_value=httpx.Response(200, json={"id": "c1", "name": "web", "description": "x"}),
+        )
+        request = APIRequest(route="/compose.one", params=[{"name": "composeId", "in": "query", "required": True}])
+        command = _api_command_factory(self._connection(), request)
+        command(format="json", fields="id, name", compose_id="c1")
+        out = capsys.readouterr().out
+        assert json.loads(out) == {"id": "c1", "name": "web"}
