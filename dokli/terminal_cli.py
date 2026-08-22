@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 import typer
+import websockets
 from websockets.asyncio.client import ClientConnection
 
 from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
@@ -126,10 +127,6 @@ async def _bridge(ws: ClientConnection) -> None:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
     else:
         await _relay(ws)
-    # The stdin thread may still be blocked in os.read; closing the fd lets it
-    # hit EOF so the executor (and asyncio.run's shutdown) can finish.
-    with contextlib.suppress(OSError):
-        os.close(stdin.fileno())
 
 
 async def _relay(ws: ClientConnection) -> None:
@@ -180,9 +177,14 @@ async def _read_stdin(ws: ClientConnection) -> None:
 
 async def _read_socket(ws: ClientConnection) -> None:
     """Forward socket output to stdout and exit cleanly when it closes."""
-    async for chunk in ws:
-        data = chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
-        _write_stdout(data)
+    try:
+        async for chunk in ws:
+            data = chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+            _write_stdout(data)
+    except websockets.exceptions.ConnectionClosed:
+        # The transport was force-closed (e.g. after an exit line) or the
+        # server ended the session: this is the normal end of the terminal.
+        pass
 
 
 def _write_stdout(data: bytes) -> None:
