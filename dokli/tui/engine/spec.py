@@ -1,6 +1,5 @@
 """OpenAPI document → entity registry."""
 
-import string
 from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
@@ -169,15 +168,18 @@ RESERVED_KEYS = frozenset("hjklrqy")
 # assigned to actions so the app shortcuts are not overshadowed.
 SYSTEM_KEYS = frozenset("D")
 
-# Fallback key space, in priority order: letters, then digits, then uppercase.
-FALLBACK_KEYS = string.ascii_lowercase + string.digits + string.ascii_uppercase
-
+# The curated set of frequent verbs that get a direct keybinding. Every other
+# verb is reachable only through the command palette / action picker, so keys
+# stay memorable and never change between versions. ``save`` uses ``w`` (write,
+# vim-style) so ``s`` is free for the very common ``start``.
 VERB_KEYS = {
     "create": "c",
     "new": "c",
     "update": "u",
     "edit": "e",
-    "save": "s",
+    "save": "w",
+    "start": "s",
+    "stop": "o",
     "remove": "delete",
     "delete": "delete",
     "deploy": "x",
@@ -185,6 +187,10 @@ VERB_KEYS = {
     "testConnection": "t",
     "restart": "R",
     "readLogs": "L",
+    "rebuild": "b",
+    "move": "m",
+    "duplicate": "d",
+    "rollback": "Z",
 }
 
 
@@ -193,32 +199,20 @@ def key_for_verb(
     taken: frozenset[str] = frozenset(),
     verb_keys: dict[str, str] | None = None,
     system_keys: frozenset[str] | None = None,
-    reserved_keys: frozenset[str] | None = None,
 ) -> str | None:
-    """Assign a deterministic, collision-free keybinding to an action verb.
+    """The curated key for an action verb, if it has one.
 
-    Prefers the verb's own letters (``VERB_KEYS`` first), then any free letter
-    of the alphabet, so every action can get a key. ``verb_keys``,
-    ``system_keys`` and ``reserved_keys`` default to the module constants but
-    can be overridden (e.g. from the user's TUI config).
+    Only verbs in ``verb_keys`` (the curated ``VERB_KEYS``, optionally extended
+    via the user's TUI config) get a direct key; every other verb returns
+    ``None`` and is reached only through the command palette / action picker.
+    This keeps keys memorable and stable. ``verb_keys`` and ``system_keys``
+    default to the module constants but can be overridden (e.g. from the user's
+    TUI config).
     """
     verb_keys = verb_keys or VERB_KEYS
     system_keys = SYSTEM_KEYS if system_keys is None else system_keys
-    reserved_keys = RESERVED_KEYS if reserved_keys is None else reserved_keys
-    system_keys_lower = frozenset(key.lower() for key in system_keys)
     if verb in verb_keys and verb_keys[verb] not in taken and verb_keys[verb] not in system_keys:
         return verb_keys[verb]
-    for character in verb:
-        if (
-            character.isalpha()
-            and character.lower() not in taken
-            and character.lower() not in reserved_keys
-            and character.lower() not in system_keys_lower
-        ):
-            return character.lower()
-    for character in FALLBACK_KEYS:
-        if character not in taken and character not in reserved_keys and character not in system_keys:
-            return character
     return None
 
 
@@ -226,20 +220,20 @@ def action_bindings(
     entity: Entity,
     verb_keys: dict[str, str] | None = None,
     system_keys: frozenset[str] | None = None,
-    reserved_keys: frozenset[str] | None = None,
 ) -> list[tuple[EntityAction, str | None]]:
     """Assign keybindings to an entity's actions.
 
     Keys are assigned in **display order** (the order actions appear in the
-    spec): each action gets its preferred key (``VERB_KEYS``, else the first
-    available letter of the verb), and earlier actions win key collisions.
+    spec): each action gets its curated key (``VERB_KEYS``), and earlier
+    actions win key collisions. Actions without a curated verb key get
+    ``None`` (reachable via the command palette / action picker).
     """
     taken: set[str] = set()
     bindings = []
     for action in entity.actions.values():
         if classify(action) in ("list", "detail"):
             continue
-        key = key_for_verb(action.verb, frozenset(taken), verb_keys, system_keys, reserved_keys)
+        key = key_for_verb(action.verb, frozenset(taken), verb_keys, system_keys)
         if key:
             taken.add(key)
         bindings.append((action, key))

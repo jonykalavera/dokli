@@ -5,7 +5,7 @@ import threading
 import time
 
 import httpx
-from textual.command import CommandPalette
+from textual.command import CommandInput, CommandPalette
 from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Input, Label, Select, Static, Switch
@@ -2484,7 +2484,11 @@ def test_query_action_shows_result(mocker):
             await pilot.pause()
             await pilot.press("enter")
             await _wait_for_label(app, pilot, "media")
-            await pilot.press("o")
+            # homeStats is not a curated verb, so it has no direct key; run it
+            # through the browser's action runner (what the picker would do).
+            screen = app.screen
+            action = screen.registry.get("project").get("homeStats")
+            screen._run_action(action)
             await pilot.pause()
             await pilot.pause()
             assert isinstance(app.screen, ResultScreen)
@@ -3100,7 +3104,7 @@ def test_entity_list_uses_canonical_list_verb(mocker):
 
 def test_related_action_opens_deployments(mocker):
     """We expect a compose record to expose deployment.allByCompose as a
-    separate action that opens a navigable deployment list."""
+    separate curated action (key 'd') that opens a navigable deployment list."""
     _patch_api(mocker)
     registry = parse_spec(FAKE_SCHEMA)
 
@@ -3757,6 +3761,49 @@ def test_command_palette_opens(mocker):
             await pilot.press("ctrl+p")
             await pilot.pause()
             assert isinstance(app.screen, CommandPalette)
+
+    _run(main())
+
+
+def test_action_picker_opens_and_seeds_query(mocker):
+    """We expect ctrl+shift+p to open the palette pre-filtered to record actions."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        from dokli.tui.app import ActionPalette
+
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            await pilot.press("ctrl+shift+p")
+            await pilot.pause()
+            assert isinstance(app.screen, ActionPalette)
+            assert app.screen._initial_query == "Run "
+
+    _run(main())
+
+
+def test_action_picker_scope_shows_record_actions(mocker):
+    """We expect the action picker to surface the selected record's actions."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            await _mount_browser(app, pilot, _connection(), registry)
+            _select(app, "project")
+            await pilot.pause()
+            app.action_pick_action()
+            await pilot.pause()
+            await pilot.pause()
+            await pilot.pause()
+            assert isinstance(app.screen, CommandPalette)
+            input_value = app.screen.query_one(CommandInput).value
+            assert input_value == "Run "
 
     _run(main())
 

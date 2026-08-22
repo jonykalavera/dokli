@@ -36,7 +36,7 @@ Use `uv` (migrated from poetry); Python 3.11 in `.venv` (`.python-version`).
 ## TUI specifics
 
 - **Engine** (`dokli/tui/engine/`): `spec.py` builds the entity registry from `settings.getOpenApiDocument` and assigns deterministic keybindings; `related.py` finds containers via `compose.one.appName` (the docker project slug) + `appType`, enriching list records through the entity's `one` action — do not match containers by the display `name`.
-- **Keybindings**: `D` = dark mode, `F5` = refresh, `L` = readLogs. `RESERVED_KEYS = "hjklrq"` and `SYSTEM_KEYS = frozenset("D")` in `spec.py` — never assign those to actions (`l` is drill-in).
+- **Keybindings**: `D` = dark mode, `F5` = refresh, `L` = readLogs, `ctrl+p` = command palette, `ctrl+shift+p` = action picker (palette pre-filtered to the record's actions). Only **curated** verbs get a direct key (`VERB_KEYS` in `spec.py`: create `c`, update `u`, start `s`, stop `o`, deploy `x`, readLogs `L`, ...); everything else is reached via the palette/picker. `RESERVED_KEYS = "hjklrqy"` and `SYSTEM_KEYS = frozenset("D")` in `spec.py` — never assign those to actions (`l` is drill-in, `y` yanks the id).
 - **Pilot testing quirks** (hard-won):
   - `push_screen(screen, cb)` callbacks never fire under the pilot; await the result with `push_screen_wait` from a worker instead.
   - `run_worker(..., exclusive=True)` cancels other workers in the same group — e.g. the resume re-render cancels action workers. Put action workers in a distinct group (`group="action"`).
