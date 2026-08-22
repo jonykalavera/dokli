@@ -7,6 +7,16 @@ import dokli.cli
 from dokli.cli import app, main, refresh_command, tui_command
 from dokli.config import Config, ConnectionConfig, complete_connection_names
 from dokli.openapi_cli import build_command
+from dokli.stats_common import metrics_for, palette_for, stats_argv, stats_command_hint
+from dokli.stats_cli import (
+    _darken_color,
+    _default_samples,
+    _fill_from_history,
+    _format_time,
+    _header_with_range,
+    _lighten_color,
+    resolve_palette,
+)
 
 
 def test_loads_api_commands():
@@ -102,20 +112,8 @@ def test_schema_command_refresh(mocker):
     assert client.call_args.kwargs == {"force_refresh": True}
 
 
-class _FakeResponse:
-    """Minimal response stand-in with a json() payload."""
-
-    def __init__(self, data):
-        self._data = data
-
-    def json(self):
-        return self._data
-
-
 def _patch_logs_client(mocker):
-    client = mocker.Mock()
-    mocker.patch("dokli.logs_cli.APIClient", return_value=client)
-    return client
+    return mocker.patch("dokli.logs_cli.request_json")
 
 
 def test_logs_one_shot_compose(mocker):
@@ -125,7 +123,7 @@ def test_logs_one_shot_compose(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse("line a\nline b\n")
+    client.return_value = "line a\nline b\n"
 
     result = CliRunner().invoke(
         app, ["logs", "test-env", "--compose-id", "c1", "--container-id", "cc1", "-n", "2"]
@@ -133,7 +131,7 @@ def test_logs_one_shot_compose(mocker):
     assert result.exit_code == 0
     assert "line a" in result.output
     assert "line b" in result.output
-    method, route, params = client.request.call_args[0]
+    _, route, params = client.call_args.args
     assert route == "compose.readLogs"
     assert params == {"composeId": "c1", "containerId": "cc1", "tail": 2}
 
@@ -145,12 +143,12 @@ def test_logs_one_shot_application(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse("app line\n")
+    client.return_value = "app line\n"
 
     result = CliRunner().invoke(app, ["logs", "test-env", "--application-id", "a1", "-n", "2"])
     assert result.exit_code == 0
     assert "app line" in result.output
-    method, route, params = client.request.call_args[0]
+    _, route, params = client.call_args.args
     assert route == "application.readLogs"
     assert params == {"applicationId": "a1", "tail": 2}
 
@@ -162,12 +160,12 @@ def test_logs_one_shot_deployment(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse("dep line\n")
+    client.return_value = "dep line\n"
 
     result = CliRunner().invoke(app, ["logs", "test-env", "--deployment-id", "d1", "-n", "2"])
     assert result.exit_code == 0
     assert "dep line" in result.output
-    method, route, params = client.request.call_args[0]
+    _, route, params = client.call_args.args
     assert route == "deployment.readLogs"
     assert params == {"deploymentId": "d1", "tail": 2}
 
@@ -179,7 +177,7 @@ def test_logs_follow_compose_streams_ws(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse({"serverId": None})  # compose.one
+    client.return_value = {"serverId": None}  # compose.one
 
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/docker-container-logs"
@@ -202,15 +200,15 @@ def test_logs_follow_application_resolves_container(mocker):
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
 
-    def fake_request(method, route, params):
+    def fake_request(connection, route, params):
         if route == "application.one":
-            return _FakeResponse({"appName": "app-xyz", "serverId": "srv1"})
+            return {"appName": "app-xyz", "serverId": "srv1"}
         if route == "docker.getContainersByAppNameMatch":
             assert params == {"appName": "app-xyz", "serverId": "srv1"}
-            return _FakeResponse([{"containerId": "cc1", "state": "running"}])
+            return [{"containerId": "cc1", "state": "running"}]
         raise AssertionError(route)
 
-    client.request.side_effect = fake_request
+    client.side_effect = fake_request
 
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/docker-container-logs"
@@ -230,9 +228,7 @@ def test_logs_follow_deployment_uses_log_path(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse(
-        [{"deploymentId": "d1", "logPath": "/tmp/x.log", "serverId": "srv1"}]
-    )
+    client.return_value = [{"deploymentId": "d1", "logPath": "/tmp/x.log", "serverId": "srv1"}]
 
     async def fake_stream(connection, endpoint, params):
         assert endpoint == "/listen-deployment"
@@ -254,7 +250,7 @@ def test_logs_follow_stream_ends_cleanly(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse({"serverId": None})  # compose.one
+    client.return_value = {"serverId": None}  # compose.one
 
     async def fake_stream(connection, endpoint, params):
         yield "line\r"
@@ -273,7 +269,7 @@ def test_logs_follow_connection_error_exits_one(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     client = _patch_logs_client(mocker)
-    client.request.return_value = _FakeResponse({"serverId": None})  # compose.one
+    client.return_value = {"serverId": None}  # compose.one
 
     async def fake_stream(connection, endpoint, params):
         if False:
@@ -316,6 +312,503 @@ def test_logs_compose_requires_container_id(mocker):
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
     mocker.patch("dokli.logs_cli.resolve_connection", return_value=connection)
     result = CliRunner().invoke(app, ["logs", "test-env", "--compose-id", "c1"])
+    assert result.exit_code != 0
+
+
+_STATS_T0 = "2026-08-20T07:00:00.000Z"
+_STATS_T1 = "2026-08-20T07:00:01.000Z"
+_STATS_SAMPLE = {
+    "cpu": {"value": "0.20%", "time": _STATS_T0},
+    "memory": {"value": {"used": "1.108GiB", "total": "62.4GiB"}, "time": _STATS_T0},
+    "network": {"value": {"inputMb": "7.59", "outputMb": "0.14"}, "time": _STATS_T0},
+    "block": {"value": {"readMb": "786", "writeMb": "1.31"}, "time": _STATS_T0},
+    "disk": {"value": {"diskUsedPercentage": "42.0%", "total": "1024GB"}, "time": _STATS_T0},
+}
+#: One second later with advanced counters (1s delta -> deterministic rates).
+_STATS_SAMPLE2 = {
+    "cpu": {"value": "0.25%", "time": _STATS_T1},
+    "memory": {"value": {"used": "1.108GiB", "total": "62.4GiB"}, "time": _STATS_T1},
+    "network": {"value": {"inputMb": "7.79", "outputMb": "0.16"}, "time": _STATS_T1},
+    "block": {"value": {"readMb": "786.5", "writeMb": "1.41"}, "time": _STATS_T1},
+    "disk": {"value": {"diskUsedPercentage": "42.0%", "total": "1024GB"}, "time": _STATS_T1},
+}
+
+
+def _patch_stats_env(mocker):
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.stats_cli.resolve_connection", return_value=connection)
+    mocker.patch("dokli.stats_cli.request_json")
+    return connection
+
+
+def test_stats_streams_compose(mocker):
+    """We expect stats to resolve the compose then stream its container metrics."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        return_value={"appName": "app-xyz", "composeType": "docker-compose"},
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        assert app_name == "app-xyz"
+        assert app_type == "docker-compose"
+        yield _STATS_SAMPLE
+        yield _STATS_SAMPLE2
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1"])
+    assert result.exit_code == 0
+    assert "test-env › app-xyz (docker-compose)" in result.output
+    assert "CPU" in result.output
+    assert "MEMORY" in result.output
+    assert "0.20%" in result.output
+    assert "1.108GiB/62.4GiB" in result.output
+    assert "8MB\u2193/143KB\u2191" in result.output
+    assert "\u2193" in result.output
+    assert "DISK" not in result.output  # disk is only reported for system stats
+
+
+def test_stats_backfills_history_into_header(mocker):
+    """We expect the REST history to prime the charts and show a time range."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        side_effect=lambda connection, route, params: {
+            "compose.one": {"appName": "app-xyz", "composeType": "docker-compose"},
+            "application.readAppMonitoring": {
+                "cpu": [
+                    {"value": "1.0%", "time": "2026-08-20T10:00:00Z"},
+                    {"value": "2.0%", "time": "2026-08-20T10:00:02Z"},
+                ],
+                "memory": [],
+            },
+        }.get(route, {}),
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1"])
+    assert result.exit_code == 0
+    assert "test-env › app-xyz (docker-compose) ·" in result.output
+
+
+def test_stats_no_backfill_skips_history(mocker):
+    """We expect --no-backfill to skip the REST history fetch."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    request = mocker.patch(
+        "dokli.stats_cli.request_json",
+        side_effect=lambda connection, route, params: {"compose.one": {"appName": "app-xyz", "composeType": "docker-compose"}}.get(route, {}),
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1", "--no-backfill"])
+    assert result.exit_code == 0
+    routes = set(call.args[1] for call in request.call_args_list)
+    assert "application.readAppMonitoring" not in routes
+
+
+def test_stats_header_includes_project(mocker):
+    """We expect the context header to show the compose's project scope."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        return_value={
+            "appName": "app-xyz",
+            "composeType": "docker-compose",
+            "environment": {"project": {"name": "agents"}},
+        },
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1"])
+    assert result.exit_code == 0
+    assert "test-env › agents/app-xyz (docker-compose)" in result.output
+
+
+def test_stats_application_resolves(mocker):
+    """We expect stats to stream an application with the application appType."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch("dokli.stats_cli.request_json", return_value={"appName": "app-xyz"})
+
+    async def fake_stream(connection, app_name, app_type):
+        assert app_name == "app-xyz"
+        assert app_type == "application"
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--application-id", "a1"])
+    assert result.exit_code == 0
+    assert "test-env › app-xyz (application)" in result.output
+    assert "CPU" in result.output
+
+
+def test_stats_defaults_to_system(mocker):
+    """We expect stats with no selector to stream the host system stats."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+
+    async def fake_stream(connection, app_name, app_type):
+        assert app_name == "dokploy"
+        assert app_type == "application"
+        yield _STATS_SAMPLE
+        yield _STATS_SAMPLE2
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env"])
+    assert result.exit_code == 0
+    assert "test-env › dokploy (system)" in result.output
+    assert "CPU" in result.output
+    assert "DISK" in result.output
+
+
+def test_stats_rejects_multiple_selectors(mocker):
+    """We expect more than one service selector to be rejected."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1", "--application-id", "a1"])
+    assert result.exit_code != 0
+    assert "at most one" in result.output
+
+
+def test_stats_raw_app_name_and_type(mocker):
+    """We expect --app-name/--app-type to stream raw appName/appType."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+
+    async def fake_stream(connection, app_name, app_type):
+        assert app_name == "blog-api"
+        assert app_type == "stack"
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--app-name", "blog-api", "--app-type", "stack"])
+    assert result.exit_code == 0
+    assert "test-env › blog-api (stack)" in result.output
+
+
+def test_stats_rejects_mixed_selector_and_app_name(mocker):
+    """We expect --app-name/--app-type not to combine with a selector."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1", "--app-name", "foo"])
+    assert result.exit_code != 0
+    assert "cannot be combined" in result.output
+
+
+def test_stats_validates_app_type(mocker):
+    """We expect an unknown --app-type to be rejected."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--app-type", "bogus"])
+    assert result.exit_code != 0
+    assert "--app-type must be one of" in result.output
+
+
+def test_stats_streams_container_by_name(mocker):
+    """We expect stats to target a bare container by its docker name."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+
+    async def fake_stream(connection, app_name, app_type):
+        assert app_name == "qbittorrent"
+        assert app_type == "docker-compose"
+        yield _STATS_SAMPLE
+        yield _STATS_SAMPLE2
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--container-name", "qbittorrent"])
+    assert result.exit_code == 0
+    assert "test-env › qbittorrent (container)" in result.output
+    assert "CPU" in result.output
+
+
+def test_stats_container_by_id_resolves_name(mocker):
+    """We expect stats to resolve a container id to its docker name."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        return_value=[{"containerId": "d205cc0de4be", "name": "qbittorrent", "state": "running"}],
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        assert app_name == "qbittorrent"
+        assert app_type == "docker-compose"
+        yield _STATS_SAMPLE
+        yield _STATS_SAMPLE2
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--container-id", "d205cc0d"])
+    assert result.exit_code == 0
+    assert "test-env › qbittorrent (container)" in result.output
+    assert "CPU" in result.output
+
+
+def test_stats_container_id_without_match_fails(mocker):
+    """We expect an unknown container id to be rejected."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch("dokli.stats_cli.request_json", return_value=[{"containerId": "d205cc0de4be", "name": "qbittorrent"}])
+
+    result = CliRunner().invoke(app, ["stats", "test-env", "--container-id", "zzz999"])
+    assert result.exit_code != 0
+    assert "No running container matches" in result.output
+
+
+class TestLightenColor:
+    """Hex color lightening (used for the up half of two-direction graphs)."""
+
+    def test_full_amount_goes_white(self):
+        assert _lighten_color("#000000", 1.0) == "#ffffff"
+
+    def test_zero_amount_is_unchanged(self):
+        assert _lighten_color("#89dceb", 0.0) == "#89dceb"
+
+    def test_white_is_unchanged(self):
+        assert _lighten_color("#ffffff", 0.35) == "#ffffff"
+
+    def test_subtle_lighten(self):
+        # 0x89 = 137 -> 137 + (255-137)*0.35 = 178.3 -> round 178 -> 0xb2
+        assert _lighten_color("#898989", 0.35) == "#b2b2b2"
+
+
+class TestDarkenColor:
+    """Hex color darkening (used for the down half of two-direction graphs)."""
+
+    def test_full_amount_goes_black(self):
+        assert _darken_color("#ffffff", 1.0) == "#000000"
+
+    def test_zero_amount_is_unchanged(self):
+        assert _darken_color("#cba6f7", 0.0) == "#cba6f7"
+
+    def test_black_is_unchanged(self):
+        assert _darken_color("#000000", 0.35) == "#000000"
+
+    def test_subtle_darken(self):
+        # 0xcb = 203 -> 203 * 0.65 = 131.95 -> round 132 -> 0x84
+        assert _darken_color("#cbcbcb", 0.35) == "#848484"
+
+    def test_dark_and_light_are_symmetric(self):
+        # Lightening and darkening the same base by equal amounts differ.
+        base = "#cba6f7"
+        assert _lighten_color(base) != _darken_color(base)
+
+
+def test_stats_validates_height_and_samples(mocker):
+    """We expect out-of-range height/samples to be rejected."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    for extra in (["--height", "0"], ["--height", "9"], ["--samples", "0"]):
+        result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1", *extra])
+        assert result.exit_code != 0
+
+
+class TestDefaultSamples:
+    """Adaptive default history based on console width."""
+
+    def test_width_80(self):
+        # 80 cols -> inner 78 -> 156 samples.
+        assert _default_samples(80) == 156
+
+    def test_wide_terminal(self):
+        assert _default_samples(200) == 396
+
+    def test_narrow_terminal_has_floor(self):
+        assert _default_samples(3) == 10
+
+
+class TestStatsTarget:
+    """Building the ``dokli stats`` CLI args/hint from a target."""
+
+    def test_system_argv(self):
+        assert stats_argv("meche", "system") == ["stats", "meche"]
+
+    def test_compose_argv(self):
+        assert stats_argv("meche", "compose", "c1") == ["stats", "meche", "--compose-id", "c1"]
+
+    def test_container_argv(self):
+        assert stats_argv("meche", "container", "abc") == ["stats", "meche", "--container-id", "abc"]
+
+    def test_hint_prepends_dokli(self):
+        assert stats_command_hint("meche", "application", "a1") == "dokli stats meche --application-id a1"
+
+    def test_metrics_omit_disk_outside_system(self):
+        assert "disk" in metrics_for("system")
+        assert "disk" not in metrics_for("container")
+
+
+class TestPalette:
+    """Theme-resolution for the stats render."""
+
+    def test_dark_uses_mocha(self):
+        assert palette_for(True).metric_colors["cpu"] == "#89dceb"
+        assert palette_for(True).border_color == "#6c7086"
+
+    def test_light_uses_latte(self):
+        assert palette_for(False).metric_colors["cpu"] == "#04a5e5"
+        assert palette_for(False).metric_colors["network"] == "#df8e1d"
+        assert palette_for(False).border_color == "#6c6f85"
+
+    def test_resolve_env_light(self, monkeypatch):
+        monkeypatch.setenv("DOKLI_THEME", "light")
+        metric_colors, border = resolve_palette()
+        assert metric_colors["memory"] == "#40a02b"
+        assert border == "#6c6f85"
+
+    def test_resolve_env_default_dark(self, monkeypatch):
+        monkeypatch.delenv("DOKLI_THEME", raising=False)
+        metric_colors, _ = resolve_palette()
+        assert metric_colors["disk"] == "#f38ba8"
+
+
+class TestHistoryBackfill:
+    """Priming buffers and the header time range from the REST history."""
+
+    def test_fill_primes_buffers_in_order(self):
+        from collections import deque
+
+        history = {
+            "cpu": [
+                {"value": "1.0%", "time": "2026-08-20T10:00:00Z"},
+                {"value": "2.0%", "time": "2026-08-20T10:00:01Z"},
+                {"value": "3.0%", "time": "2026-08-20T10:00:02Z"},
+            ],
+            "network": [
+                {"value": {"inputMb": "1", "outputMb": "1"}, "time": "2026-08-20T10:00:00Z"},
+                {"value": {"inputMb": "3", "outputMb": "2"}, "time": "2026-08-20T10:00:02Z"},
+            ],
+        }
+        buffers: dict = {}
+        duo_buffers: dict[str, tuple[deque, deque]] = {
+            "network": (deque(), deque()),
+            "block": (deque(), deque()),
+        }
+        timestamps: dict[str, deque] = {}
+        _fill_from_history(history, buffers, duo_buffers, timestamps, ("cpu", "network"), samples=10)
+        assert "disk" not in buffers
+        assert buffers["cpu"] == deque([1.0, 2.0, 3.0])
+        down = list(duo_buffers["network"][0])
+        up = list(duo_buffers["network"][1])
+        assert down == [1.0, 3.0]
+        assert up == [1.0, 2.0]
+        assert list(timestamps["cpu"]) == ["2026-08-20T10:00:00Z", "2026-08-20T10:00:01Z", "2026-08-20T10:00:02Z"]
+
+    def test_format_time_local(self):
+        assert _format_time("2026-08-20T10:00:00Z") is not None
+
+    def test_header_with_range(self):
+        header = _header_with_range("me › dokploy (system)", ("10:00:00", "10:00:02"))
+        assert "10:00:00→10:00:02" in header
+
+    def test_visible_range_from_timestamps(self):
+        from collections import deque
+
+        from dokli.stats_cli import _visible_range
+
+        timestamps = {
+            "cpu": deque(["2026-08-20T10:00:00Z", "2026-08-20T10:00:01Z"]),
+            "memory": deque(["2026-08-20T10:00:01Z", "2026-08-20T10:00:02Z"]),
+        }
+        start, end = _visible_range(timestamps)
+        assert start is not None and start.endswith("00:00")
+        assert end is not None and end.endswith("00:02")
+
+
+class TestStatsLoading:
+    """The loading frame keeps the box layout."""
+
+    def test_loading_frame_prints_loading(self, capsys):
+        from dokli.stats_cli import _print_loading
+
+        _print_loading("me › x (system)", ("cpu", "memory"), height=1)
+        out = capsys.readouterr().out
+        assert "loading…" in out
+        assert "CPU" in out
+        assert "MEMORY" in out
+
+
+def test_stats_stream_ends_cleanly(mocker):
+    """We expect stats to exit cleanly when the WebSocket stream ends."""
+    import websockets
+
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        return_value={"appName": "app-xyz", "composeType": "docker-compose"},
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+        raise websockets.exceptions.ConnectionClosedOK(None, None)
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1"])
+    assert result.exit_code == 0
+    assert "CPU" in result.output
+
+
+def test_stats_connection_error_exits_one(mocker):
+    """We expect a failed stats WebSocket to exit non-zero with an error."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        return_value={"appName": "app-xyz", "composeType": "docker-compose"},
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        if False:
+            yield  # make it an async generator
+        raise OSError("connection refused")
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1"])
+    assert result.exit_code == 1
+    assert "Stats stream failed" in result.output
+
+
+def test_stats_requires_app_name(mocker):
+    """We expect a compose without an appName to be rejected."""
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch("dokli.stats_cli.request_json", return_value={"composeType": "docker-compose"})
+
+    async def fake_stream(connection, app_name, app_type):
+        yield _STATS_SAMPLE
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1"])
     assert result.exit_code != 0
 
 

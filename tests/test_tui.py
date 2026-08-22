@@ -7,6 +7,7 @@ import time
 import httpx
 from textual.command import CommandPalette
 from textual.containers import VerticalScroll
+from textual.screen import Screen
 from textual.widgets import Input, Label, Select, Static, Switch
 
 from dokli.config import Config, ConnectionConfig, TuiConfig, TuiKeysConfig
@@ -29,6 +30,7 @@ from dokli.tui.screens.generic.result import (
 )
 from dokli.tui.screens.generic.wizard import WizardScreen
 from dokli.tui.screens.splash import SPINNER_FRAMES, SplashScreen
+from dokli.tui.screens.stats import StatsScreen, clean_frame, current_frame
 
 FAKE_SCHEMA = {
     "paths": {
@@ -364,6 +366,221 @@ def _select(app, label):
     screen = app.screen
     index = next(i for i, item in enumerate(screen.current.items) if record_title(item) == label)
     screen.current.index = index
+
+
+# -- stats -----------------------------------------------------------------
+
+
+class TestCurrentFrame:
+    """Extracting the live frame from the CLI's ANSI redraw stream."""
+
+    def test_initial_clear(self):
+        stream = "\x1b[2J\x1b[HCPU 1%"
+        assert current_frame(stream) == "CPU 1%"
+
+    def test_after_redraw_clear(self):
+        stream = "\x1b[2J\x1b[HCPU 1%\x1b[5A\x1b[JCPU 2%"
+        assert current_frame(stream) == "CPU 2%"
+
+    def test_no_clear_returns_stream(self):
+        assert current_frame("plain output") == "plain output"
+
+
+class TestCleanFrame:
+    """Dropping cut-off escape tails that would render as noise."""
+
+    def test_dangling_csi_header_is_stripped(self):
+        # A read that ends mid-cursor-move leaves a dangling ``ESC[``.
+        assert clean_frame("\x1b[2J\x1b[HCPU 1%\x1b[12A\x1b[") == "CPU 1%\x1b[12A"
+
+    def test_orphan_cursor_csi_is_harmless(self):
+        # A fully received but orphan cursor-move CSI is valid; rich drops it.
+        assert clean_frame("\x1b[2J\x1b[HCPU 1%\x1b[12A") == "CPU 1%\x1b[12A"
+
+    def test_dangling_sgr_is_stripped(self):
+        assert clean_frame("\x1b[38;2;137;220;235mCPU\x1b[3") == "\x1b[38;2;137;220;235mCPU"
+
+    def test_bare_escape_tail_is_stripped(self):
+        assert clean_frame("\x1b[2J\x1b[HCPU 1%\x1b") == "CPU 1%"
+
+    def test_complete_sgr_survives(self):
+        assert clean_frame("\x1b[38;2;137;220;235mCPU\x1b[0m") == "\x1b[38;2;137;220;235mCPU\x1b[0m"
+
+
+class TestStatsScreenWinsize:
+    """The pty window size is pushed so the CLI reflows on resize."""
+
+    def test_set_winsize_changes_reported_size(self):
+        import fcntl
+        import os
+        import pty
+        import struct
+        import termios
+
+        master, slave = pty.openpty()
+        try:
+            StatsScreen.set_winsize(master, 24, 120)
+            size = fcntl.ioctl(master, termios.TIOCGWINSZ, b"\x00" * 8)
+            rows, columns, _, _ = struct.unpack("HHHH", size)
+            assert (rows, columns) == (24, 120)
+        finally:
+            os.close(master)
+            os.close(slave)
+
+
+class TestStatsTargetSelection:
+    """Mapping the browser selection to a ``dokli stats`` target."""
+
+    def _browser(self, mocker, kind, record):
+        browser = BrowserScreen(
+            ConnectionConfig(name="env", url="https://example.com", api_key_cmd="echo key"),
+            parse_spec(FAKE_SCHEMA),
+            client=mocker.Mock(schema=FAKE_SCHEMA),
+        )
+        browser.path = [Level(kind=kind, items=[record])]
+        browser.current.index = 0
+        return browser
+
+    def test_compose_record(self, mocker):
+        browser = self._browser(mocker, "compose", {"_kind": "compose", "composeId": "c1", "name": "X"})
+        assert browser._stats_target() == ("compose", "c1")
+
+    def test_application_record(self, mocker):
+        browser = self._browser(mocker, "application", {"_kind": "application", "applicationId": "a1"})
+        assert browser._stats_target() == ("application", "a1")
+
+    def test_container_record(self, mocker):
+        browser = self._browser(mocker, "docker", {"_kind": "docker", "containerId": "cc1", "name": "qbittorrent"})
+        assert browser._stats_target() == ("container", "cc1")
+
+    def test_no_target_for_plain_record(self, mocker):
+        browser = self._browser(mocker, "project", {"_kind": "project", "projectId": "p1"})
+        assert browser._stats_target() is None
+
+
+class TestStatsScreen:
+    """The stats screen replays its frame source into the output widget."""
+
+    def test_shows_hint_and_frames(self):
+        connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+        frames = [
+            "\x1b[38;2;137;220;235mCPU    1.2%\x1b[0m",
+            "\x1b[38;2;137;220;235mCPU    2.2%\x1b[0m",
+        ]
+
+        async def run():
+            app = DokliApp(config=Config())
+            screen = StatsScreen(connection, "system", frames=frames)
+            app.install_screen(screen, name="stats")
+            async with app.run_test() as pilot:
+                app.push_screen("stats")
+                for _ in range(40):
+                    await pilot.pause()
+                    hint = str(screen.query_one("#stats-hint", Label).renderable)
+                    if "dokli stats test-env" in hint and "CPU" in str(
+                        screen.query_one("#stats-output", Static).renderable
+                    ):
+                        return
+                raise AssertionError("Stats screen never rendered a hint + frame")
+
+        asyncio.run(run())
+
+
+class TestStatsPicker:
+    """Stats on a service picks a container when more than one is running."""
+
+    def _browser_with(self, mocker, monkeypatch, kind, record):
+        app = mocker.Mock()
+        monkeypatch.setattr(BrowserScreen, "app", property(lambda self: app))
+        browser = BrowserScreen(
+            ConnectionConfig(name="env", url="https://example.com", api_key_cmd="echo key"),
+            parse_spec(FAKE_SCHEMA),
+            client=mocker.Mock(schema=FAKE_SCHEMA),
+        )
+        browser.path = [Level(kind=kind, items=[record])]
+        browser.current.index = 0
+        return browser
+
+    def test_single_running_container_opens_directly(self, mocker, monkeypatch):
+        mocker.patch(
+            "dokli.tui.screens.generic.browser.related_records",
+            return_value=[
+                {"containerId": "cc1", "name": "qbittorrent", "state": "running"},
+                {"containerId": "cc2", "name": "qbittorrent-old", "state": "exited"},
+            ],
+        )
+        push = mocker.patch("dokli.tui.screens.generic.browser.StatsScreen", return_value=mocker.Mock())
+        browser = self._browser_with(mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "Torrents"})
+        asyncio.run(browser._open_stats())
+        push.assert_called_once_with(browser.connection, "container", "cc1")
+
+    def test_multiple_running_containers_open_picker(self, mocker, monkeypatch):
+        mocker.patch(
+            "dokli.tui.screens.generic.browser.related_records",
+            return_value=[
+                {"containerId": "cc1", "name": "web", "state": "running"},
+                {"containerId": "cc2", "name": "worker", "state": "running"},
+            ],
+        )
+        push = mocker.patch("dokli.tui.screens.generic.browser.StatsScreen", return_value=mocker.Mock())
+        mocker.patch("dokli.tui.screens.generic.browser.PickerScreen", return_value=mocker.Mock())
+        browser = self._browser_with(mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "App"})
+        browser.app.push_screen_wait = mocker.AsyncMock(return_value="cc2")
+        asyncio.run(browser._open_stats())
+        assert push.call_args.args[:2] == (browser.connection, "container")
+        assert push.call_args.args[2] == "cc2"
+
+    def test_no_running_containers_notifies(self, mocker, monkeypatch):
+        mocker.patch("dokli.tui.screens.generic.browser.related_records", return_value=[])
+        notify = mocker.patch.object(BrowserScreen, "notify")
+        browser = self._browser_with(mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "App"})
+        asyncio.run(browser._open_stats())
+        assert notify.called
+
+    def test_spawn_env_matches_theme(self):
+        env = StatsScreen._spawn_env(dark=True)
+        assert env["DOKLI_THEME"] == "dark"
+        env = StatsScreen._spawn_env(dark=False)
+        assert env["DOKLI_THEME"] == "light"
+
+
+class TestStatsScreenReTheme:
+    """Toggling dark mode kills the running CLI so it re-spawns."""
+
+    def test_theme_changed_kills_running_process(self, mocker, monkeypatch):
+        class FakeProcess:
+            def __init__(self):
+                self.dead = False
+
+            def poll(self):
+                return 1 if self.dead else None
+
+            def kill(self):
+                self.dead = True
+
+        app = mocker.Mock()
+        app.dark = True
+        monkeypatch.setattr(StatsScreen, "app", property(lambda self: app))
+        screen = StatsScreen(
+            ConnectionConfig(name="env", url="https://example.com", api_key_cmd="echo key"),
+            kind="system",
+        )
+        process = FakeProcess()
+        screen._process = process
+        screen.theme_changed(False)
+        assert process.dead
+        assert screen._restart
+
+    def test_toggle_dark_flips_app_dark(self):
+        async def run():
+            app = DokliApp(config=Config())
+            async with app.run_test() as pilot:
+                original = app.dark
+                app.action_toggle_dark()
+                await pilot.pause()
+                assert app.dark is not original
+
+        asyncio.run(run())
 
 
 # -- forms ----------------------------------------------------------------
