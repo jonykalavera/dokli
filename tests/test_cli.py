@@ -1262,3 +1262,68 @@ def test_state_fields_filters_agent_columns(mocker):
     lines = result.output.strip().split("\n")
     assert json.loads(lines[0]) == ["name", "id"]
     assert json.loads(lines[1]) == ["frigate", "c1"]
+
+
+def test_doctor_reports_ok_and_exits_zero(mocker):
+    """We expect doctor to pass and exit 0 when every check is ok."""
+    from typer.testing import CliRunner
+
+    from dokli.doctor import CheckResult, DoctorReport
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    mocker.patch(
+        "dokli.cli.run_doctor",
+        return_value=DoctorReport(
+            connection="test-env",
+            checks=[CheckResult("connectivity", True, "HTTP 200"), CheckResult("auth", True, "ok")],
+        ),
+    )
+    result = CliRunner().invoke(app, ["doctor", "test-env"])
+    assert result.exit_code == 0
+    assert "connectivity" in result.output
+    assert "ok" in result.output
+
+
+def test_doctor_fails_and_exits_one(mocker):
+    """We expect doctor to exit 1 when a check fails."""
+    from typer.testing import CliRunner
+
+    from dokli.doctor import CheckResult, DoctorReport
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    mocker.patch(
+        "dokli.cli.run_doctor",
+        return_value=DoctorReport(
+            connection="test-env",
+            checks=[CheckResult("auth", False, "HTTP 401")],
+        ),
+    )
+    result = CliRunner().invoke(app, ["doctor", "test-env"])
+    assert result.exit_code == 1
+    assert "HTTP 401" in result.output
+
+
+def test_doctor_agent_format_emits_dataframe(mocker):
+    """We expect doctor --format agent to emit a header + one row per check."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from dokli.doctor import CheckResult, DoctorReport
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.cli._get_connection", return_value=connection)
+    mocker.patch(
+        "dokli.cli.run_doctor",
+        return_value=DoctorReport(
+            connection="test-env",
+            checks=[CheckResult("auth", False, "HTTP 401")],
+        ),
+    )
+    result = CliRunner().invoke(app, ["doctor", "test-env", "--format", "agent"])
+    assert result.exit_code == 1
+    lines = result.output.strip().split("\n")
+    assert json.loads(lines[0]) == ["check", "ok", "detail"]
+    assert json.loads(lines[1]) == ["auth", False, "HTTP 401"]
