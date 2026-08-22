@@ -6,10 +6,10 @@ from typing import Any
 
 import typer
 import websockets
-from rich import print as rprint
 
 from dokli.api_client import request_json
 from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
+from dokli.errors import emit_error
 from dokli.wss import DEPLOYMENT_LOGS_ENDPOINT, LOGS_ENDPOINT, iter_lines
 
 #: Dokploy's ``readLogs`` tail bound (OpenAPI ``minimum``/``maximum``).
@@ -138,5 +138,4 @@ async def _follow_service_logs(
     except websockets.exceptions.ConnectionClosed:
         pass  # the stream ended (e.g. the container stopped)
     except (websockets.exceptions.WebSocketException, OSError) as err:
-        rprint(f"[red]Log stream failed: {err}[/red]")
-        raise typer.Exit(code=1) from None
+        emit_error(f"Log stream failed: {err}")

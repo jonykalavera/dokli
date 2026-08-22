@@ -1327,3 +1327,93 @@ def test_doctor_agent_format_emits_dataframe(mocker):
     lines = result.output.strip().split("\n")
     assert json.loads(lines[0]) == ["check", "ok", "detail"]
     assert json.loads(lines[1]) == ["auth", False, "HTTP 401"]
+
+
+def test_stats_agent_connection_error_emits_json(mocker):
+    """We expect stats --format agent failures to emit JSON on stderr."""
+    import json
+
+    from typer.testing import CliRunner
+
+    _patch_stats_env(mocker)
+    mocker.patch(
+        "dokli.stats_cli.request_json",
+        return_value={"appName": "app-xyz", "composeType": "docker-compose"},
+    )
+
+    async def fake_stream(connection, app_name, app_type):
+        if False:
+            yield  # make it an async generator
+        raise OSError("connection refused")
+
+    mocker.patch("dokli.stats_cli.iter_stats", side_effect=fake_stream)
+    result = CliRunner().invoke(app, ["stats", "test-env", "--compose-id", "c1", "--format", "agent"])
+    assert result.exit_code == 1
+    data = json.loads(result.output.strip().split("\n")[-1])
+    assert data["exit_code"] == 1
+    assert "Stats stream failed" in data["error"]
+
+
+def test_ls_agent_connection_error_emits_json(mocker):
+    """We expect ls --format agent failures to emit JSON on stderr."""
+    import json
+
+    from typer.testing import CliRunner
+
+    connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+    mocker.patch("dokli.ls_cli.resolve_connection", return_value=connection)
+    mocker.patch("dokli.ls_cli.APIClient", return_value=mocker.Mock())
+    mocker.patch("dokli.ls_cli.collect_state", side_effect=OSError("boom"))
+    result = CliRunner().invoke(app, ["ls", "test-env", "--format", "agent"])
+    assert result.exit_code == 1
+    data = json.loads(result.output.strip().split("\n")[-1])
+    assert data["exit_code"] == 1
+    assert "ls failed" in data["error"]
+
+
+class TestEntryPoint:
+    """The console entry point (stable error channel)."""
+
+    def test_usage_error_exits_two(self, monkeypatch, capsys):
+        """We expect an unknown connection to exit 2."""
+        from dokli.cli import entry
+
+        monkeypatch.setattr("sys.argv", ["dokli", "ls", "nope"])
+        with pytest.raises(SystemExit) as excinfo:
+            entry()
+        assert excinfo.value.code == 2
+
+    def test_usage_error_machine_format_is_json(self, monkeypatch, capsys):
+        """We expect a machine-format usage error to be JSON on stderr."""
+        import json
+
+        from dokli.cli import entry
+
+        monkeypatch.setattr("sys.argv", ["dokli", "ls", "nope", "--format", "json"])
+        with pytest.raises(SystemExit) as excinfo:
+            entry()
+        assert excinfo.value.code == 2
+        data = json.loads(capsys.readouterr().err)
+        assert data == {"error": "Unknown connection 'nope'.", "exit_code": 2}
+
+    def test_runtime_error_exits_one_machine_format(self, monkeypatch, capsys, mocker):
+        """We expect an unexpected runtime error to exit 1 with JSON on stderr."""
+        import json
+
+        from dokli.cli import entry
+
+        monkeypatch.setattr("sys.argv", ["dokli", "ls", "test-env", "--format", "json"])
+        mocker.patch("dokli.cli.app", side_effect=RuntimeError("kaboom"))
+        with pytest.raises(SystemExit) as excinfo:
+            entry()
+        assert excinfo.value.code == 1
+        data = json.loads(capsys.readouterr().err)
+        assert data == {"error": "kaboom", "exit_code": 1}
+
+    def test_success_exits_zero(self, monkeypatch, mocker):
+        """We expect a successful run to exit 0."""
+        from dokli.cli import entry
+
+        monkeypatch.setattr("sys.argv", ["dokli", "--version"])
+        mocker.patch("dokli.cli.app", return_value=None)
+        entry()
