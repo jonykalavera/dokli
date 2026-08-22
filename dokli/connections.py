@@ -72,6 +72,14 @@ def build_command(config: Config) -> typer.Typer:
     return group
 
 
+def set_default_connection(config: Config, name: str) -> None:
+    """Set the default connection (used when none is passed) and persist it."""
+    _find(config, name)
+    config.default_connection = name
+    config.save()
+    rprint(f"[green]Default connection set to '{name}'.[/green]")
+
+
 def _find(config: Config, name: str) -> ConnectionConfig:
     for connection in config.connections:
         if connection.name == name:

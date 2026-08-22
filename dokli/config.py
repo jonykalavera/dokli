@@ -22,12 +22,21 @@ def complete_connection_names(ctx: Any, param: Any, incomplete: str) -> list[Com
 
 
 def resolve_connection(config: "Config", name: str | None) -> "ConnectionConfig":
-    """Resolve a connection by name, or the only configured one."""
+    """Resolve a connection by name, the default, or the only configured one.
+
+    Priority: an explicit ``name`` wins; otherwise the configured
+    ``default_connection`` (set via ``dokli use``); otherwise the single
+    configured connection.
+    """
     if name is not None:
         for connection in config.connections:
             if connection.name == name:
                 return connection
         raise BadParameter(f"Unknown connection '{name}'.")
+    if config.default_connection is not None:
+        for connection in config.connections:
+            if connection.name == config.default_connection:
+                return connection
     if len(config.connections) == 1:
         return config.connections[0]
     raise BadParameter("Specify a connection name.")
@@ -149,6 +158,9 @@ class Config(BaseSettings):
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
     tui: TuiConfig = Field(default_factory=TuiConfig, description="TUI display & behavior options.")
+    default_connection: str | None = Field(
+        None, description="Default connection name used when none is passed (set via `dokli use`)."
+    )
     model_config = SettingsConfigDict(
         env_prefix="DOKLI_",
         yaml_file=[
@@ -209,4 +221,7 @@ class Config(BaseSettings):
             {key: value for key, value in connection.model_dump(mode="json").items() if value is not None}
             for connection in self.connections
         ]
-        target.write_text(yaml.safe_dump({"connections": connections}, sort_keys=False))
+        data: dict[str, Any] = {"connections": connections}
+        if self.default_connection is not None:
+            data["default_connection"] = self.default_connection
+        target.write_text(yaml.safe_dump(data, sort_keys=False))

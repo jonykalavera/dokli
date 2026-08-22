@@ -14,6 +14,7 @@ from dokli.api_client import APIClient
 from dokli.apply import Applier
 from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
 from dokli.connections import build_command as build_connections_command
+from dokli.connections import set_default_connection
 from dokli.diff import build_plan
 from dokli.export import export_manifest
 from dokli.formatting import Format, redact_secrets
@@ -53,7 +54,8 @@ def tui_command(
     """Text User Interface."""
     assert tui, "TUI not loaded"
     tui.config = state["config"]
-    if connection_name is not None:
+    # Fall back to the configured default when no connection is passed.
+    if connection_name is not None or state["config"].default_connection is not None:
         tui.connection = _get_connection(connection_name)
     tui.run()
 
@@ -90,6 +92,14 @@ def refresh_command(
     connection = _get_connection(connection_name)
     APIClient(connection, force_refresh=True)
     rprint(f"[green]Refreshed OpenAPI schema for {connection.name}.[/green]")
+
+
+@app.command(name="use")
+def use_command(
+    connection_name: str = typer.Argument(..., help="Connection name.", shell_complete=complete_connection_names),
+) -> None:
+    """Set the default connection (used when none is passed)."""
+    set_default_connection(state["config"], connection_name)
 
 
 @app.command(name="schema")
