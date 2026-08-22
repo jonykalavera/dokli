@@ -10,9 +10,20 @@ import httpx
 from textual import events, log
 from textual.app import App, ComposeResult, get_system_commands
 from textual.binding import _Bindings
-from textual.command import DiscoveryHit, Hit, Hits, Provider
+from textual.command import (
+    CommandInput,
+    CommandList,
+    CommandPalette,
+    DiscoveryHit,
+    Hit,
+    Hits,
+    Provider,
+    SearchIcon,
+)
+from textual.containers import Horizontal, Vertical
 from textual.design import ColorSystem
-from textual.widgets import Footer, Header, Static
+from textual.events import Mount
+from textual.widgets import Button, Footer, Header, LoadingIndicator, Static
 from textual.worker import get_current_worker
 
 from dokli.api_client import APIClient
@@ -52,6 +63,7 @@ APP_ACTIONS: dict[str, tuple[str, str]] = {
     "system_stats": ("S", "System stats"),
     "help": ("?", "Help"),
     "command_palette": ("ctrl+p", "Command palette"),
+    "pick_action": ("f4", "Action picker"),
     "cancel": ("escape", "Cancel/Back"),
     "quit": ("q", "Quit"),
 }
@@ -229,6 +241,40 @@ def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[]
     return commands
 
 
+class ActionPalette(CommandPalette):
+    """The command palette, pre-filtered to the selected record's actions.
+
+    Opens with the search input seeded to ``initial_query`` (e.g. ``"Run "``)
+    so the discovered commands are scoped to record actions instead of showing
+    every app/system command. Keeps ``ctrl+p`` for the full palette and
+    ``f4`` for the scoped action picker (a pure function key: no ESC-prefix
+    ambiguity like ``alt+`` combos).
+    """
+
+    def __init__(self, initial_query: str = "") -> None:
+        """Construct the action palette."""
+        super().__init__()
+        self._initial_query = initial_query
+
+    def compose(self) -> ComposeResult:
+        """Compose the palette, seeding the search input."""
+        with Vertical():
+            with Horizontal(id="--input"):
+                yield SearchIcon()
+                yield CommandInput(placeholder="Search for commands…", value=self._initial_query)
+                if not self.run_on_select:
+                    yield Button("\u25b6")
+            with Vertical(id="--results"):
+                yield CommandList()
+                yield LoadingIndicator()
+
+    def _on_mount(self, _: Mount) -> None:
+        """Configure the palette, then run the initial (seeded) search."""
+        super()._on_mount(_)
+        if self._initial_query:
+            self._gather_commands(self._initial_query)
+
+
 class DokliApp(App):
     """A Textual app to manage stopwatches."""
 
@@ -240,6 +286,7 @@ class DokliApp(App):
         ("C", "connections", "Connections"),
         ("?", "help", "Help"),
         ("ctrl+p", "command_palette", "Command palette"),
+        ("f4", "pick_action", "Action picker"),
         ("escape", "cancel", "Cancel/Back"),
         ("q", "quit", "Quit"),
     ]
@@ -311,6 +358,12 @@ class DokliApp(App):
     def action_help(self) -> None:
         """Open the help screen."""
         self.push_screen(HelpScreen(classes="Help"))
+
+    def action_pick_action(self) -> None:
+        """Open the action picker: the palette pre-filtered to record actions."""
+        if not self.use_command_palette or CommandPalette.is_open(self):
+            return
+        self.push_screen(ActionPalette(initial_query="Run "))
 
     def action_settings(self) -> None:
         """Open the settings screen."""

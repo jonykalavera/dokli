@@ -53,10 +53,19 @@ class TuiKeysConfig(BaseModel):
 
     app: dict[str, str] = Field(
         default_factory=dict,
-        description="App-level action -> key (toggle_dark, connections, help, quit, command_palette, cancel).",
+        description=(
+            "App-level action -> key (toggle_dark, connections, help, quit, " "command_palette, pick_action, cancel)."
+        ),
     )
     verbs: dict[str, str] = Field(
-        default_factory=dict, description="Action verb -> key (create, update, delete, deploy, ...)."
+        default_factory=dict,
+        description=(
+            "Action verb -> key. Extends or overrides the curated VERB_KEYS "
+            "(create, update, save, start, stop, remove, deploy, restart, "
+            "readLogs, rebuild, move, duplicate, rollback, ...); verbs without "
+            "a key are reachable only through the palette (ctrl+p) or the "
+            "action picker (f4)."
+        ),
     )
 
 

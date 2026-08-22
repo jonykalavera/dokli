@@ -233,12 +233,15 @@ class TestKeyBindings:
         keys = {key for _, key in bindings if key is not None}
         assert "y" not in keys
 
-    def test_fallback_to_free_key(self):
-        """We expect a free key when all verb letters are taken."""
-        assert key_for_verb("xyz", frozenset("xyzw")) == "a"
+    def test_non_curated_verbs_get_no_key(self):
+        """We expect verbs outside the curated set to get no key (palette only)."""
+        assert key_for_verb("xyz") is None
+        assert key_for_verb("search") is None
+        assert key_for_verb("reload") is None
+        assert key_for_verb("changeStatus") is None
 
-    def test_all_actions_get_keys(self):
-        """We expect every action to receive a key, even with many actions."""
+    def test_not_all_actions_get_keys(self):
+        """We expect only curated verbs to receive keys."""
         entity = self._entity(
             "remove",
             "redeploy",
@@ -254,7 +257,35 @@ class TestKeyBindings:
             "submit",
         )
         bindings = action_bindings(entity)
-        assert all(key is not None for _, key in bindings)
+        keys = {action.verb: key for action, key in bindings}
+        assert keys["start"] == "s"
+        assert keys["stop"] == "o"
+        assert keys["search"] is None
+        assert keys["suggest"] is None
+        assert keys["sync"] is None
+
+    def test_save_uses_w(self):
+        """We expect save to use w (write), freeing s for start."""
+        assert key_for_verb("save") == "w"
+
+    def test_start_uses_s(self):
+        """We expect start to use s (now that save moved to w)."""
+        assert key_for_verb("start") == "s"
+
+    def test_stop_uses_o(self):
+        """We expect stop to use o (off)."""
+        assert key_for_verb("stop") == "o"
+
+    def test_lifecycle_keys(self):
+        """We expect the curated lifecycle verbs to keep their keys."""
+        assert key_for_verb("rebuild") == "b"
+        assert key_for_verb("move") == "m"
+        assert key_for_verb("duplicate") == "d"
+        assert key_for_verb("rollback") == "Z"
+
+    def test_config_overrides_curated_keys(self):
+        """We expect the user's tui.keys.verbs overrides to win."""
+        assert key_for_verb("deploy", verb_keys={"deploy": "z"}) == "z"
 
 
 class TestIcons:
