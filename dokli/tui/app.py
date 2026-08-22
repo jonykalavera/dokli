@@ -269,10 +269,8 @@ class ActionPalette(CommandPalette):
                 yield LoadingIndicator()
 
     def _on_mount(self, _: Mount) -> None:
-        """Configure the palette, then run the initial (seeded) search."""
+        """Configure the palette (the seeded input value triggers its own search)."""
         super()._on_mount(_)
-        if self._initial_query:
-            self._gather_commands(self._initial_query)
 
 
 class DokliApp(App):

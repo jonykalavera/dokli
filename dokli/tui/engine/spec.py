@@ -205,14 +205,16 @@ def key_for_verb(
     Only verbs in ``verb_keys`` (the curated ``VERB_KEYS``, optionally extended
     via the user's TUI config) get a direct key; every other verb returns
     ``None`` and is reached only through the command palette / action picker.
-    This keeps keys memorable and stable. ``verb_keys`` and ``system_keys``
-    default to the module constants but can be overridden (e.g. from the user's
-    TUI config).
+    This keeps keys memorable and stable. ``verb_keys`` **extends** the curated
+    ``VERB_KEYS`` (user overrides win) rather than replacing them; ``system_keys``
+    defaults to the module constant but can be overridden (e.g. from the user's
+    TUI config). Navigation keys (``RESERVED_KEYS``) are never assigned.
     """
-    verb_keys = verb_keys or VERB_KEYS
+    verb_keys = {**VERB_KEYS, **(verb_keys or {})}
     system_keys = SYSTEM_KEYS if system_keys is None else system_keys
-    if verb in verb_keys and verb_keys[verb] not in taken and verb_keys[verb] not in system_keys:
-        return verb_keys[verb]
+    key = verb_keys.get(verb)
+    if key and key not in taken and key not in system_keys and key not in RESERVED_KEYS:
+        return key
     return None
 
 

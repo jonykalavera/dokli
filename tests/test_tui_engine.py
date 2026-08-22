@@ -287,6 +287,19 @@ class TestKeyBindings:
         """We expect the user's tui.keys.verbs overrides to win."""
         assert key_for_verb("deploy", verb_keys={"deploy": "z"}) == "z"
 
+    def test_config_overrides_extend_curated_set(self):
+        """We expect a partial tui.keys.verbs to extend, not replace, VERB_KEYS."""
+        overrides = {"deploy": "z"}
+        assert key_for_verb("start", verb_keys=overrides) == "s"
+        assert key_for_verb("create", verb_keys=overrides) == "c"
+        assert key_for_verb("readLogs", verb_keys=overrides) == "L"
+        assert key_for_verb("deploy", verb_keys=overrides) == "z"
+
+    def test_config_override_cannot_use_reserved_key(self):
+        """We expect a custom key that is a reserved navigation key to be refused."""
+        assert key_for_verb("deploy", verb_keys={"deploy": "l"}) is None
+        assert key_for_verb("deploy", verb_keys={"deploy": "y"}) is None
+
 
 class TestIcons:
     """Entity icon tests."""
