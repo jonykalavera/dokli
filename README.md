@@ -314,8 +314,9 @@ dokli apply                          # configure the instance
 
 A schema-driven TUI (`dokli tui`) that generates its interface from the Dokploy OpenAPI document — no hand-written screens per entity, so it adapts to any API version.
 
-- **Yazi-style 3-column browser**: parent | current | detail, with `j`/`k` navigate, `h`/`l` drill in/out, `/` filter, `F5` refresh, and auto-generated action keybindings per entity.
+- **Yazi-style 3-column browser**: parent | current | detail, with `j`/`k` navigate, `h`/`l` drill in/out, `/` filter, `F5` refresh, `y` yank the selected id. Common actions get a curated key (`c` create, `u` update, `x` deploy, `L` logs, `d` deployments, `s` start, `o` stop, ...); everything else runs via the action picker or palette.
 - **Command palette** (`ctrl+p`): search across commands and the focused screen's available actions, with shortcuts shown in the help line.
+- **Action picker** (`f4`): the palette pre-filtered to the selected record's actions — reach any verb that has no direct key.
 - **Help** (`?`): lists the app, screen and contextual keybindings.
 - **Related actions**: entities whose list action needs a parent (e.g.
   `deployment.allByCompose`) are surfaced as a separate contextual action on
@@ -393,9 +394,9 @@ tui:
     exited: "#f38ba8"
   entity_order: [project]   # entities surfaced first in the browser list (default: project)
   keys:
-    app:                 # app-level actions: toggle_dark, connections, help, quit, command_palette, cancel
+    app:                 # app-level actions: toggle_dark, connections, help, quit, command_palette, pick_action, cancel
       connections: n
-    verbs:               # action verbs: create, update, delete, deploy, ...
+    verbs:               # extend/override the curated action verbs (see below)
       deploy: z
   auto_deploy: false     # deploy a service after a create/update from a form
 ```
@@ -406,8 +407,8 @@ tui:
   (`background`, `surface`, `panel`) only affect the active `theme:` variant,
   so toggling light/dark (`D`) still switches the background.
 - App keys remap the global shortcuts (`D` dark, `C` connections, `?` help,
-  `q` quit, `ctrl+p` palette, `escape` back); remapped keys are reserved so
-  entity actions never clash with them.
+  `q` quit, `ctrl+p` palette, `f4` action picker, `escape` back);
+  remapped keys are reserved so entity actions never clash with them.
 - `entity_colors` overrides the per-entity icon colors (`compose`, `application`,
   `redis`, `project`, ...); `state_colors` overrides the container-state
   traffic-light colors (`running`, `paused`, `exited`, `dead`, ...). Any
@@ -415,8 +416,13 @@ tui:
 - `entity_order` lists the entities surfaced first in the top-level browser
   list (in order); the rest follow alphabetically. Empty defaults to
   `project` first.
-- `keys.verbs` overrides the per-action bindings (`deploy` is `x`, `redeploy`
-  `X`, `delete` `d`, ...).
+- `keys.verbs` extends or overrides the **curated** action verbs — only the
+  frequent ones get a direct key (`create`/`new` `c`, `update` `u`, `edit` `e`,
+  `save` `w`, `start` `s`, `stop` `o`, `remove`/`delete` `delete`, `deploy` `x`,
+  `redeploy` `X`, `testConnection` `t`, `restart` `R`, `readLogs` `L`,
+  `rebuild` `b`, `move` `m`, `duplicate` `d`, `rollback` `Z`). Verbs without a
+  key — and related shortcuts like `d` (Deployments) and `L` (Logs) — are
+  reachable via `f4` / `ctrl+p`.
 - `auto_deploy` triggers the entity's `deploy` action after a successful
   create/update form (best effort — skipped when the record id is unknown).
 
