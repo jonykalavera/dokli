@@ -242,3 +242,40 @@ class TestTerminalCommand:
         assert opened["params"]["serverId"] == "local"
         assert opened["params"]["username"] == "root"
         assert opened["params"]["port"] == 22
+
+    def test_tty_session_shows_exit_hint(self, mocker, monkeypatch):
+        """We expect a TTY session to print a red exit hint to stderr."""
+        from dokli.terminal_cli import _run_terminal
+
+        class TtyStdin:
+            def isatty(self):
+                return True
+
+        async def fake_open(*a, **k):
+            return FakeWebSocket()
+
+        monkeypatch.setattr("sys.stdin", TtyStdin())
+        monkeypatch.setattr("dokli.terminal_cli.open_terminal", fake_open)
+        monkeypatch.setattr("dokli.terminal_cli._bridge", lambda ws: asyncio.sleep(0))
+        rprint = mocker.patch("dokli.terminal_cli.rprint")
+        asyncio.run(_run_terminal(_connection(), "abc123", None, "bash", None, None, None))
+        assert rprint.called
+        assert "exit" in rprint.call_args.args[0]
+
+    def test_pipe_session_no_hint(self, mocker, monkeypatch):
+        """We expect a non-TTY session to skip the exit hint."""
+        from dokli.terminal_cli import _run_terminal
+
+        class PipeStdin:
+            def isatty(self):
+                return False
+
+        async def fake_open(*a, **k):
+            return FakeWebSocket()
+
+        monkeypatch.setattr("sys.stdin", PipeStdin())
+        monkeypatch.setattr("dokli.terminal_cli.open_terminal", fake_open)
+        monkeypatch.setattr("dokli.terminal_cli._bridge", lambda ws: asyncio.sleep(0))
+        rprint = mocker.patch("dokli.terminal_cli.rprint")
+        asyncio.run(_run_terminal(_connection(), "abc123", None, "bash", None, None, None))
+        assert not rprint.called

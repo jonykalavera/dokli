@@ -12,6 +12,7 @@ from typing import Any
 
 import typer
 import websockets
+from rich import print as rprint
 from websockets.asyncio.client import ClientConnection
 
 from dokli.config import Config, ConnectionConfig, complete_connection_names, resolve_connection
@@ -100,6 +101,14 @@ async def _run_terminal(
         ws = await open_terminal(connection, endpoint, params)
     except Exception as err:  # noqa: BLE001 - handshake/reachability failures.
         emit_error(f"Terminal connection failed: {err}")
+    if sys.stdin.isatty():
+        # Dokploy does not close the WebSocket when the shell exits (local
+        # container path), so tell the user how to leave before the raw TTY
+        # takes over and this line would be invisible.
+        rprint(
+            "[red]Note: Dokploy does not close this session on its own; type `exit` or Ctrl+D to leave.[/red]",
+            file=sys.stderr,
+        )
     try:
         await _bridge(ws)
     except Exception as err:  # noqa: BLE001 - the stream loop exits on any error.
