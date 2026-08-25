@@ -228,6 +228,10 @@ def _browser_commands(screen: BrowserScreen) -> list[tuple[str, str, Callable[[]
     title = record_title(selected) if selected else (kind or "record")
     if screen._stats_target() is not None:
         commands.append(("Show stats", _with_key("Live stats", "S"), screen.action_stats_selected))
+    if screen._terminal_target() is not None:
+        commands.append(
+            ("Open terminal", _with_key("Terminal into the service", "T"), screen.action_terminal_selected)
+        )
     for action, key in screen._entity_bindings(entity):
         display_verb = screen._action_verb_label(action)
         help_text = _with_key(f"{display_verb} · {kind} ({action.method})", key)

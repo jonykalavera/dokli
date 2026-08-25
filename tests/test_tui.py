@@ -486,8 +486,122 @@ class TestStatsScreen:
         asyncio.run(run())
 
 
-class TestStatsPicker:
-    """Stats on a service picks a container when more than one is running."""
+class TestTerminalScreen:
+    """The terminal screen replays its frame source into the output widget."""
+
+    def test_shows_hint_and_frames(self):
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+        frames = ["\x1b[32mroot@abc:/#\x1b[0m ", "\x1b[32mroot@abc:/#\x1b[0m exit"]
+
+        async def run():
+            app = DokliApp(config=Config())
+            screen = TerminalScreen(connection, "abc123", frames=frames)
+            app.install_screen(screen, name="terminal")
+            async with app.run_test() as pilot:
+                app.push_screen("terminal")
+                for _ in range(40):
+                    await pilot.pause()
+                    hint = str(screen.query_one("#terminal-hint", Label).renderable)
+                    if "dokli terminal test-env" in hint and "root@" in str(
+                        screen.query_one("#terminal-output", Static).renderable
+                    ):
+                        return
+                raise AssertionError("Terminal screen never rendered a hint + frame")
+
+        asyncio.run(run())
+
+    def test_argv_targets_container(self):
+        from dokli.tui.screens.terminal import terminal_argv
+
+        assert terminal_argv("test-env", "abc123") == ["terminal", "test-env", "--container-id", "abc123"]
+
+    def test_clean_frame_strips_dangling_escape(self):
+        from dokli.tui.screens.terminal import clean_frame
+
+        assert clean_frame("root@abc:/# \x1b[") == "root@abc:/# "
+
+    def test_spawn_pty_captures_child_output(self, mocker, monkeypatch):
+        """We expect _spawn_pty to capture the child's ANSI output."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        app = mocker.Mock()
+        app.call_from_thread.side_effect = lambda fn, frame: fn(frame)
+        monkeypatch.setattr(TerminalScreen, "app", property(lambda self: app))
+        monkeypatch.setattr(TerminalScreen, "size", property(lambda self: mocker.Mock(height=24, width=100)))
+        screen._frames = None
+        screen._master = None
+        screen._process = None
+        screen._buffer = ""
+        frames = []
+
+        def paint(frame):
+            frames.append(frame)
+
+        screen._paint = paint
+        import asyncio as _asyncio
+
+        _asyncio.run(_asyncio.to_thread(screen._spawn_pty, ["/bin/sh", "-c", "echo TERM_OK"], 80))
+        assert any("TERM_OK" in frame for frame in frames)
+
+
+class TestTerminalPicker:
+    """Terminal on a service picks a container when more than one is running."""
+
+    def _browser_with(self, mocker, monkeypatch, kind, record):
+        app = mocker.Mock()
+        monkeypatch.setattr(BrowserScreen, "app", property(lambda self: app))
+        browser = BrowserScreen(
+            ConnectionConfig(name="env", url="https://example.com", api_key_cmd="echo key"),
+            parse_spec(FAKE_SCHEMA),
+            client=mocker.Mock(schema=FAKE_SCHEMA),
+        )
+        browser.path = [Level(kind=kind, items=[record])]
+        browser.current.index = 0
+        return browser
+
+    def test_docker_container_opens_directly(self, mocker, monkeypatch):
+        push = mocker.patch("dokli.tui.screens.generic.browser.TerminalScreen", return_value=mocker.Mock())
+        browser = self._browser_with(
+            mocker, monkeypatch, "docker", {"_kind": "docker", "containerId": "cc1", "name": "qbittorrent"}
+        )
+        asyncio.run(browser._open_terminal())
+        push.assert_called_once_with(browser.connection, "cc1")
+
+    def test_single_running_container_opens_directly(self, mocker, monkeypatch):
+        mocker.patch(
+            "dokli.tui.screens.generic.browser.related_records",
+            return_value=[
+                {"containerId": "cc1", "name": "qbittorrent", "state": "running"},
+                {"containerId": "cc2", "name": "qbittorrent-old", "state": "exited"},
+            ],
+        )
+        push = mocker.patch("dokli.tui.screens.generic.browser.TerminalScreen", return_value=mocker.Mock())
+        browser = self._browser_with(
+            mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "Torrents"}
+        )
+        asyncio.run(browser._open_terminal())
+        push.assert_called_once_with(browser.connection, "cc1")
+
+    def test_no_running_containers_notifies(self, mocker, monkeypatch):
+        mocker.patch("dokli.tui.screens.generic.browser.related_records", return_value=[])
+        notify = mocker.patch.object(BrowserScreen, "notify")
+        browser = self._browser_with(
+            mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "Torrents"}
+        )
+        asyncio.run(browser._open_terminal())
+        assert notify.called
+
+    def test_no_target_notifies(self, mocker, monkeypatch):
+        notify = mocker.patch.object(BrowserScreen, "notify")
+        browser = self._browser_with(mocker, monkeypatch, "server", {"_kind": "server", "serverId": "s1"})
+        asyncio.run(browser._open_terminal())
+        assert notify.called
+
+
+
 
     def _browser_with(self, mocker, monkeypatch, kind, record):
         app = mocker.Mock()

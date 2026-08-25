@@ -39,6 +39,7 @@ from dokli.tui.screens.generic.form import ActionFormScreen
 from dokli.tui.screens.generic.picker import PickerScreen
 from dokli.tui.screens.generic.result import ResultScreen
 from dokli.tui.screens.stats import StatsScreen
+from dokli.tui.screens.terminal import TerminalScreen
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -79,6 +80,7 @@ class BrowserScreen(Screen):
         Binding("f5", "refresh", "Refresh"),
         Binding("/", "filter", "Filter"),
         Binding("S", "stats_selected", "Stats", show=False),
+        Binding("T", "terminal_selected", "Terminal", show=False),
         Binding("y", "yank_id", "Yank id", show=False),
         Binding("escape", "cancel", "Back"),
         Binding("q", "quit", "Quit"),
@@ -362,6 +364,8 @@ class BrowserScreen(Screen):
             entries.append(("y", "Yank id"))
         if self._stats_target() is not None:
             entries.append(("S", "Stats"))
+        if self._terminal_target() is not None:
+            entries.append(("T", "Terminal"))
         entity = self.registry.get(self._selected_kind() or "")
         if entity is None:
             return entries
@@ -717,9 +721,29 @@ class BrowserScreen(Screen):
             return (kind, ident) if ident else None
         return None
 
+    def _terminal_target(self) -> tuple[str, str] | None:
+        """The ``(kind, container_id)`` terminal target, if any.
+
+        A docker container targets its own ``containerId``; compose/application
+        services resolve their running containers when opening.
+        """
+        kind = self._selected_kind() or ""
+        record = self.selected or {}
+        if kind == "docker":
+            container_id = record.get("containerId")
+            return (kind, container_id) if container_id else None
+        if kind in ("compose", "application"):
+            ident = record.get(f"{kind}Id")
+            return (kind, ident) if ident else None
+        return None
+
     def action_stats_selected(self) -> None:
         """Open live stats for the selected service/container."""
         self.run_worker(self._open_stats(), group="action")  # type: ignore[arg-type]
+
+    def action_terminal_selected(self) -> None:
+        """Open an interactive terminal into the selected service/container."""
+        self.run_worker(self._open_terminal(), group="action")  # type: ignore[arg-type]
 
     def action_yank_id(self) -> None:
         """Copy the selected record's primary id to the clipboard (OSC 52)."""
@@ -771,6 +795,42 @@ class BrowserScreen(Screen):
         )
         if container_id is not None:
             self.app.push_screen(StatsScreen(self.connection, "container", container_id))
+
+    async def _open_terminal(self) -> None:
+        """Open a terminal into the selection, choosing a container when ambiguous.
+
+        A compose/application service may run several containers, so the user
+        picks which one (the terminal targets one container at a time). A
+        docker container (or any record with a ``containerId``) opens directly.
+        """
+        kind = self._selected_kind() or ""
+        record = self.selected or {}
+        container_id = record.get("containerId")
+        if kind == "docker" and container_id:
+            self.app.push_screen(TerminalScreen(self.connection, str(container_id)))
+            return
+        if kind not in ("compose", "application"):
+            self.notify("No terminal target selected.", severity="warning", timeout=4)
+            return
+        candidates = await asyncio.to_thread(related_records, self.client, self.registry, kind, record)
+        live = [c for c in candidates if c.get("containerId") and c.get("state") == "running"]
+        if not live:
+            self.notify(f"No running containers found for '{record_title(record)}'.", severity="warning", timeout=4)
+            return
+        if len(live) == 1:
+            self.app.push_screen(TerminalScreen(self.connection, str(live[0]["containerId"])))
+            return
+        container_id = await self.app.push_screen_wait(
+            PickerScreen(
+                "Select container for terminal",
+                live,
+                "containerId",
+                "name",
+                classes="Entities",
+            )
+        )
+        if container_id is not None:
+            self.app.push_screen(TerminalScreen(self.connection, str(container_id)))
 
     def _build_params(self, action) -> tuple[dict, list[str]]:
         """Params derivable from the selected record, plus the missing required ones."""
