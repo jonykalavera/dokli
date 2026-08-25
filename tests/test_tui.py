@@ -251,6 +251,19 @@ def _config() -> Config:
     return Config(connections=[_connection()])
 
 
+class _Key:
+    """A minimal Textual key event stand-in."""
+
+    def __init__(self, key: str, character: str | None = None):
+        self.key = key
+        self.character = character
+
+
+def _key(key: str, character: str | None = None) -> _Key:
+    """A fake key event for terminal key-mapping tests."""
+    return _Key(key, character)
+
+
 def _fake_requests():
     return {
         "project.all": [{"projectId": "p1", "name": "media"}, {"projectId": "p2", "name": "services"}],
@@ -521,6 +534,39 @@ class TestTerminalScreen:
         from dokli.tui.screens.terminal import clean_frame
 
         assert clean_frame("root@abc:/# \x1b[") == "root@abc:/# "
+
+    def test_key_mapping_special_keys(self):
+        """We expect navigation/function keys to map to terminal sequences."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("backspace")) == b"\x7f"
+        assert _key_to_bytes(_key("enter")) == b"\r"
+        assert _key_to_bytes(_key("up")) == b"\x1b[A"
+        assert _key_to_bytes(_key("down")) == b"\x1b[B"
+        assert _key_to_bytes(_key("left")) == b"\x1b[D"
+        assert _key_to_bytes(_key("right")) == b"\x1b[C"
+        assert _key_to_bytes(_key("delete")) == b"\x1b[3~"
+        assert _key_to_bytes(_key("f5")) == b"\x1b[15~"
+
+    def test_key_mapping_character(self):
+        """We expect printable keys to pass through as their character."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("a", "a")) == b"a"
+        assert _key_to_bytes(_key("space", " ")) == b" "
+
+    def test_key_mapping_ctrl_chord(self):
+        """We expect ctrl+letter chords to map to their control byte."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("ctrl+c")) == b"\x03"
+        assert _key_to_bytes(_key("ctrl+d")) == b"\x04"
+
+    def test_key_mapping_unknown_is_none(self):
+        """We expect an unmapped key to produce nothing."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("weird")) is None
 
     def test_spawn_pty_captures_child_output(self, mocker, monkeypatch):
         """We expect _spawn_pty to capture the child's ANSI output."""

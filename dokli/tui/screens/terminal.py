@@ -35,6 +35,56 @@ if TYPE_CHECKING:
 #: An incomplete escape tail dangling at the end of a chunk (see stats).
 _ESCAPE_TAIL = re.compile(r"\x1b(?:\[[0-?]*[ -/]*)?$")
 
+#: Textual key -> terminal byte sequence for keys whose ``event.character`` is
+#: None (navigation, function keys). Backspace is DEL (``\x7f``) — bash's erase
+#: char — not the literal ``\x08`` Textual reports.
+_KEY_SEQUENCES: dict[str, bytes] = {
+    "backspace": b"\x7f",
+    "enter": b"\r",
+    "tab": b"\t",
+    "up": b"\x1b[A",
+    "down": b"\x1b[B",
+    "right": b"\x1b[C",
+    "left": b"\x1b[D",
+    "home": b"\x1b[H",
+    "end": b"\x1b[F",
+    "pageup": b"\x1b[5~",
+    "pagedown": b"\x1b[6~",
+    "insert": b"\x1b[2~",
+    "delete": b"\x1b[3~",
+    "f1": b"\x1bOP",
+    "f2": b"\x1bOQ",
+    "f3": b"\x1bOR",
+    "f4": b"\x1bOS",
+    "f5": b"\x1b[15~",
+    "f6": b"\x1b[17~",
+    "f7": b"\x1b[18~",
+    "f8": b"\x1b[19~",
+    "f9": b"\x1b[20~",
+    "f10": b"\x1b[21~",
+    "f11": b"\x1b[23~",
+    "f12": b"\x1b[24~",
+}
+
+
+def _key_to_bytes(event) -> bytes | None:
+    r"""The terminal bytes for a Textual key event.
+
+    Prefers ``event.character`` (printable/control chars); keys without one
+    (navigation, function keys) use the escape-sequence mapping. ``ctrl+``
+    chords map to their control byte (``ctrl+c`` -> ``\x03``).
+    """
+    if event.character:
+        return event.character.encode("utf-8")
+    key = event.key
+    if key in _KEY_SEQUENCES:
+        return _KEY_SEQUENCES[key]
+    if key.startswith("ctrl+") and len(key) == 6:
+        letter = key[5]
+        if letter.isalpha():
+            return bytes([ord(letter.lower()) - 96])
+    return None
+
 
 def clean_frame(stream: str) -> str:
     """The terminal frame with any cut-off escape sequence removed."""
@@ -114,6 +164,10 @@ class TerminalScreen(Screen):
         argv = [sys.executable, "-m", "dokli", *terminal_argv(self.connection.name, self.container_id)]
         width = self._terminal_width()
         await asyncio.to_thread(self._spawn_pty, argv, width)
+        # The CLI exited (e.g. the user typed `exit` and the session ended).
+        # Leave the terminal screen and return to the browser.
+        with contextlib.suppress(Exception):
+            self.app.pop_screen()
 
     def _spawn_pty(self, argv: list[str], width: int) -> None:
         """Spawn ``dokli terminal`` on a pty and render its output.
@@ -186,15 +240,16 @@ class TerminalScreen(Screen):
         """Forward a keystroke to the terminal pty (keyboard passthrough).
 
         The bound close keys (escape/q) are handled by Textual's bindings and
-        do not reach here. All other input is written to the pty master.
+        do not reach here. Navigation/function keys map to their terminal
+        escape sequences so backspace, arrows, and Enter reach the shell.
         """
         if self._master is None:
             return
-        char = event.character
-        if not char:
+        data = _key_to_bytes(event)
+        if not data:
             return
         with contextlib.suppress(OSError):
-            os.write(self._master, char.encode("utf-8"))
+            os.write(self._master, data)
         event.stop()
 
     def _paint(self, frame: str) -> None:
