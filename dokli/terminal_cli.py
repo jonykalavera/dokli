@@ -31,10 +31,11 @@ def _is_exit_line(line: bytes) -> bool:
     r"""Whether a decoded input line ends the shell session.
 
     Ctrl+D (``\x04``) at the start of a line is the shell EOF. Word-exact
-    ``exit``/``logout``/``quit`` (after stripping trailing whitespace) also end
-    the session; anything else (e.g. ``echo exit``) does not.
+    ``exit``/``logout``/``quit`` (after stripping surrounding whitespace, so
+    ``  exit  `` still matches) also end the session; anything else (e.g.
+    ``echo exit``) does not.
     """
-    stripped = line.rstrip(b" \t\r\n")
+    stripped = line.strip(b" \t\r\n")
     if stripped.startswith(b"\x04"):
         return True
     return stripped in _EXIT_LINES

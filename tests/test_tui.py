@@ -558,6 +558,24 @@ class TestTerminalScreen:
         screen._feed("\r\ncd")
         assert screen._screen.cursor.y == 1
 
+    def test_paint_preserves_prompt_space_before_cursor(self, mocker):
+        """We expect the cursor row to keep the prompt's trailing space."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(20, 3)
+        # A prompt ending in a space, cursor resting after it.
+        screen._feed("root:/# ")
+        output = mocker.Mock()
+        screen.query_one = lambda sel, *a, **k: output
+        screen._paint()
+        rendered = output.update.call_args.args[0]
+        # The cursor block sits after the prompt's space, not glued to '#'.
+        plain = rendered.plain
+        assert plain.startswith("root:/# ")
+
     def test_key_mapping_special_keys(self):
         """We expect navigation/function keys to map to terminal sequences."""
         from dokli.tui.screens.terminal import _key_to_bytes

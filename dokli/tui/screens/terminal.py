@@ -264,34 +264,31 @@ class TerminalScreen(Screen):
         """Render the emulator's screen state into the output widget."""
         if self._screen is None:
             return
-        lines = [line.rstrip() for line in self._screen.display]
-        while lines and not lines[-1]:
-            lines.pop()
-        renderable: str | Text = "\n".join(lines)
-        # Mark the cursor position with a reverse-video block so the user can
-        # see where the next keystroke lands (pyte tracks it via `cursor`).
         cy = self._screen.cursor.y
         cx = self._screen.cursor.x
-        if 0 <= cy < len(lines):
-            line = lines[cy]
-            text = Text()
-            if cx < len(line):
+        lines = list(self._screen.display)
+        # Drop fully-empty trailing lines (the emulator pads to its height).
+        while lines and not lines[-1].strip():
+            lines.pop()
+        text = Text()
+        for row, line in enumerate(lines):
+            if row > 0:
+                text.append("\n")
+            if row == cy:
+                # Render the cursor row without stripping its trailing spaces:
+                # the shell prompt ends in a space, and the cursor sits on that
+                # cell, so rstrip would glue the cursor block to the prompt and
+                # shift it while editing.
                 text.append(line[:cx])
-                text.append(line[cx] if line[cx] != " " else " ", style="reverse")
-                text.append(line[cx + 1 :])
+                if cx < len(line) and line[cx] != " ":
+                    text.append(line[cx], style="reverse")
+                    text.append(line[cx + 1 :])
+                else:
+                    text.append(" ", style="reverse")
+                    text.append(line[cx + 1 :])
             else:
-                text.append(line)
-                text.append(" ", style="reverse")
-            text.append("\n")
-            if cy > 0:
-                text = Text("\n".join(lines[:cy]) + "\n") + text
-            if cy + 1 < len(lines):
-                text += Text("\n".join(lines[cy + 1 :]))
-            renderable = text
-        try:
-            self.query_one("#terminal-output", Static).update(renderable)  # type: ignore[attr-defined]
-        except Exception:
-            return
+                text.append(line.rstrip())
+        self.query_one("#terminal-output", Static).update(text)  # type: ignore[attr-defined]
 
     def action_dismiss_screen(self) -> None:
         """Close the terminal screen."""
