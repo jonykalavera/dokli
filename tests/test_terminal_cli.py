@@ -159,6 +159,13 @@ class TestIsExitLine:
         assert not _is_exit_line(b"echo exit")
         assert not _is_exit_line(b"exits")
 
+    def test_surrounding_whitespace_is_stripped(self):
+        """We expect leading/trailing whitespace around exit to still match."""
+        assert _is_exit_line(b" exit ")
+        assert _is_exit_line(b"  exit")
+        assert _is_exit_line(b"exit  ")
+        assert _is_exit_line(b"\tquit \r\n")
+
 
 class TestCloseSocket:
     """Force-close of the terminal socket (no close-handshake wait)."""

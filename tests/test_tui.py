@@ -251,6 +251,19 @@ def _config() -> Config:
     return Config(connections=[_connection()])
 
 
+class _Key:
+    """A minimal Textual key event stand-in."""
+
+    def __init__(self, key: str, character: str | None = None):
+        self.key = key
+        self.character = character
+
+
+def _key(key: str, character: str | None = None) -> _Key:
+    """A fake key event for terminal key-mapping tests."""
+    return _Key(key, character)
+
+
 def _fake_requests():
     return {
         "project.all": [{"projectId": "p1", "name": "media"}, {"projectId": "p2", "name": "services"}],
@@ -486,8 +499,197 @@ class TestStatsScreen:
         asyncio.run(run())
 
 
-class TestStatsPicker:
-    """Stats on a service picks a container when more than one is running."""
+class TestTerminalScreen:
+    """The terminal screen replays its frame source into the output widget."""
+
+    def test_shows_hint_and_frames(self):
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
+        frames = ["\x1b[32mroot@abc:/#\x1b[0m ", "\x1b[32mroot@abc:/#\x1b[0m exit"]
+
+        async def run():
+            app = DokliApp(config=Config())
+            screen = TerminalScreen(connection, "abc123", frames=frames)
+            app.install_screen(screen, name="terminal")
+            async with app.run_test() as pilot:
+                app.push_screen("terminal")
+                for _ in range(40):
+                    await pilot.pause()
+                    hint = str(screen.query_one("#terminal-hint", Label).renderable)
+                    if "dokli terminal test-env" in hint and "root@" in str(
+                        screen.query_one("#terminal-output", Static).renderable
+                    ):
+                        return
+                raise AssertionError("Terminal screen never rendered a hint + frame")
+
+        asyncio.run(run())
+
+    def test_argv_targets_container(self):
+        from dokli.tui.screens.terminal import terminal_argv
+
+        assert terminal_argv("test-env", "abc123") == ["terminal", "test-env", "--container-id", "abc123"]
+
+    def test_emulator_renders_backspace(self):
+        """We expect the emulator to apply backspace (not accumulate raw text)."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(20, 3)
+        screen._feed("hello")
+        screen._feed("\x08")  # backspace
+        screen._feed("!")
+        lines = [line.rstrip() for line in screen._screen.display]
+        assert lines[0] == "hell!"
+
+    def test_emulator_tracks_cursor(self):
+        """We expect the emulator to track the cursor position."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(20, 3)
+        screen._feed("ab")
+        assert screen._screen.cursor.x == 2
+        assert screen._screen.cursor.y == 0
+        screen._feed("\r\ncd")
+        assert screen._screen.cursor.y == 1
+
+    def test_paint_preserves_prompt_space_before_cursor(self, mocker):
+        """We expect the cursor row to keep the prompt's trailing space."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(20, 3)
+        # A prompt ending in a space, cursor resting after it.
+        screen._feed("root:/# ")
+        output = mocker.Mock()
+        screen.query_one = lambda sel, *a, **k: output
+        screen._paint()
+        rendered = output.update.call_args.args[0]
+        # The cursor block sits after the prompt's space, not glued to '#'.
+        plain = rendered.plain
+        assert plain.startswith("root:/# ")
+
+    def test_key_mapping_special_keys(self):
+        """We expect navigation/function keys to map to terminal sequences."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("backspace")) == b"\x7f"
+        assert _key_to_bytes(_key("enter")) == b"\r"
+        assert _key_to_bytes(_key("up")) == b"\x1b[A"
+        assert _key_to_bytes(_key("down")) == b"\x1b[B"
+        assert _key_to_bytes(_key("left")) == b"\x1b[D"
+        assert _key_to_bytes(_key("right")) == b"\x1b[C"
+        assert _key_to_bytes(_key("delete")) == b"\x1b[3~"
+        assert _key_to_bytes(_key("f5")) == b"\x1b[15~"
+
+    def test_key_mapping_character(self):
+        """We expect printable keys to pass through as their character."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("a", "a")) == b"a"
+        assert _key_to_bytes(_key("space", " ")) == b" "
+
+    def test_key_mapping_ctrl_chord(self):
+        """We expect ctrl+letter chords to map to their control byte."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("ctrl+c")) == b"\x03"
+        assert _key_to_bytes(_key("ctrl+d")) == b"\x04"
+
+    def test_key_mapping_unknown_is_none(self):
+        """We expect an unmapped key to produce nothing."""
+        from dokli.tui.screens.terminal import _key_to_bytes
+
+        assert _key_to_bytes(_key("weird")) is None
+
+    def test_spawn_pty_captures_child_output(self, mocker, monkeypatch):
+        """We expect _spawn_pty to feed the child's output into the emulator."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        app = mocker.Mock()
+        monkeypatch.setattr(TerminalScreen, "app", property(lambda self: app))
+        monkeypatch.setattr(TerminalScreen, "size", property(lambda self: mocker.Mock(height=24, width=100)))
+        screen._frames = None
+        screen._master = None
+        screen._process = None
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(80, 24)
+        paints = []
+
+        def paint():
+            paints.append(True)
+
+        screen._paint = paint
+        import asyncio as _asyncio
+
+        _asyncio.run(_asyncio.to_thread(screen._spawn_pty, ["/bin/sh", "-c", "echo TERM_OK"], 80))
+        assert "TERM_OK" in "\n".join(screen._screen.display)
+
+
+class TestTerminalPicker:
+    """Terminal on a service picks a container when more than one is running."""
+
+    def _browser_with(self, mocker, monkeypatch, kind, record):
+        app = mocker.Mock()
+        monkeypatch.setattr(BrowserScreen, "app", property(lambda self: app))
+        browser = BrowserScreen(
+            ConnectionConfig(name="env", url="https://example.com", api_key_cmd="echo key"),
+            parse_spec(FAKE_SCHEMA),
+            client=mocker.Mock(schema=FAKE_SCHEMA),
+        )
+        browser.path = [Level(kind=kind, items=[record])]
+        browser.current.index = 0
+        return browser
+
+    def test_docker_container_opens_directly(self, mocker, monkeypatch):
+        push = mocker.patch("dokli.tui.screens.generic.browser.TerminalScreen", return_value=mocker.Mock())
+        browser = self._browser_with(
+            mocker, monkeypatch, "docker", {"_kind": "docker", "containerId": "cc1", "name": "qbittorrent"}
+        )
+        asyncio.run(browser._open_terminal())
+        push.assert_called_once_with(browser.connection, "cc1")
+
+    def test_single_running_container_opens_directly(self, mocker, monkeypatch):
+        mocker.patch(
+            "dokli.tui.screens.generic.browser.related_records",
+            return_value=[
+                {"containerId": "cc1", "name": "qbittorrent", "state": "running"},
+                {"containerId": "cc2", "name": "qbittorrent-old", "state": "exited"},
+            ],
+        )
+        push = mocker.patch("dokli.tui.screens.generic.browser.TerminalScreen", return_value=mocker.Mock())
+        browser = self._browser_with(
+            mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "Torrents"}
+        )
+        asyncio.run(browser._open_terminal())
+        push.assert_called_once_with(browser.connection, "cc1")
+
+    def test_no_running_containers_notifies(self, mocker, monkeypatch):
+        mocker.patch("dokli.tui.screens.generic.browser.related_records", return_value=[])
+        notify = mocker.patch.object(BrowserScreen, "notify")
+        browser = self._browser_with(
+            mocker, monkeypatch, "compose", {"_kind": "compose", "composeId": "c1", "name": "Torrents"}
+        )
+        asyncio.run(browser._open_terminal())
+        assert notify.called
+
+    def test_no_target_notifies(self, mocker, monkeypatch):
+        notify = mocker.patch.object(BrowserScreen, "notify")
+        browser = self._browser_with(mocker, monkeypatch, "server", {"_kind": "server", "serverId": "s1"})
+        asyncio.run(browser._open_terminal())
+        assert notify.called
+
+
+
 
     def _browser_with(self, mocker, monkeypatch, kind, record):
         app = mocker.Mock()

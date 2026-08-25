@@ -88,6 +88,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tui = [
+    "pyte>=0.8.2,<1.0.0",
     "textual>=0.75.1,<0.76.0",
 ]
 
@@ -114,6 +115,7 @@ dev = [
     "pytest-blockage>=0.2.4,<0.3.0",
     "ty>=0.0.69",
     "pillow>=12.3.0",
+    "pyte>=0.8.2,<1.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]

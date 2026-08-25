@@ -581,6 +581,7 @@ dependencies = [
 
 [package.optional-dependencies]
 tui = [
+    { name = "pyte" },
     { name = "textual" },
 ]
 
@@ -589,6 +590,7 @@ dev = [
     { name = "datamodel-code-generator" },
     { name = "pillow" },
     { name = "polyfactory" },
+    { name = "pyte" },
     { name = "pytest" },
     { name = "pytest-blockage" },
     { name = "pytest-cov" },
@@ -614,6 +616,7 @@ requires-dist = [
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "pydantic", specifier = ">=2.8.2,<3.0.0" },
     { name = "pydantic-settings", extras = ["yaml"], specifier = ">=2.4.0,<3.0.0" },
+    { name = "pyte", marker = "extra == 'tui'", specifier = ">=0.8.2,<1.0.0" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.75.1,<0.76.0" },
     { name = "typer", specifier = ">=0.16.0,<0.17.0" },
     { name = "websockets", specifier = ">=16.1.1" },
@@ -625,6 +628,7 @@ dev = [
     { name = "datamodel-code-generator", specifier = ">=0.64.0,<0.65.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "polyfactory", specifier = ">=2.19.0,<3.0.0" },
+    { name = "pyte", specifier = ">=0.8.2,<1.0.0" },
     { name = "pytest", specifier = ">=9.0.3,<10.0.0" },
     { name = "pytest-blockage", specifier = ">=0.2.4,<0.3.0" },
     { name = "pytest-cov", specifier = ">=5.0.0,<6.0.0" },
@@ -1772,6 +1776,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyte"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "wcwidth" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/ab/b599762933eba04de7dc5b31ae083112a6c9a9db15b01d3109ad797559d9/pyte-0.8.2.tar.gz", hash = "sha256:5af970e843fa96a97149d64e170c984721f20e52227a2f57f0a54207f08f083f", size = 92301, upload-time = "2023-11-12T09:33:43.217Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/59/d0/bb522283b90853afbf506cd5b71c650cf708829914efd0003d615cf426cd/pyte-0.8.2-py3-none-any.whl", hash = "sha256:85db42a35798a5aafa96ac4d8da78b090b2c933248819157fc0e6f78876a0135", size = 31627, upload-time = "2023-11-12T09:33:41.096Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2283,6 +2299,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/78/67/9a363818028526e2d4579334460df777115bdec1bb77c08f9db88f6389f2/uc_micro_py-2.0.0.tar.gz", hash = "sha256:c53691e495c8db60e16ffc4861a35469b0ba0821fe409a8a7a0a71864d33a811", size = 6611, upload-time = "2026-03-01T06:31:27.526Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/61/73/d21edf5b204d1467e06500080a50f79d49ef2b997c79123a536d4a17d97c/uc_micro_py-2.0.0-py3-none-any.whl", hash = "sha256:3603a3859af53e5a39bc7677713c78ea6589ff188d70f4fee165db88e22b242c", size = 6383, upload-time = "2026-03-01T06:31:26.257Z" },
+]
+
+[[package]]
+name = "wcwidth"
+version = "0.8.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/74/c6428f875774288bec1396f5bfcbc2d925700a4dad61727fd5f2b12f249d/wcwidth-0.8.2.tar.gz", hash = "sha256:91fbef97204b96a3d4d421609b80340b760cf33e26da123ff243d76b1fda8dda", size = 1466253, upload-time = "2026-06-29T18:11:11.601Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/42/3e5985a0a7e57de470b320c6d6a1a67c844f6737a587f3d44dd13d1819e7/wcwidth-0.8.2-py3-none-any.whl", hash = "sha256:d63947694a0539a1d51e01eda7caf800c291020e6cdd7e28ad7b14dd33ad4f85", size = 323166, upload-time = "2026-06-29T18:11:09.888Z" },
 ]
 
 [[package]]
