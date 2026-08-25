@@ -88,6 +88,7 @@ dependencies = [
 
 [project.optional-dependencies]
 tui = [
+    "pyte>=0.8.2,<1.0.0",
     "textual>=0.75.1,<0.76.0",
 ]
 

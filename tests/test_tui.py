@@ -530,10 +530,33 @@ class TestTerminalScreen:
 
         assert terminal_argv("test-env", "abc123") == ["terminal", "test-env", "--container-id", "abc123"]
 
-    def test_clean_frame_strips_dangling_escape(self):
-        from dokli.tui.screens.terminal import clean_frame
+    def test_emulator_renders_backspace(self):
+        """We expect the emulator to apply backspace (not accumulate raw text)."""
+        from dokli.tui.screens.terminal import TerminalScreen
 
-        assert clean_frame("root@abc:/# \x1b[") == "root@abc:/# "
+        screen = TerminalScreen.__new__(TerminalScreen)
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(20, 3)
+        screen._feed("hello")
+        screen._feed("\x08")  # backspace
+        screen._feed("!")
+        lines = [line.rstrip() for line in screen._screen.display]
+        assert lines[0] == "hell!"
+
+    def test_emulator_tracks_cursor(self):
+        """We expect the emulator to track the cursor position."""
+        from dokli.tui.screens.terminal import TerminalScreen
+
+        screen = TerminalScreen.__new__(TerminalScreen)
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(20, 3)
+        screen._feed("ab")
+        assert screen._screen.cursor.x == 2
+        assert screen._screen.cursor.y == 0
+        screen._feed("\r\ncd")
+        assert screen._screen.cursor.y == 1
 
     def test_key_mapping_special_keys(self):
         """We expect navigation/function keys to map to terminal sequences."""
@@ -569,28 +592,29 @@ class TestTerminalScreen:
         assert _key_to_bytes(_key("weird")) is None
 
     def test_spawn_pty_captures_child_output(self, mocker, monkeypatch):
-        """We expect _spawn_pty to capture the child's ANSI output."""
+        """We expect _spawn_pty to feed the child's output into the emulator."""
         from dokli.tui.screens.terminal import TerminalScreen
 
         screen = TerminalScreen.__new__(TerminalScreen)
         app = mocker.Mock()
-        app.call_from_thread.side_effect = lambda fn, frame: fn(frame)
         monkeypatch.setattr(TerminalScreen, "app", property(lambda self: app))
         monkeypatch.setattr(TerminalScreen, "size", property(lambda self: mocker.Mock(height=24, width=100)))
         screen._frames = None
         screen._master = None
         screen._process = None
-        screen._buffer = ""
-        frames = []
+        screen._screen = None
+        screen._emulator = None
+        screen._init_emulator(80, 24)
+        paints = []
 
-        def paint(frame):
-            frames.append(frame)
+        def paint():
+            paints.append(True)
 
         screen._paint = paint
         import asyncio as _asyncio
 
         _asyncio.run(_asyncio.to_thread(screen._spawn_pty, ["/bin/sh", "-c", "echo TERM_OK"], 80))
-        assert any("TERM_OK" in frame for frame in frames)
+        assert "TERM_OK" in "\n".join(screen._screen.display)
 
 
 class TestTerminalPicker:
