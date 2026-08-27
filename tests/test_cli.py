@@ -961,6 +961,15 @@ def test_tui_command_unknown_name_raises(mocker):
         tui_command("nope")
 
 
+def test_tui_command_without_tui_extra_exits_one(mocker, capsys):
+    """We expect tui to fail with a clear install hint when textual is missing."""
+    mocker.patch("dokli.cli._tui", None)
+    with pytest.raises(typer.Exit) as excinfo:
+        tui_command(None)
+    assert excinfo.value.exit_code == 1
+    assert "pip install dokli[tui]" in capsys.readouterr().err
+
+
 def test_build_command_skips_broken_connection(mocker):
     """We expect a connection with an unresolvable key not to break the CLI."""
     good = ConnectionConfig(name="good", url="https://a.example.com", api_key="*" * 64)
