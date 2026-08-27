@@ -918,34 +918,34 @@ def test_refresh_command_forces_refresh(mocker):
 def test_tui_command_opens_connection_by_name(mocker):
     """We expect tui <name> to set the connection and run without the picker."""
     connection = ConnectionConfig(name="test-env", url="https://example.com", api_key_cmd="echo key")
-    dokli.cli.tui.connection = None
+    dokli.cli._tui.connection = None
     mocker.patch("dokli.cli._get_connection", return_value=connection)
-    run = mocker.patch("dokli.cli.tui.run")
+    run = mocker.patch("dokli.cli._tui.run")
 
     tui_command("test-env")
 
-    assert dokli.cli.tui.connection is connection
+    assert dokli.cli._tui.connection is connection
     run.assert_called_once_with()
 
 
 def test_tui_command_without_name_keeps_picker(mocker):
     """We expect tui (no arg, no default) to keep the interactive picker."""
     get_connection = mocker.patch("dokli.cli._get_connection")
-    run = mocker.patch("dokli.cli.tui.run")
-    dokli.cli.tui.connection = None
+    run = mocker.patch("dokli.cli._tui.run")
+    dokli.cli._tui.connection = None
     mocker.patch("dokli.cli.state", {"config": mocker.Mock(default_connection=None)})
 
     tui_command(None)
 
     get_connection.assert_not_called()
-    assert dokli.cli.tui.connection is None
+    assert dokli.cli._tui.connection is None
     run.assert_called_once_with()
 
 
 def test_tui_command_without_name_uses_default(mocker):
     """We expect tui (no arg) to use the configured default connection."""
     get_connection = mocker.patch("dokli.cli._get_connection")
-    run = mocker.patch("dokli.cli.tui.run")
+    run = mocker.patch("dokli.cli._tui.run")
     mocker.patch("dokli.cli.state", {"config": mocker.Mock(default_connection="meche")})
 
     tui_command(None)
@@ -959,6 +959,15 @@ def test_tui_command_unknown_name_raises(mocker):
 
     with pytest.raises(typer.BadParameter):
         tui_command("nope")
+
+
+def test_tui_command_without_tui_extra_exits_one(mocker, capsys):
+    """We expect tui to fail with a clear install hint when textual is missing."""
+    mocker.patch("dokli.cli._tui", None)
+    with pytest.raises(typer.Exit) as excinfo:
+        tui_command(None)
+    assert excinfo.value.exit_code == 1
+    assert "pip install dokli[tui]" in capsys.readouterr().err
 
 
 def test_build_command_skips_broken_connection(mocker):

@@ -1,5 +1,6 @@
 """Dokli CLI."""
 
+import importlib
 import json
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -32,12 +33,11 @@ from dokli.stats_cli import build_command as build_stats_command
 from dokli.terminal_cli import build_command as build_terminal_command
 from dokli.validate import validate_manifest
 
+_tui: Any = None
 try:
-    from dokli.tui.app import app as tui
-
-    _tui_loaded = True
+    _tui = importlib.import_module("dokli.tui.app").app
 except ImportError:
-    _tui_loaded = False
+    _tui = None
 
 app = typer.Typer()
 state: dict[str, Any] = {
@@ -58,16 +58,19 @@ def tui_command(
     ),
 ) -> None:
     """Text User Interface."""
-    assert tui, "TUI not loaded"
-    tui.config = state["config"]
+    if _tui is None:
+        emit_error(
+            "The TUI requires the optional 'tui' dependency: pip install dokli\\[tui].",
+            exit_code=EXIT_ERROR,
+        )
+    _tui.config = state["config"]
     # Fall back to the configured default when no connection is passed.
     if connection_name is not None or state["config"].default_connection is not None:
-        tui.connection = _get_connection(connection_name)
-    tui.run()
+        _tui.connection = _get_connection(connection_name)
+    _tui.run()
 
 
-if _tui_loaded:
-    app.command(name="tui")(tui_command)
+app.command(name="tui")(tui_command)
 
 
 def _get_connection(connection_name: str | None) -> ConnectionConfig:
