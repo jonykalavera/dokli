@@ -53,3 +53,17 @@ One local connection (a self-hosted Dokploy on the LAN, api key in the system ke
 - `dokli/manifest.py` / `apply.py` / `export.py` / `state.py` / `diff.py` — "Dokli as Code" (typed projects/services; plan/apply is additive, never deletes).
 - `dokli/tui/app.py` — app, Catppuccin design, command palette provider.
 - `dokli/tui/screens/generic/` — `browser.py` (3-column), `picker.py`, `result.py` (search `/` + `F5`), `help.py`, `form.py` / `wizard.py` / `confirm.py`; `dokli/tui/screens/connections.py` / `connection.py`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues on `jonykalavera/dokli`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles map to label strings with the same names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` plus `docs/adr/` at the repo root. See `docs/agents/domain.md`.
