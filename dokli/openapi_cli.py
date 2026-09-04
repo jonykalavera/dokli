@@ -113,6 +113,17 @@ def _api_command_factory(
             annotation=bool,
         )
     )
+    # add show_env parameter (comma-separated env keys to reveal)
+    parameters.append(
+        Parameter(
+            "show_env",
+            Parameter.KEYWORD_ONLY,
+            default=None,
+            annotation=Annotated[
+                str, typer.Option(help="Comma-separated env keys whose values to reveal (others stay masked).")
+            ],
+        )
+    )
     # add json indent parameter (only meaningful with --format json)
     parameters.append(
         Parameter(
@@ -137,6 +148,7 @@ def _api_command_factory(
     def api_command(
         format: Format = Format.json,
         show_secrets: bool = False,
+        show_env: str | None = None,
         indent: int = 0,
         fields: str | None = None,
         **kwargs: Any,
@@ -144,6 +156,7 @@ def _api_command_factory(
         if not 0 <= indent <= 8:
             raise typer.BadParameter("--indent must be between 0 and 8.")
         field_list = [field.strip() for field in fields.split(",") if field.strip()] if fields else None
+        reveal_env = frozenset(key.strip() for key in show_env.split(",") if key.strip()) if show_env else frozenset()
         params = {original_name.get(x, x): v for x, v in kwargs.items()}
         response = run_command(
             connection=connection,
@@ -157,13 +170,25 @@ def _api_command_factory(
                 # Print JSON with a plain print: rich re-materializes escaped
                 # newlines (and highlights) long single-line JSON when its
                 # console wraps at pipe width, breaking json.load downstream.
+                masked = [0]
                 content = format_response(
-                    response, format=format, show_secrets=show_secrets, indent=indent, fields=field_list
+                    response,
+                    format=format,
+                    show_secrets=show_secrets,
+                    indent=indent,
+                    fields=field_list,
+                    reveal_env=reveal_env,
+                    masked=masked,
                 )
                 if isinstance(content, str):
                     print(content)  # noqa: T201
                 else:
                     rprint(content)
+                if masked[0]:
+                    rprint(
+                        f"{masked[0]} value(s) masked; use --show-env <keys> or --show-secrets to reveal them.",
+                        file=sys.stderr,
+                    )
             case HTTPError():
                 emit_error(str(response), format=format)
             case _:

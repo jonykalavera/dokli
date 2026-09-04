@@ -2,7 +2,15 @@
 
 import json
 
-from dokli.formatting import Format, _format_agent, _flatten_record, format_data, redact_secrets, select_fields
+from dokli.formatting import (
+    Format,
+    _format_agent,
+    _flatten_record,
+    format_data,
+    redact_secrets,
+    redact_secrets_counted,
+    select_fields,
+)
 
 
 class TestRedactSecrets:
@@ -25,11 +33,48 @@ class TestRedactSecrets:
         data = {"items": [{"token": "x"}, {"name": "ok"}]}
         assert redact_secrets(data) == {"items": [{"token": "***"}, {"name": "ok"}]}
 
-    def test_redacts_env_variables(self):
-        """We expect secret-like variables in env to be redacted by value."""
-        data = {"env": "NODE_ENV=production\nDB_PASSWORD=hunter2\nAPI_KEY=abc123"}
+    def test_masks_all_env_values_by_default(self):
+        """We expect every env value to be masked by default, regardless of key."""
+        data = {"env": "NODE_ENV=production\nDB_PASSWORD=hunter2\nAPI_KEY=abc123\nPATH=/usr/bin"}
         redacted = redact_secrets(data)
-        assert redacted["env"] == "NODE_ENV=production\nDB_PASSWORD=***\nAPI_KEY=***"
+        assert redacted["env"] == "NODE_ENV=***\nDB_PASSWORD=***\nAPI_KEY=***\nPATH=***"
+
+    def test_env_keys_stay_visible(self):
+        """We expect the env key names to remain visible when their values are masked."""
+        redacted = redact_secrets({"env": "GH_PAT=github_pat_abc\nREDIS_PASS=hunter2"})
+        assert redacted["env"] == "GH_PAT=***\nREDIS_PASS=***"
+
+    def test_reveals_only_requested_env_keys(self):
+        """We expect --show-env to keep only the listed values in plain text."""
+        data = {"env": "GH_PAT=github_pat_abc\nNODE_ENV=prod\nPORT=3000"}
+        redacted, count = redact_secrets_counted(data, reveal_env=frozenset({"NODE_ENV", "PORT"}))
+        assert redacted["env"] == "GH_PAT=***\nNODE_ENV=prod\nPORT=3000"
+        assert count == 1
+
+    def test_masks_pem_continuation_lines(self):
+        """We expect a masked multi-line value (PEM) to mask its continuation lines too."""
+        data = {"env": "CERT=-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----"}
+        redacted = redact_secrets(data)
+        assert redacted["env"] == "CERT=***\n***\n***"
+
+    def test_short_words_do_not_overmatch(self):
+        """We expect standalone-only matching to leave PASS/KEY/PAT substrings alone."""
+        data = {"compass": 1, "hockey": 2, "path": "/usr", "bypass": "no"}
+        assert redact_secrets(data) == data
+
+    def test_redact_secrets_counted(self):
+        """We expect the counted variant to report the number of masked values."""
+        data = {"name": "app", "databasePassword": "hunter2", "env": "GH_PAT=github_pat_abc\nNODE_ENV=prod"}
+        redacted, count = redact_secrets_counted(data)
+        assert count == 3
+        assert redacted["databasePassword"] == "***"
+        assert redacted["env"] == "GH_PAT=***\nNODE_ENV=***"
+
+    def test_counted_ignores_none_secret_values(self):
+        """We expect None secret fields not to count as masked."""
+        redacted, count = redact_secrets_counted({"databasePassword": None})
+        assert redacted == {"databasePassword": None}
+        assert count == 0
 
     def test_unrelated_fields_untouched(self):
         """We expect unrelated fields to pass through unchanged."""

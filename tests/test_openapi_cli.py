@@ -83,9 +83,47 @@ class TestAPIClICommand:
         command = _api_command_factory(self._connection(), request)
         command(format="json", compose_id="c1")
         out = capsys.readouterr().out
-        # show_secrets defaults to False, so TOKEN is redacted in the output.
+        # show_secrets defaults to False, so every env value is redacted.
         assert json.loads(out)["name"] == "web"
+        assert json.loads(out)["env"] == "A=***\nB=***\nTOKEN=***"
+
+    def test_show_env_reveals_only_listed_keys(self, mocker, capsys):
+        """We expect --show-env to keep only the listed env values in plain text."""
+        import json
+
+        import httpx
+
+        from dokli.openapi_cli import run_command
+
+        payload = {"name": "web", "env": "A=1\nB=2\nTOKEN=secret"}
+        mocker.patch(
+            "dokli.openapi_cli.run_command",
+            return_value=httpx.Response(200, json=payload),
+        )
+        request = APIRequest(route="/compose.one", params=[{"name": "composeId", "in": "query", "required": True}])
+        command = _api_command_factory(self._connection(), request)
+        command(format="json", compose_id="c1", show_env="A, B")
+        out = capsys.readouterr().out
         assert json.loads(out)["env"] == "A=1\nB=2\nTOKEN=***"
+
+    def test_masked_values_emit_stderr_hint(self, mocker, capsys):
+        """We expect a --show-env/--show-secrets hint on stderr when values are masked."""
+        import httpx
+
+        from dokli.openapi_cli import run_command
+
+        payload = {"name": "web", "env": "GH_PAT=github_pat_abc\nREDIS_PASS=hunter2\nNODE_ENV=prod"}
+        mocker.patch(
+            "dokli.openapi_cli.run_command",
+            return_value=httpx.Response(200, json=payload),
+        )
+        request = APIRequest(route="/compose.one", params=[{"name": "composeId", "in": "query", "required": True}])
+        command = _api_command_factory(self._connection(), request)
+        command(format="json", compose_id="c1")
+        err = capsys.readouterr().err
+        assert "--show-env" in err
+        assert "--show-secrets" in err
+        assert "3" in err
 
     def test_json_indent_validates_range(self, mocker):
         """We expect out-of-range --indent to be rejected."""
