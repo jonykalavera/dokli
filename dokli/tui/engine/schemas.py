@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr, create_model
 
+from dokli.formatting import SECRET_FORM_PATTERN
 from dokli.tui.engine.fk import fk_source
 
 JSON_TO_ANNOTATION = {
@@ -15,8 +16,6 @@ JSON_TO_ANNOTATION = {
     "array": list,
     "object": dict,
 }
-
-SECRET_KEY = re.compile(r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)")
 
 # Server-managed fields that should not be edited in forms.
 READ_ONLY_FIELDS = {
@@ -115,7 +114,7 @@ def build_form_model(schema: dict, name: str = "ActionForm", excluded: set[str] 
 
 
 def _annotation_for(field_name: str, prop: dict[str, Any]) -> Any:
-    if SECRET_KEY.search(field_name):
+    if SECRET_FORM_PATTERN.search(field_name):
         return SecretStr
     if "enum" in prop and prop.get("type") == "string":
         return Literal[tuple(prop["enum"])]  # ty: ignore[invalid-type-form]

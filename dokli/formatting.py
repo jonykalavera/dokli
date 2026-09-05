@@ -45,6 +45,14 @@ ENV_BLOB_FIELDS: frozenset[str] = frozenset({"env", "previewEnv", "envVariables"
 #: metadata, build args). The whole value is masked by default.
 SECRET_BLOB_FIELDS: frozenset[str] = frozenset({"content", "metadata", "buildArgs", "previewBuildArgs"})
 
+#: Conservative secret-field regex for form input typing. Deliberately narrower
+#: than :data:`SECRET_KEY_WORDS`: it avoids bare ``key``/``pass``/``auth`` so
+#: boolean and enum fields (``publicKey``, ``authDomain``,
+#: ``forwardAuthEnabled``) are not mistyped as password inputs.
+SECRET_FORM_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)"
+)
+
 _CAMEL_SPLIT = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+")
 
@@ -101,6 +109,15 @@ def _key_words(key: str) -> list[str]:
 def _is_secret_key(key: str) -> bool:
     """Whether any word of ``key`` names a secret (``databasePassword``, ``GH_PAT``)."""
     return any(word in SECRET_KEY_WORDS for word in _key_words(key))
+
+
+def is_secret_field(name: str) -> bool:
+    """Whether a field named ``name`` is masked in read-only output.
+
+    Combines the word heuristic with the env-like and opaque-secret blob sets;
+    used as the single source of truth for what the CLI/TUI display paths mask.
+    """
+    return _is_secret_key(name) or name in ENV_BLOB_FIELDS or name in SECRET_BLOB_FIELDS
 
 
 class _Redactor:
