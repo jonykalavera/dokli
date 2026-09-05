@@ -37,6 +37,14 @@ SECRET_KEY_WORDS: frozenset[str] = frozenset(
     }
 )
 
+#: Field names whose string value is a multi-line ``KEY=VALUE`` env blob. Every
+#: value is masked by default; ``reveal_env`` keeps the listed keys in plain text.
+ENV_BLOB_FIELDS: frozenset[str] = frozenset({"env", "previewEnv", "envVariables"})
+
+#: Field names whose value is an opaque secret blob (mount content, backup
+#: metadata, build args). The whole value is masked by default.
+SECRET_BLOB_FIELDS: frozenset[str] = frozenset({"content", "metadata", "buildArgs", "previewBuildArgs"})
+
 _CAMEL_SPLIT = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+")
 
@@ -98,9 +106,11 @@ def _is_secret_key(key: str) -> bool:
 class _Redactor:
     """Recursive secret redactor that counts the values it masks.
 
-    Secret-named fields are redacted wherever they appear. The ``env`` field is
-    a multi-line ``KEY=VALUE`` string whose values are all masked by default;
-    ``reveal_env`` lists the env keys whose values are kept in plain text.
+    Secret-named fields are redacted wherever they appear. Env-like blobs
+    (``env``, ``previewEnv``, ``envVariables``) are multi-line ``KEY=VALUE``
+    strings whose values are all masked by default; ``reveal_env`` lists the
+    keys whose values are kept in plain text. Opaque secret blobs (``content``,
+    ``metadata``, ``buildArgs``, ...) are masked whole.
     """
 
     def __init__(self, reveal_env: frozenset[str] = frozenset()) -> None:
@@ -112,14 +122,18 @@ class _Redactor:
             case dict():
                 redacted = {}
                 for key, value in data.items():
-                    if _is_secret_key(str(key)):
+                    name = str(key)
+                    if _is_secret_key(name):
                         if value is None:
                             redacted[key] = None
                         else:
                             self.masked += 1
                             redacted[key] = "***"
-                    elif str(key) == "env" and isinstance(value, str):
+                    elif name in ENV_BLOB_FIELDS and isinstance(value, str):
                         redacted[key] = self._redact_env(value)
+                    elif name in SECRET_BLOB_FIELDS and value is not None:
+                        self.masked += 1
+                        redacted[key] = "***"
                     else:
                         redacted[key] = self.redact(value)
                 return redacted
@@ -153,9 +167,9 @@ def redact_secrets(data: Any) -> Any:
     """Recursively replace secret values with ``***``.
 
     Secret-named fields (``password``, ``secret``, ``token``, ``key``, ...) are
-    redacted wherever they appear. The ``env`` field's values are all masked by
-    default; use :func:`redact_secrets_counted` with ``reveal_env`` to keep
-    specific env keys in plain text.
+    redacted wherever they appear. Env-like blobs and opaque secret blobs are
+    masked by default too; use :func:`redact_secrets_counted` with
+    ``reveal_env`` to keep specific env keys in plain text.
     """
     return _Redactor().redact(data)
 

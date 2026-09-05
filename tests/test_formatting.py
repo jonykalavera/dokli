@@ -81,6 +81,43 @@ class TestRedactSecrets:
         data = {"projectId": "p1", "name": "app", "services": []}
         assert redact_secrets(data) == data
 
+    def test_masks_env_like_blobs(self):
+        """We expect previewEnv and envVariables to be masked like env."""
+        data = {"previewEnv": "GH_PAT=x\nPUBLIC_URL=y", "envVariables": "DB_URL=z\nNODE_ENV=prod"}
+        redacted = redact_secrets(data)
+        assert redacted["previewEnv"] == "GH_PAT=***\nPUBLIC_URL=***"
+        assert redacted["envVariables"] == "DB_URL=***\nNODE_ENV=***"
+
+    def test_reveal_env_applies_to_env_like_blobs(self):
+        """We expect --show-env to reveal keys in previewEnv too."""
+        data = {"previewEnv": "GH_PAT=x\nPUBLIC_URL=y"}
+        redacted, count = redact_secrets_counted(data, reveal_env=frozenset({"PUBLIC_URL"}))
+        assert redacted["previewEnv"] == "GH_PAT=***\nPUBLIC_URL=y"
+        assert count == 1
+
+    def test_masks_opaque_secret_blobs(self):
+        """We expect content/metadata/buildArgs to be masked whole."""
+        data = {
+            "content": "s3://access:secret@bucket",
+            "metadata": {"accessKey": "x", "region": "us"},
+            "buildArgs": "NPM_TOKEN=x\nBASE=node",
+            "previewBuildArgs": "NPM_TOKEN=y",
+        }
+        redacted = redact_secrets(data)
+        assert redacted["content"] == "***"
+        assert redacted["metadata"] == "***"
+        assert redacted["buildArgs"] == "***"
+        assert redacted["previewBuildArgs"] == "***"
+
+    def test_leaves_inspectable_blobs_visible(self):
+        """We expect composeFile/dockerCompose/script to stay visible by default."""
+        data = {"composeFile": "services:\n  web: {}", "dockerCompose": "x", "script": "echo hi"}
+        assert redact_secrets(data) == data
+
+    def test_leaves_create_env_file_flag_visible(self):
+        """We expect the boolean createEnvFile flag not to be masked."""
+        assert redact_secrets({"createEnvFile": True}) == {"createEnvFile": True}
+
 
 class TestFormatData:
     """JSON/yaml formatting."""
