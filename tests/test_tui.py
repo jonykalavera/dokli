@@ -3002,6 +3002,31 @@ def test_logs_fetch_follow_appends_and_pins(mocker):
     _run(main())
 
 
+def test_follow_poll_masks_secret_fields(mocker):
+    """We expect follow-mode polling to redact, like the initial render and F5."""
+    client = mocker.Mock()
+    client.request.return_value = FakeResponse({"name": "web", "databasePassword": "hunter2", "env": "A=1\nTOKEN=s"})
+    mocker.patch("dokli.tui.screens.generic.result.APIClient", return_value=client)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+
+    async def main():
+        app = DokliApp(config=_config())
+        async with app.run_test() as pilot:
+            screen = ResultScreen(_connection(), action, data={})
+            app.install_screen(screen, name="result")
+            app.push_screen("result")
+            await pilot.pause()
+            await screen._fetch_follow()
+            await pilot.pause()
+            joined = "\n".join(screen._lines)
+            assert "hunter2" not in joined
+            assert "TOKEN=s" not in joined
+            assert "***" in joined
+
+    _run(main())
+
+
 def test_log_stream_spec():
     """We expect WS stream specs for container/deployment logs, None otherwise."""
     registry = parse_spec(FAKE_SCHEMA)

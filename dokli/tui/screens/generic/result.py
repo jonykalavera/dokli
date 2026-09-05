@@ -217,7 +217,10 @@ class ResultScreen(Screen):
         except httpx.HTTPError as err:
             self.notify(f"API error: {err}", severity="error", timeout=10)
             return
-        new_lines = _plain_lines(response.json())
+        # Follow-mode also polls non-logs results (the 'f' binding is not gated
+        # on _is_logs), so the payload goes through the same redaction as the
+        # initial render and F5 refresh.
+        new_lines = _plain_lines(redact_secrets(response.json()))
         if self._is_logs:
             new_lines = [line for line in new_lines if line]
         self._merge_log_lines(new_lines)

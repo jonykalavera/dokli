@@ -112,12 +112,25 @@ def _is_secret_key(key: str) -> bool:
 
 
 def is_secret_field(name: str) -> bool:
-    """Whether a field named ``name`` is masked in read-only output.
+    """Whether a field named ``name`` is classified as secret.
 
-    Combines the word heuristic with the env-like and opaque-secret blob sets;
-    used as the single source of truth for what the CLI/TUI display paths mask.
+    Mirrors the branching :class:`_Redactor` applies (word heuristic, env-like
+    blobs, opaque blobs). Tests use it to detect drift between this
+    classification, the redactor, and the export secret maps.
     """
     return _is_secret_key(name) or name in ENV_BLOB_FIELDS or name in SECRET_BLOB_FIELDS
+
+
+def _has_secret_material(value: Any) -> bool:
+    """Whether a value can carry secret material.
+
+    Booleans and numbers never do (``forwardAuthEnabled``,
+    ``includeEncryptionKey``), and empty values have nothing to hide — masking
+    those would wrongly imply that a secret is set.
+    """
+    if value is None or isinstance(value, bool | int | float):
+        return False
+    return bool(value)
 
 
 class _Redactor:
@@ -141,14 +154,14 @@ class _Redactor:
                 for key, value in data.items():
                     name = str(key)
                     if _is_secret_key(name):
-                        if value is None:
-                            redacted[key] = None
-                        else:
+                        if _has_secret_material(value):
                             self.masked += 1
                             redacted[key] = "***"
+                        else:
+                            redacted[key] = value
                     elif name in ENV_BLOB_FIELDS and isinstance(value, str):
                         redacted[key] = self._redact_env(value)
-                    elif name in SECRET_BLOB_FIELDS and value is not None:
+                    elif name in SECRET_BLOB_FIELDS and _has_secret_material(value):
                         self.masked += 1
                         redacted[key] = "***"
                     else:
