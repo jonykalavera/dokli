@@ -26,6 +26,7 @@ from dokli.tui.screens.generic.result import (
     ResultScreen,
     _display_row,
     _log_line_text,
+    _render_data,
     _timestamp_of,
 )
 from dokli.tui.screens.generic.wizard import WizardScreen
@@ -2461,6 +2462,58 @@ def test_result_screen_loading_indicator(mocker):
             assert loading.display is True
 
     _run(main())
+
+
+def test_result_screen_masks_secret_fields(mocker):
+    """We expect result data to be redacted when the screen is built."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+    screen = ResultScreen(
+        _connection(),
+        action,
+        data={"items": [{"name": "web", "databasePassword": "hunter2", "env": "A=1\nTOKEN=s"}]},
+    )
+    item = screen.data["items"][0]
+    assert item["name"] == "web"
+    assert item["databasePassword"] == "***"
+    assert item["env"] == "A=***\nTOKEN=***"
+
+
+def test_result_screen_render_masks_secret_fields(mocker):
+    """We expect the rendered result to mask secrets and keep plain fields."""
+    _patch_api(mocker)
+    registry = parse_spec(FAKE_SCHEMA)
+    action = registry.get("project").get("all")
+    screen = ResultScreen(
+        _connection(),
+        action,
+        data={"name": "web", "databasePassword": "hunter2", "env": "A=1\nTOKEN=s"},
+    )
+    out = _render_data(screen.data)
+    assert "web" in out
+    assert "hunter2" not in out
+    assert "TOKEN=s" not in out
+    assert "***" in out
+
+
+def test_browser_detail_masks_secret_fields(mocker, monkeypatch):
+    """We expect the browser detail pane to redact secret-named fields and env."""
+    app = mocker.Mock()
+    monkeypatch.setattr(BrowserScreen, "app", property(lambda self: app))
+    browser = BrowserScreen(
+        _connection(),
+        parse_spec(FAKE_SCHEMA),
+        client=mocker.Mock(schema=FAKE_SCHEMA),
+    )
+    labels = browser._detail_field_labels(
+        {"name": "web", "databasePassword": "hunter2", "env": "A=1\nTOKEN=s"},
+        skip={"id", "_kind", "name"},
+    )
+    joined = "\n".join(str(label.renderable) for label in labels)
+    assert "hunter2" not in joined
+    assert "TOKEN=s" not in joined
+    assert "***" in joined
 
 
 def test_auto_deploy_callback_gating(mocker):

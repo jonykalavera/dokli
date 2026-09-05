@@ -16,6 +16,7 @@ from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
+from dokli.formatting import redact_secrets
 from dokli.tui.engine import EntityAction, field_label
 from dokli.wss import DEPLOYMENT_LOGS_ENDPOINT, LOGS_ENDPOINT, iter_lines
 
@@ -70,7 +71,9 @@ class ResultScreen(Screen):
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.action = action
-        self.data = data
+        # Mask secrets once, up front: every render/search path reads self.data.
+        # Raw log payloads (strings) pass through redact_secrets unchanged.
+        self.data = redact_secrets(data)
         self.params = params or {}
         self._lines: list[str] = []
         self._query = ""
@@ -306,7 +309,7 @@ class ResultScreen(Screen):
             response = await asyncio.to_thread(
                 lambda: APIClient(self.connection).request("GET", self.action.route, self.params)
             )
-            self.data = response.json()
+            self.data = redact_secrets(response.json())
             self._lines = _plain_lines(self.data)
             if self._is_logs:
                 self._lines = [line for line in self._lines if line]
