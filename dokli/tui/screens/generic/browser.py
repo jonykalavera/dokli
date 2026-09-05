@@ -13,6 +13,7 @@ from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
+from dokli.formatting import redact_secrets
 from dokli.tui.engine import (
     EntityRegistry,
     action_bindings,
@@ -298,9 +299,13 @@ class BrowserScreen(Screen):
         await container.mount(*widgets)
 
     def _detail_field_labels(self, selected: dict, skip: set[str]) -> list[Label]:
-        """Field labels for a record, excluding the skip set and empty values."""
+        """Field labels for a record, excluding the skip set and empty values.
+
+        Secret-named fields and ``env`` values are masked before rendering so
+        the detail pane never shows credentials in plain text.
+        """
         labels = []
-        for key, value in selected.items():
+        for key, value in redact_secrets(selected).items():
             if key in skip or value in (None, [], {}):
                 continue
             labels.append(Label(f"[b]{field_label(key)}:[/b] {self._fmt(value)}", classes="field"))

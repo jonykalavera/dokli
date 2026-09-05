@@ -29,3 +29,20 @@ def fake_keyring(monkeypatch):
     fake = FakeKeyring()
     monkeypatch.setattr(keyring.core, "_keyring_backend", fake)
     return fake
+
+
+@pytest.fixture(autouse=True)
+def _reset_icon_overrides():
+    """Isolate the icons module's global color overrides between tests.
+
+    ``DokliApp`` applies ``entity_colors``/``state_colors`` to module-level
+    globals on construction and never resets them, so a test that builds an app
+    with color overrides would otherwise leak them into the next test.
+    """
+    from dokli.tui.engine.icons import set_entity_color_overrides, set_state_color_overrides
+
+    set_entity_color_overrides({})
+    set_state_color_overrides({})
+    yield
+    set_entity_color_overrides({})
+    set_state_color_overrides({})

@@ -7,6 +7,7 @@ from dokli.formatting import (
     _format_agent,
     _flatten_record,
     format_data,
+    is_secret_field,
     redact_secrets,
     redact_secrets_counted,
     select_fields,
@@ -117,6 +118,52 @@ class TestRedactSecrets:
     def test_leaves_create_env_file_flag_visible(self):
         """We expect the boolean createEnvFile flag not to be masked."""
         assert redact_secrets({"createEnvFile": True}) == {"createEnvFile": True}
+
+    def test_does_not_mask_booleans_and_numbers(self):
+        """We expect flags/counts not to be masked: they carry no secret material."""
+        data = {"forwardAuthEnabled": True, "includeEncryptionKey": False, "keyCount": 3}
+        redacted, count = redact_secrets_counted(data)
+        assert redacted == data
+        assert count == 0
+
+    def test_does_not_mask_empty_values(self):
+        """We expect empty secret fields to stay empty, not to imply a secret is set."""
+        redacted, count = redact_secrets_counted({"password": "", "apiKey": None})
+        assert redacted == {"password": "", "apiKey": None}
+        assert count == 0
+
+    def test_is_secret_field_matches_redactor(self):
+        """We expect the predicate to agree with what the redactor actually masks."""
+        probe = "K=v"
+        names = [
+            "name",
+            "projectId",
+            "composeFile",
+            "databasePassword",
+            "refreshToken",
+            "apiKey",
+            "env",
+            "previewEnv",
+            "envVariables",
+            "content",
+            "metadata",
+            "buildArgs",
+        ]
+        for name in names:
+            changed = redact_secrets({name: probe})[name] != probe
+            assert changed == is_secret_field(name), name
+
+    def test_export_secret_fields_are_masked_by_display(self):
+        """We expect every export-secret field to be covered by the display predicate.
+
+        Guards against the export secret maps and the display redaction drifting
+        apart (issue #138).
+        """
+        from dokli.resources import SECRET_FIELDS, SECRET_OPT_FIELDS
+
+        for fields in (*SECRET_FIELDS.values(), *SECRET_OPT_FIELDS.values()):
+            for field in fields:
+                assert is_secret_field(field), f"field {field!r} is export-secret but not display-masked"
 
 
 class TestFormatData:

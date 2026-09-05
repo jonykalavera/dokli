@@ -45,6 +45,14 @@ ENV_BLOB_FIELDS: frozenset[str] = frozenset({"env", "previewEnv", "envVariables"
 #: metadata, build args). The whole value is masked by default.
 SECRET_BLOB_FIELDS: frozenset[str] = frozenset({"content", "metadata", "buildArgs", "previewBuildArgs"})
 
+#: Conservative secret-field regex for form input typing. Deliberately narrower
+#: than :data:`SECRET_KEY_WORDS`: it avoids bare ``key``/``pass``/``auth`` so
+#: boolean and enum fields (``publicKey``, ``authDomain``,
+#: ``forwardAuthEnabled``) are not mistyped as password inputs.
+SECRET_FORM_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)(password|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)"
+)
+
 _CAMEL_SPLIT = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+")
 
@@ -103,6 +111,28 @@ def _is_secret_key(key: str) -> bool:
     return any(word in SECRET_KEY_WORDS for word in _key_words(key))
 
 
+def is_secret_field(name: str) -> bool:
+    """Whether a field named ``name`` is classified as secret.
+
+    Mirrors the branching :class:`_Redactor` applies (word heuristic, env-like
+    blobs, opaque blobs). Tests use it to detect drift between this
+    classification, the redactor, and the export secret maps.
+    """
+    return _is_secret_key(name) or name in ENV_BLOB_FIELDS or name in SECRET_BLOB_FIELDS
+
+
+def _has_secret_material(value: Any) -> bool:
+    """Whether a value can carry secret material.
+
+    Booleans and numbers never do (``forwardAuthEnabled``,
+    ``includeEncryptionKey``), and empty values have nothing to hide — masking
+    those would wrongly imply that a secret is set.
+    """
+    if value is None or isinstance(value, bool | int | float):
+        return False
+    return bool(value)
+
+
 class _Redactor:
     """Recursive secret redactor that counts the values it masks.
 
@@ -124,14 +154,14 @@ class _Redactor:
                 for key, value in data.items():
                     name = str(key)
                     if _is_secret_key(name):
-                        if value is None:
-                            redacted[key] = None
-                        else:
+                        if _has_secret_material(value):
                             self.masked += 1
                             redacted[key] = "***"
+                        else:
+                            redacted[key] = value
                     elif name in ENV_BLOB_FIELDS and isinstance(value, str):
                         redacted[key] = self._redact_env(value)
-                    elif name in SECRET_BLOB_FIELDS and value is not None:
+                    elif name in SECRET_BLOB_FIELDS and _has_secret_material(value):
                         self.masked += 1
                         redacted[key] = "***"
                     else:

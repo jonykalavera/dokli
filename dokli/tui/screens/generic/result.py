@@ -16,6 +16,7 @@ from textual.widgets import Footer, Header, Input, Label, LoadingIndicator
 
 from dokli.api_client import APIClient
 from dokli.config import ConnectionConfig
+from dokli.formatting import redact_secrets
 from dokli.tui.engine import EntityAction, field_label
 from dokli.wss import DEPLOYMENT_LOGS_ENDPOINT, LOGS_ENDPOINT, iter_lines
 
@@ -70,7 +71,9 @@ class ResultScreen(Screen):
         super().__init__(*args, **kwargs)
         self.connection = connection
         self.action = action
-        self.data = data
+        # Mask secrets once, up front: every render/search path reads self.data.
+        # Raw log payloads (strings) pass through redact_secrets unchanged.
+        self.data = redact_secrets(data)
         self.params = params or {}
         self._lines: list[str] = []
         self._query = ""
@@ -214,7 +217,10 @@ class ResultScreen(Screen):
         except httpx.HTTPError as err:
             self.notify(f"API error: {err}", severity="error", timeout=10)
             return
-        new_lines = _plain_lines(response.json())
+        # Follow-mode also polls non-logs results (the 'f' binding is not gated
+        # on _is_logs), so the payload goes through the same redaction as the
+        # initial render and F5 refresh.
+        new_lines = _plain_lines(redact_secrets(response.json()))
         if self._is_logs:
             new_lines = [line for line in new_lines if line]
         self._merge_log_lines(new_lines)
@@ -306,7 +312,7 @@ class ResultScreen(Screen):
             response = await asyncio.to_thread(
                 lambda: APIClient(self.connection).request("GET", self.action.route, self.params)
             )
-            self.data = response.json()
+            self.data = redact_secrets(response.json())
             self._lines = _plain_lines(self.data)
             if self._is_logs:
                 self._lines = [line for line in self._lines if line]
