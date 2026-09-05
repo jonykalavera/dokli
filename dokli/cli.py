@@ -2,6 +2,7 @@
 
 import importlib
 import json
+import sys
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from typing import Any
@@ -20,7 +21,7 @@ from dokli.diff import build_plan
 from dokli.doctor import run_doctor
 from dokli.errors import EXIT_ERROR, EXIT_USAGE, emit_error, format_from_argv
 from dokli.export import export_manifest
-from dokli.formatting import Format, _format_agent, redact_secrets, select_fields
+from dokli.formatting import Format, _format_agent, redact_secrets_counted, select_fields
 from dokli.init import init_manifest
 from dokli.logs_cli import build_command as build_logs_command
 from dokli.ls_cli import build_command as build_ls_command
@@ -180,6 +181,9 @@ def state_command(
         None, help="Connection name.", shell_complete=complete_connection_names
     ),
     show_secrets: bool = typer.Option(False, "--show-secrets", help="Show environment variables (secrets)."),
+    show_env: str = typer.Option(
+        None, "--show-env", help="Comma-separated env keys whose values to reveal (others stay masked)."
+    ),
     format: Format = typer.Option(  # noqa: B008
         Format.yaml, "--format", help="Output format (yaml = default; agent = NDJSON dataframe)."
     ),
@@ -191,15 +195,22 @@ def state_command(
         live_state = collect_state(connection)
     except Exception as err:  # noqa: BLE001
         emit_error(f"state failed: {err}", format=format)
-    data = live_state.model_dump(mode="json")
-    if not show_secrets:
-        data = redact_secrets(data)
     field_list = [field.strip() for field in fields.split(",") if field.strip()] if fields else None
     if format == Format.agent:
         # Per-service rows (no compose/env blobs) keep the dataframe lean.
         print(_state_agent_rows(live_state, field_list), end="")  # noqa: T201
-    else:
-        rprint(yaml.dump(select_fields(data, field_list or [])))
+        return
+    data = live_state.model_dump(mode="json")
+    masked = 0
+    if not show_secrets:
+        reveal_env = frozenset(key.strip() for key in show_env.split(",") if key.strip()) if show_env else frozenset()
+        data, masked = redact_secrets_counted(data, reveal_env)
+    rprint(yaml.dump(select_fields(data, field_list or [])))
+    if masked:
+        rprint(
+            f"{masked} value(s) masked; use --show-env <keys> or --show-secrets to reveal them.",
+            file=sys.stderr,
+        )
 
 
 @app.command(name="doctor")
