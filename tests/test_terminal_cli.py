@@ -2,14 +2,19 @@
 
 import asyncio
 
+import pytest
+
 from dokli.config import ConnectionConfig
 from dokli.terminal_cli import (
     DEFAULT_COLS,
     DEFAULT_ROWS,
     _bridge,
     _is_exit_line,
+    _parse_command_result,
+    _partial_output,
     _read_stdin,
     _read_socket,
+    _run_remote_command,
     _send_resize,
     _terminal_size,
     build_command,
@@ -36,6 +41,12 @@ class FakeWebSocket:
     async def __anext__(self):
         if not self.incoming:
             raise StopAsyncIteration
+        return self.incoming.pop(0)
+
+    async def recv(self):
+        """Return the next queued frame, or time out when none is available."""
+        if not self.incoming:
+            raise asyncio.TimeoutError
         return self.incoming.pop(0)
 
     async def send(self, data):
@@ -286,3 +297,231 @@ class TestTerminalCommand:
         rprint = mocker.patch("dokli.terminal_cli.rprint")
         asyncio.run(_run_terminal(_connection(), "abc123", None, "bash", None, None, None))
         assert not rprint.called
+
+    def test_command_one_shot_exit_code(self, mocker, monkeypatch):
+        """We expect --command to skip the bridge and propagate the remote exit code."""
+        from typer.testing import CliRunner
+
+        from dokli.cli import app
+
+        import dokli.terminal_cli
+
+        async def fake_one_shot(*args):
+            return 7
+
+        bridge = mocker.Mock()
+        monkeypatch.setattr(dokli.terminal_cli, "_run_one_shot", fake_one_shot)
+        monkeypatch.setattr(dokli.terminal_cli, "_bridge", bridge)
+        monkeypatch.setattr(dokli.terminal_cli, "resolve_connection", lambda config, name: _connection())
+        result = CliRunner().invoke(app, ["terminal", "test-env", "--container-id", "c1", "--command", "echo hi"])
+        assert result.exit_code == 7
+        assert not bridge.called
+
+    def test_command_still_requires_exactly_one_target(self, monkeypatch):
+        """We expect --command to enforce the exactly-one-target validation."""
+        result, _ = self._invoke(monkeypatch, "test-env", "--command", "echo hi")
+        assert result.exit_code == 2
+        result, _ = self._invoke(
+            monkeypatch, "test-env", "--container-id", "c1", "--server-id", "local", "--command", "echo hi"
+        )
+        assert result.exit_code == 2
+
+    def test_empty_command_rejected(self, monkeypatch):
+        """We expect an empty --command to be a usage error without opening a socket."""
+        result, opened = self._invoke(monkeypatch, "test-env", "--container-id", "c1", "--command", "")
+        assert result.exit_code == 2
+        assert "must not be empty" in result.output
+        assert opened == {}
+
+
+class TestParseCommandResult:
+    """Sentinel output parsing tests."""
+
+    START = "__DOKLI_START_tok"
+    END = "__DOKLI_EXIT_tok"
+
+    def test_clean_output_and_code(self):
+        """We expect the captured output and exit code between the markers."""
+        buffer = (
+            f"printf '\\n{self.START}\\n'; {{ echo hi; }} 2>&1; printf '\\n{self.END}:%s\\n' \"$?\"\r\n"
+            f"{self.START}\r\n"
+            "hi\r\n"
+            f"{self.END}:0\r\n"
+        ).encode()
+        assert _parse_command_result(buffer, self.START, self.END) == ("hi", 0)
+
+    def test_crlf_is_normalized(self):
+        """We expect CRLF line endings in the output normalized to LF."""
+        buffer = (f"{self.START}\r\na\r\nb\r\nc\r\n{self.END}:3\r\n").encode()
+        assert _parse_command_result(buffer, self.START, self.END) == ("a\nb\nc", 3)
+
+    def test_echoed_preamble_is_ignored(self):
+        """We expect the echoed input line (containing the marker literals) ignored."""
+        echo = f"printf '\\n{self.START}\\n'; {{ echo hi; }} 2>&1; printf '\\n{self.END}:%s\\n' \"$?\""
+        buffer = f"{echo}\r\n{self.START}\r\nhi\r\n{self.END}:0\r\n".encode()
+        assert _parse_command_result(buffer, self.START, self.END) == ("hi", 0)
+
+    def test_last_start_marker_wins(self):
+        """We expect a wrapped echo's earlier standalone start line to be ignored."""
+        echo = (
+            f"{self.START}\r\n"
+            f"printf '\\n{self.START}\\n'; ( echo hi ) 2>&1; printf '\\n{self.END}:%s\\n' \"$?\"\r\n"
+        )
+        buffer = f"{echo}{self.START}\r\nhi\r\n{self.END}:0\r\n".encode()
+        assert _parse_command_result(buffer, self.START, self.END) == ("hi", 0)
+
+    def test_missing_end_marker_returns_none(self):
+        """We expect None while the end marker has not arrived."""
+        buffer = f"{self.START}\r\nstill running\r\n".encode()
+        assert _parse_command_result(buffer, self.START, self.END) is None
+
+
+class TestRunRemoteCommand:
+    """One-shot remote command over the terminal socket."""
+
+    def test_sends_binary_payload_and_parses_exit_code(self, mocker, monkeypatch):
+        """We expect a binary sentinel payload and the parsed remote exit code."""
+        import dokli.terminal_cli
+
+        monkeypatch.setattr("dokli.terminal_cli.secrets.token_hex", lambda n: "abc123def456")
+        start = "__DOKLI_START_abc123def456__"
+        end = "__DOKLI_EXIT_abc123def456__"
+        stream = (
+            f"printf '\\n{start}\\n'; ( echo hi ) 2>&1; printf '\\n{end}:%s\\n' \"$?\"\r\n"
+            f"{start}\r\n"
+            "hi\r\n"
+            f"{end}:0\r\n"
+        ).encode()
+        ws = FakeWebSocket()
+        ws.incoming = [stream[i : i + 7] for i in range(0, len(stream), 7)]
+        close = mocker.Mock()
+        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
+
+        code = asyncio.run(_run_remote_command(ws, "echo hi"))
+
+        assert code == 0
+        assert isinstance(ws.sent[0], bytes)
+        assert b"( echo hi )" in ws.sent[0]
+        assert b"{ echo hi" not in ws.sent[0]
+        assert b"[ -z" in ws.sent[0]
+        assert b"DOKLI_abc123def456" in ws.sent[0]
+        assert start.encode() in ws.sent[0]
+        assert end.encode() in ws.sent[0]
+        assert close.called
+
+    def test_resends_payload_until_shell_attaches(self, mocker, monkeypatch):
+        """We expect the payload resent until the shell is attached, running once."""
+        monkeypatch.setattr("dokli.terminal_cli.secrets.token_hex", lambda n: "abc123def456")
+        monkeypatch.setattr("dokli.terminal_cli._RESEND_INTERVAL", 0.01)
+        start = "__DOKLI_START_abc123def456__"
+        end = "__DOKLI_EXIT_abc123def456__"
+        stream = (
+            f"printf '\\n{start}\\n'; ( echo hi ) 2>&1; printf '\\n{end}:%s\\n' \"$?\"\r\n"
+            f"{start}\r\n"
+            "hi\r\n"
+            f"{end}:0\r\n"
+        ).encode()
+
+        class SlowWebSocket(FakeWebSocket):
+            """Fake socket whose first recv times out before the shell attaches."""
+
+            def __init__(self):
+                super().__init__()
+                self.recv_calls = 0
+
+            async def recv(self):
+                self.recv_calls += 1
+                if self.recv_calls == 1 or not self.incoming:
+                    raise asyncio.TimeoutError
+                return self.incoming.pop(0)
+
+        ws = SlowWebSocket()
+        ws.incoming = [stream]
+        close = mocker.Mock()
+        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
+
+        code = asyncio.run(_run_remote_command(ws, "echo hi"))
+
+        assert code == 0
+        assert len(ws.sent) >= 2
+        assert all(isinstance(frame, bytes) for frame in ws.sent)
+        assert close.called
+
+    def test_timeout_flushes_partial_output(self, mocker, monkeypatch, capsys):
+        """We expect already-received output flushed before the timeout error."""
+        import typer
+
+        monkeypatch.setattr("dokli.terminal_cli._RESEND_INTERVAL", 0.01)
+        close = mocker.Mock()
+        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
+
+        class PartialWebSocket(FakeWebSocket):
+            """Yields one partial frame, then times out immediately forever."""
+
+            def __init__(self):
+                super().__init__()
+                self.incoming = [b"\x1b[31mAuthentication failed: Please run ssh-add\x1b[0m\r\n"]
+
+            async def recv(self):
+                if self.incoming:
+                    return self.incoming.pop(0)
+                raise asyncio.TimeoutError
+
+            async def send(self, data):
+                # Count only: immediate timeouts spin many resends, so don't store them.
+                self.sent_count = getattr(self, "sent_count", 0) + 1
+
+        ws = PartialWebSocket()
+        with pytest.raises(typer.Exit):
+            asyncio.run(_run_remote_command(ws, "echo hi", timeout=0.2))
+
+        assert "Authentication failed: Please run ssh-add" in capsys.readouterr().out
+        close.assert_called_once()
+
+    def test_connection_closed_flushes_partial_and_closes(self, mocker, monkeypatch, capsys):
+        """We expect partial output flushed and the socket closed on early close."""
+        import typer
+        import websockets
+
+        close = mocker.Mock()
+        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
+
+        class ClosingWebSocket(FakeWebSocket):
+            """Yields one partial frame, then reports a closed connection."""
+
+            def __init__(self):
+                super().__init__()
+                self.calls = 0
+
+            async def recv(self):
+                self.calls += 1
+                if self.calls == 1:
+                    return b"remote error line\r\n"
+                raise websockets.exceptions.ConnectionClosed(None, None)
+
+        ws = ClosingWebSocket()
+        with pytest.raises(typer.Exit):
+            asyncio.run(_run_remote_command(ws, "echo hi", timeout=0.5))
+
+        close.assert_called_once()
+        assert "remote error line" in capsys.readouterr().out
+
+
+class TestPartialOutput:
+    """Best-effort output cleanup before reporting a failure."""
+
+    def test_strips_echo_markers_ansi_and_crlf(self):
+        """We expect echo/marker/ANSI lines removed and real lines kept."""
+        token = "tok"
+        buffer = (
+            b"if [ -z \"${DOKLI_tok:-}\" ]; then DOKLI_tok=1; printf '\\n__DOKLI_START_tok\\n'; true; fi\r\n"
+            b"\x1b[31mAuthentication failed: Please run ssh-add\x1b[0m\r\n"
+            b"second remote line\r\n"
+            b"__DOKLI_START_tok\r\n"
+        )
+        out = _partial_output(buffer, token)
+        assert "Authentication failed: Please run ssh-add" in out
+        assert "second remote line" in out
+        assert token not in out
+        assert "\x1b[" not in out
+        assert "\r" not in out
