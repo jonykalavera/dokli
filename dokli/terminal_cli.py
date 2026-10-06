@@ -184,7 +184,7 @@ async def _run_remote_command(ws: ClientConnection, command: str, timeout: float
     # before the trailing exit-marker printf runs.
     guard = f"DOKLI_{token}"
     payload = (
-        f"if [ -z \"${{{guard}:-}}\" ]; then {guard}=1; "
+        f'if [ -z "${{{guard}:-}}" ]; then {guard}=1; '
         f"printf '\\n{start}\\n'; ( {command} ) 2>&1; "
         f"printf '\\n{end}:%s\\n' \"$?\"; fi\n"
     )
