@@ -3,6 +3,8 @@
 import asyncio
 import contextlib
 import os
+import re
+import secrets
 import signal
 import sys
 import termios
@@ -25,6 +27,16 @@ DEFAULT_ROWS = 24
 
 #: Lines typed at the terminal that end the shell session (trailing spaces ok).
 _EXIT_LINES = frozenset({b"exit", b"logout", b"quit", b"exit 0", b"exit 0;"})
+
+#: Seconds between one-shot payload resends while waiting for the shell to
+#: attach (Dokploy drops input sent before the exec/SSH channel is ready).
+_RESEND_INTERVAL = 2.0
+
+#: ANSI CSI escape sequence (used to clean partial terminal output).
+_ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+#: ANSI OSC escape sequence (BEL- or ST-terminated).
+_ANSI_OSC_RE = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)", re.DOTALL)
 
 
 def _is_exit_line(line: bytes) -> bool:
@@ -54,21 +66,56 @@ def build_command(config: Config) -> Callable[..., None]:
         service_id: str = typer.Option(None, "--service-id", help="Service id (authorization scope)."),
         username: str = typer.Option(None, "--username", help="SSH username (host terminal only)."),
         port: int = typer.Option(None, "--port", help="SSH port (host terminal only)."),
+        command: str = typer.Option(
+            None, "--command", help="Run a single command non-interactively and exit with its status."
+        ),
     ) -> None:
         """Open an interactive shell into a container (or the host via SSH).
 
         Exactly one of --container-id or --server-id selects the target. For a
         host terminal, --username is required and --port defaults to 22. The
-        terminal takes over the current TTY; exit with ``exit`` or Ctrl+D.
+        terminal takes over the current TTY; exit with ``exit`` or Ctrl+D. With
+        --command the command runs once, its output is printed, and dokli exits
+        with the remote command's status, which may collide with dokli's own
+        documented exit codes (1 runtime, 2 usage).
         """
         connection = resolve_connection(config, connection_name)
         if bool(container_id) == bool(server_id):
             raise typer.BadParameter("Provide exactly one of --container-id or --server-id.")
         if server_id and not username:
             raise typer.BadParameter("--username is required for a host terminal.")
+        if command is not None and not command.strip():
+            raise typer.BadParameter("--command must not be empty.")
+        if command is not None:
+            code = asyncio.run(
+                _run_one_shot(connection, container_id, server_id, active_way, service_id, username, port, command)
+            )
+            raise typer.Exit(code=code)
         asyncio.run(_run_terminal(connection, container_id, server_id, active_way, service_id, username, port))
 
     return terminal_command
+
+
+def _endpoint_and_params(
+    container_id: str | None,
+    server_id: str | None,
+    active_way: str,
+    service_id: str | None,
+    username: str | None,
+    port: int | None,
+) -> tuple[str, dict[str, Any]]:
+    """Select the terminal endpoint and its query params for the target."""
+    if container_id:
+        return CONTAINER_TERMINAL_ENDPOINT, {
+            "containerId": container_id,
+            "activeWay": active_way,
+            **({"serviceId": service_id} if service_id else {}),
+        }
+    return HOST_TERMINAL_ENDPOINT, {
+        "serverId": server_id,
+        "username": username,
+        "port": port or 22,
+    }
 
 
 async def _run_terminal(
@@ -81,20 +128,7 @@ async def _run_terminal(
     port: int | None,
 ) -> None:
     """Stream the interactive terminal, bridging stdin/stdout to the socket."""
-    if container_id:
-        params: dict[str, Any] = {
-            "containerId": container_id,
-            "activeWay": active_way,
-            **({"serviceId": service_id} if service_id else {}),
-        }
-        endpoint = CONTAINER_TERMINAL_ENDPOINT
-    else:
-        params = {
-            "serverId": server_id,
-            "username": username,
-            "port": port or 22,
-        }
-        endpoint = HOST_TERMINAL_ENDPOINT
+    endpoint, params = _endpoint_and_params(container_id, server_id, active_way, service_id, username, port)
     cols, rows = _terminal_size()
     params["cols"] = cols
     params["rows"] = rows
@@ -114,6 +148,131 @@ async def _run_terminal(
         await _bridge(ws)
     except Exception as err:  # noqa: BLE001 - the stream loop exits on any error.
         emit_error(f"Terminal failed: {err}")
+
+
+async def _run_one_shot(
+    connection: ConnectionConfig,
+    container_id: str | None,
+    server_id: str | None,
+    active_way: str,
+    service_id: str | None,
+    username: str | None,
+    port: int | None,
+    command: str,
+) -> int:
+    """Run a single command over the terminal socket and return its exit code."""
+    endpoint, params = _endpoint_and_params(container_id, server_id, active_way, service_id, username, port)
+    try:
+        ws = await open_terminal(connection, endpoint, params)
+    except Exception as err:  # noqa: BLE001 - handshake/reachability failures.
+        emit_error(f"Terminal connection failed: {err}")
+    return await _run_remote_command(ws, command)
+
+
+async def _run_remote_command(ws: ClientConnection, command: str, timeout: float = 60.0) -> int:
+    """Run ``command`` over an open terminal socket and return its exit code.
+
+    The Dokploy terminal is a raw PTY with no exit-code channel, so a sentinel
+    pair of shell ``printf`` calls wraps the command: the exit status is echoed
+    between full-line markers and parsed out of the PTY stream. The container
+    endpoint never closes on shell exit, so the socket is force-closed.
+    """
+    token = secrets.token_hex(6)
+    start = f"__DOKLI_START_{token}__"
+    end = f"__DOKLI_EXIT_{token}__"
+    # A guard variable makes the payload idempotent: Dokploy drops input sent
+    # before the exec/SSH channel is attached, so we resend until the shell
+    # accepts it, and only the first accepted copy runs the command. The
+    # command also runs in a subshell so exit/return/exec cannot end the shell
+    # before the trailing exit-marker printf runs.
+    guard = f"DOKLI_{token}"
+    payload = (
+        f"if [ -z \"${{{guard}:-}}\" ]; then {guard}=1; "
+        f"printf '\\n{start}\\n'; ( {command} ) 2>&1; "
+        f"printf '\\n{end}:%s\\n' \"$?\"; fi\n"
+    )
+    await ws.send(payload.encode())
+    buffer = b""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    parsed: tuple[str, int] | None = None
+    try:
+        # ponytail: buffers the full output and re-parses it per chunk; switch to
+        # streaming/tail-parsing if large log output ever needs supporting here.
+        while parsed is None:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                _write_partial(buffer, token)
+                emit_error(f"Timed out after {timeout:.0f}s waiting for the remote command to finish.")
+            try:
+                chunk = await asyncio.wait_for(ws.recv(), timeout=min(_RESEND_INTERVAL, remaining))
+            except asyncio.TimeoutError:
+                await ws.send(payload.encode())
+                continue
+            except websockets.exceptions.ConnectionClosed:
+                parsed = _parse_command_result(buffer, start, end)
+                if parsed is None:
+                    _write_partial(buffer, token)
+                    emit_error("Terminal connection closed before the remote command finished.")
+                break
+            buffer += chunk if isinstance(chunk, bytes) else chunk.encode("utf-8")
+            parsed = _parse_command_result(buffer, start, end)
+        output, code = parsed
+        if output and not output.endswith("\n"):
+            output += "\n"
+        sys.stdout.write(output)
+        sys.stdout.flush()
+        return code
+    finally:
+        # Always close: the container endpoint never closes on shell exit, and
+        # every failure path (timeout, early close) must release the socket too.
+        _close_socket(ws)
+
+
+def _parse_command_result(buffer: bytes, start: str, end: str) -> tuple[str, int] | None:
+    r"""Parse sentinel-wrapped command output from a PTY byte buffer.
+
+    Full-line matching ignores the echoed input line (which contains the marker
+    literals but never as a standalone line). Returns ``(output, exit_code)``
+    with CRLF/CR normalized to ``\n`` and trailing newlines stripped, or
+    ``None`` when the end marker has not arrived yet.
+    """
+    text = buffer.decode("utf-8", errors="replace")
+    lines = re.split(r"\r\n|\r|\n", text)
+    # A wrapped echoed input line can place the start marker on its own line
+    # before the real one; the real marker is the last standalone occurrence.
+    begin = max((index for index, line in enumerate(lines) if line == start), default=-1)
+    if begin < 0:
+        return None
+    end_re = re.compile(rf"^{re.escape(end)}:(\d+)$")
+    for index in range(begin + 1, len(lines)):
+        match = end_re.match(lines[index])
+        if match:
+            output = "\n".join(lines[begin + 1 : index]).rstrip("\n")
+            return output, int(match.group(1))
+    return None
+
+
+def _partial_output(buffer: bytes, token: str) -> str:
+    """Best-effort remote output received before a failure.
+
+    Strips the echoed payload and sentinel lines (any line containing the
+    token), ANSI escapes, and CRLF/CR line endings so a useful remote message
+    (e.g. an SSH auth failure) survives even when the end marker never arrives.
+    """
+    text = buffer.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    text = _ANSI_OSC_RE.sub("", text)
+    text = _ANSI_CSI_RE.sub("", text)
+    lines = [line for line in text.split("\n") if token not in line]
+    return "\n".join(lines).rstrip()
+
+
+def _write_partial(buffer: bytes, token: str) -> None:
+    """Write any partial remote output to stdout before reporting a failure."""
+    partial = _partial_output(buffer, token)
+    if partial:
+        sys.stdout.write(partial + "\n")
+        sys.stdout.flush()
 
 
 async def _bridge(ws: ClientConnection) -> None:
