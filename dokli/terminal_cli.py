@@ -35,9 +35,6 @@ _RESEND_INTERVAL = 2.0
 #: ANSI CSI escape sequence (used to clean partial terminal output).
 _ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
-#: ANSI OSC escape sequence (BEL- or ST-terminated).
-_ANSI_OSC_RE = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)", re.DOTALL)
-
 
 def _is_exit_line(line: bytes) -> bool:
     r"""Whether a decoded input line ends the shell session.
@@ -84,9 +81,9 @@ def build_command(config: Config) -> Callable[..., None]:
             raise typer.BadParameter("Provide exactly one of --container-id or --server-id.")
         if server_id and not username:
             raise typer.BadParameter("--username is required for a host terminal.")
-        if command is not None and not command.strip():
-            raise typer.BadParameter("--command must not be empty.")
         if command is not None:
+            if not command.strip():
+                raise typer.BadParameter("--command must not be empty.")
             code = asyncio.run(
                 _run_one_shot(connection, container_id, server_id, active_way, service_id, username, port, command)
             )
@@ -261,7 +258,6 @@ def _partial_output(buffer: bytes, token: str) -> str:
     (e.g. an SSH auth failure) survives even when the end marker never arrives.
     """
     text = buffer.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
-    text = _ANSI_OSC_RE.sub("", text)
     text = _ANSI_CSI_RE.sub("", text)
     lines = [line for line in text.split("\n") if token not in line]
     return "\n".join(lines).rstrip()

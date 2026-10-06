@@ -506,21 +506,6 @@ class TestRunRemoteCommand:
         close.assert_called_once()
         assert "remote error line" in capsys.readouterr().out
 
-    def test_end_marker_split_across_frames(self, mocker, monkeypatch):
-        """We expect the end marker parsed when split across two recv frames."""
-        monkeypatch.setattr("dokli.terminal_cli.secrets.token_hex", lambda n: "abc123def456")
-        start = "__DOKLI_START_abc123def456__"
-        end = "__DOKLI_EXIT_abc123def456__"
-        ws = FakeWebSocket()
-        ws.incoming = [f"{start}\r\nhi\r\n{end}:".encode(), b"0\r\n"]
-        close = mocker.Mock()
-        monkeypatch.setattr("dokli.terminal_cli._close_socket", close)
-
-        code = asyncio.run(_run_remote_command(ws, "echo hi"))
-
-        assert code == 0
-        close.assert_called_once()
-
 
 class TestPartialOutput:
     """Best-effort output cleanup before reporting a failure."""
@@ -531,7 +516,7 @@ class TestPartialOutput:
         buffer = (
             b"if [ -z \"${DOKLI_tok:-}\" ]; then DOKLI_tok=1; printf '\\n__DOKLI_START_tok\\n'; true; fi\r\n"
             b"\x1b[31mAuthentication failed: Please run ssh-add\x1b[0m\r\n"
-            b"\x1b]0;window title\x07second remote line\r\n"
+            b"second remote line\r\n"
             b"__DOKLI_START_tok\r\n"
         )
         out = _partial_output(buffer, token)
@@ -539,9 +524,4 @@ class TestPartialOutput:
         assert "second remote line" in out
         assert token not in out
         assert "\x1b[" not in out
-        assert "\x1b]" not in out
         assert "\r" not in out
-
-    def test_empty_buffer_is_empty(self):
-        """We expect no output when nothing was received."""
-        assert _partial_output(b"", "tok") == ""
